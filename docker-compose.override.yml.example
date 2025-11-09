@@ -1,0 +1,19 @@
+# Optional: Create this file to override environment variables
+# Copy to docker-compose.override.yml (gitignored) for local overrides
+
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      - RAZORPAY_KEY_ID=your_key_here
+      - RAZORPAY_KEY_SECRET=your_secret_here
+      - RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here
+      - SES_ACCESS_KEY_ID=your_ses_key
+      - SES_SECRET_ACCESS_KEY=your_ses_secret
+      - SES_FROM_EMAIL=noreply@yourdomain.com
+
+  frontend:
+    environment:
+      - NEXT_PUBLIC_RAZORPAY_KEY_ID=your_razorpay_key_id
+

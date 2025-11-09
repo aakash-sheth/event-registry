@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #F5F5DC;
+  --foreground: #2D5016;
+  --primary: #4CAF50;
+  --primary-light: #A5D6A7;
+  --accent: #81C784;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Eco-friendly theme colors */
+.bg-eco-beige {
+  background-color: #F5F5DC;
+}
+
+.bg-eco-green {
+  background-color: #4CAF50;
+}
+
+.bg-eco-green-light {
+  background-color: #A5D6A7;
+}
+
+.text-eco-green {
+  color: #4CAF50;
+}
+
+.border-eco-green {
+  border-color: #4CAF50;
+}
+
