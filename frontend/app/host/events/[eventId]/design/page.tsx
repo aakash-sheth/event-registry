@@ -1,216 +1,362 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
-import api from '@/lib/api'
+import { useToast } from '@/components/ui/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useToast } from '@/components/ui/toast'
-
-const designSchema = z.object({
-  banner_image: z.string().url('Invalid URL').optional().or(z.literal('')),
-  description: z.string().optional(),
-  additional_photos: z.array(z.string().url('Invalid URL')).max(5, 'Maximum 5 photos allowed').optional(),
-})
-
-type DesignForm = z.infer<typeof designSchema>
+import api from '@/lib/api'
+import { InviteConfig, Tile } from '@/lib/invite/schema'
+import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
+import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
+import TileList from '@/components/invite/tiles/TileList'
+import TileSettings from '@/components/invite/tiles/TileSettings'
 
 interface Event {
   id: number
-  title: string
   slug: string
-  banner_image: string
-  description: string
-  additional_photos: string[]
+  title: string
+  date?: string
+  city?: string
+  description?: string
+  has_rsvp: boolean
+  has_registry: boolean
 }
 
-export default function DesignEventPage() {
+const DEFAULT_TILES: Tile[] = [
+  {
+    id: 'tile-title-0',
+    type: 'title',
+    enabled: true,
+    order: 0,
+    settings: { text: 'Event Title' },
+  },
+  {
+    id: 'tile-event-details-1',
+    type: 'event-details',
+    enabled: true,
+    order: 1,
+    settings: { location: '', date: new Date().toISOString().split('T')[0] },
+  },
+  {
+    id: 'tile-feature-buttons-2',
+    type: 'feature-buttons',
+    enabled: true,
+    order: 2,
+    settings: { buttonColor: '#0D6EFD' },
+  },
+  {
+    id: 'tile-footer-3',
+    type: 'footer',
+    enabled: false,
+    order: 3,
+    settings: { text: '' },
+  },
+]
+
+export default function DesignInvitationPage() {
   const params = useParams()
   const router = useRouter()
-  const eventId = params.eventId as string
+  const eventId = params.eventId ? parseInt(params.eventId as string) : 0
+  
+  // Validate eventId
+  if (!eventId || isNaN(eventId)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-eco-beige">
+        <div className="text-center">
+          <p className="text-red-500">Invalid event ID</p>
+          <Link href="/host/dashboard">
+            <Button className="mt-4">Go to Dashboard</Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
   const { showToast } = useToast()
+  
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [bannerPreview, setBannerPreview] = useState<string>('')
-  const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
-  const bannerInputRef = useRef<HTMLInputElement>(null)
-  const photoInputRef = useRef<HTMLInputElement>(null)
-
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    formState: { errors },
-  } = useForm<DesignForm>({
-    resolver: zodResolver(designSchema),
-    defaultValues: {
-      banner_image: '',
-      description: '',
-      additional_photos: [],
-    },
+  const [selectedTileId, setSelectedTileId] = useState<string | null>(null)
+  const [headerHeight, setHeaderHeight] = useState(160)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const [config, setConfig] = useState<InviteConfig>({
+    themeId: 'classic-noir',
+    tiles: DEFAULT_TILES,
   })
 
-  const watchedBanner = watch('banner_image')
-  const watchedPhotos = watch('additional_photos') || []
-
   useEffect(() => {
-    fetchEvent()
-  }, [eventId])
-
-  useEffect(() => {
-    if (watchedBanner) {
-      setBannerPreview(watchedBanner)
-    } else if (event?.banner_image) {
-      setBannerPreview(event.banner_image)
-    } else {
-      setBannerPreview('')
-    }
-  }, [watchedBanner, event?.banner_image])
-
-  useEffect(() => {
-    if (watchedPhotos && watchedPhotos.length > 0) {
-      setPhotoPreviews(watchedPhotos)
-    } else if (event?.additional_photos && event.additional_photos.length > 0) {
-      setPhotoPreviews(event.additional_photos)
-    } else {
-      setPhotoPreviews([])
-    }
-  }, [watchedPhotos, event?.additional_photos])
-
-  const fetchEvent = async () => {
+    const loadData = async () => {
     try {
-      const response = await api.get(`/api/events/${eventId}/`)
-      const eventData = response.data
+        // First fetch event data
+        const eventResponse = await api.get(`/api/events/${eventId}/`)
+        const eventData = eventResponse.data
       setEvent(eventData)
-      setValue('banner_image', eventData.banner_image || '')
-      setValue('description', eventData.description || '')
-      setValue('additional_photos', eventData.additional_photos || [])
-      if (eventData.banner_image) {
-        setBannerPreview(eventData.banner_image)
-      }
-      if (eventData.additional_photos) {
-        setPhotoPreviews(eventData.additional_photos)
+      
+        // Helper function to create default tiles
+        const createDefaultTiles = (data: typeof eventData): Tile[] => [
+          {
+            id: 'tile-title-0',
+            type: 'title',
+            enabled: true,
+            order: 0,
+            settings: { text: data?.title || 'Event Title' },
+          },
+          {
+            id: 'tile-event-details-1',
+            type: 'event-details',
+            enabled: true,
+            order: 1,
+            settings: {
+              location: data?.city || '',
+              date: data?.date || new Date().toISOString().split('T')[0],
+            },
+          },
+          {
+            id: 'tile-feature-buttons-2',
+            type: 'feature-buttons',
+            enabled: true,
+            order: 2,
+            settings: { buttonColor: '#0D6EFD' },
+          },
+          {
+            id: 'tile-footer-3',
+            type: 'footer',
+            enabled: false,
+            order: 3,
+            settings: { text: '' },
+          },
+        ]
+        
+        // Then fetch page config (which may need event data for migration)
+        const pageConfig = await getEventPageConfig(eventId)
+        let finalConfig: InviteConfig | null = null
+        
+        if (pageConfig?.page_config) {
+          try {
+            const loadedConfig = pageConfig.page_config as InviteConfig
+            
+            // Migrate old config to tile-based if needed
+            const migratedConfig = migrateToTileConfig(
+              loadedConfig,
+              eventData?.title,
+              eventData?.date,
+              eventData?.city
+            )
+
+            // Preserve customColors and customFonts from loaded config
+            // IMPORTANT: Explicitly preserve customColors even if it's an empty object
+            const preservedConfig = {
+              ...migratedConfig,
+              // Preserve customColors if it exists in loadedConfig, otherwise keep migratedConfig's customColors
+              customColors: loadedConfig.customColors !== undefined 
+                ? loadedConfig.customColors 
+                : (migratedConfig.customColors || {}),
+              customFonts: loadedConfig.customFonts !== undefined
+                ? loadedConfig.customFonts
+                : migratedConfig.customFonts,
+            }
+
+            // Ensure we have tiles
+            if (!preservedConfig.tiles || preservedConfig.tiles.length === 0) {
+              finalConfig = {
+                ...preservedConfig,
+                tiles: createDefaultTiles(eventData),
+              }
+            } else {
+              finalConfig = preservedConfig
+            }
+
+            // Select first enabled tile by default
+            const firstEnabled = finalConfig.tiles?.find(t => t.enabled)
+            if (firstEnabled) {
+              setSelectedTileId(firstEnabled.id)
+            }
+          } catch (migrationError) {
+            console.error('Error during migration:', migrationError)
+            // Fall through to initialize with default tiles
+            finalConfig = null
+          }
+        }
+        
+        // If no config exists or migration failed, initialize with event data
+        if (!finalConfig) {
+          const defaultTiles = createDefaultTiles(eventData)
+          finalConfig = { 
+            themeId: 'classic-noir', 
+            tiles: defaultTiles,
+            customColors: {}, // Initialize empty customColors object
+          }
+          setSelectedTileId('tile-title-0')
+        } else {
+          // Ensure customColors exists in loaded config (initialize as empty object if missing)
+          if (!finalConfig.customColors) {
+            finalConfig.customColors = {}
+          }
+        }
+        
+        // Set the final config
+        if (finalConfig) {
+          // Ensure title tile always exists and is enabled
+          if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
+            // Add title tile if missing
+            const titleTile: Tile = {
+              id: 'tile-title-0',
+              type: 'title',
+              enabled: true,
+              order: 0,
+              settings: { text: eventData?.title || 'Event Title' },
+            }
+            finalConfig.tiles = [titleTile, ...(finalConfig.tiles || [])]
+          } else {
+            // Ensure title tile is always enabled
+            finalConfig.tiles = finalConfig.tiles.map(t => 
+              t.type === 'title' ? { ...t, enabled: true } : t
+            )
+          }
+          
+          setConfig(finalConfig)
       }
     } catch (error: any) {
       if (error.response?.status === 401) {
         router.push('/host/login')
       } else {
-        console.error('Failed to fetch event:', error)
+          console.error('Failed to load data:', error)
         showToast('Failed to load event', 'error')
       }
     } finally {
       setLoading(false)
     }
   }
+    
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId])
 
-  const handleBannerUpload = () => {
-    bannerInputRef.current?.click()
-  }
-
-  const handleBannerFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Banner image must be less than 5MB', 'error')
-      return
-    }
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      showToast('Please upload an image file', 'error')
-      return
-    }
-
-    // For MVP: Convert to data URL (in production, upload to S3 and get URL)
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const dataUrl = reader.result as string
-      setValue('banner_image', dataUrl)
-      setBannerPreview(dataUrl)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handlePhotoUpload = () => {
-    photoInputRef.current?.click()
-  }
-
-  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length === 0) return
-
-    const currentPhotos = watchedPhotos || []
-    if (currentPhotos.length + files.length > 5) {
-      showToast('Maximum 5 photos allowed. Please remove some photos first.', 'error')
-      return
-    }
-
-    const newPhotoUrls: string[] = []
-    for (const file of files) {
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        showToast(`${file.name} is too large. Maximum 5MB per photo.`, 'error')
-        continue
+  // Measure header height for sticky positioning
+  useEffect(() => {
+    const updateHeaderHeight = () => {
+      if (headerRef.current) {
+        const height = headerRef.current.offsetHeight
+        setHeaderHeight(height + 16) // Add 16px for spacing
       }
-
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        showToast(`${file.name} is not an image file.`, 'error')
-        continue
-      }
-
-      // For MVP: Convert to data URL (in production, upload to S3 and get URL)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string
-        newPhotoUrls.push(dataUrl)
-        
-        if (newPhotoUrls.length === files.length) {
-          const updatedPhotos = [...currentPhotos, ...newPhotoUrls]
-          setValue('additional_photos', updatedPhotos)
-          setPhotoPreviews(updatedPhotos)
-        }
-      }
-      reader.readAsDataURL(file)
     }
-  }
 
-  const removePhoto = (index: number) => {
-    const currentPhotos = watchedPhotos || []
-    const updatedPhotos = currentPhotos.filter((_, i) => i !== index)
-    setValue('additional_photos', updatedPhotos)
-    setPhotoPreviews(updatedPhotos)
-  }
+    updateHeaderHeight()
+    window.addEventListener('resize', updateHeaderHeight)
+    
+    return () => {
+      window.removeEventListener('resize', updateHeaderHeight)
+    }
+  }, [event])
 
-  const onSubmit = async (data: DesignForm) => {
+  const handleSave = async () => {
     setSaving(true)
     try {
-      await api.put(`/api/events/${eventId}/design/`, {
-        banner_image: data.banner_image || '',
-        description: data.description || '',
-        additional_photos: data.additional_photos || [],
-      })
-      showToast('Event page design saved successfully!', 'success')
+      // Validate that title tile exists and has text
+      const titleTile = config.tiles?.find(t => t.type === 'title')
+      if (!titleTile) {
+        showToast('Title tile is required. Please add a title tile.', 'error')
+        setSaving(false)
+        return
+      }
+      
+      const titleText = (titleTile.settings as any)?.text?.trim()
+      if (!titleText || titleText === '') {
+        showToast('Title text is required. Please enter a title.', 'error')
+        setSaving(false)
+        return
+      }
+      
+      // Ensure title tile is always enabled
+      if (!titleTile.enabled) {
+        showToast('Title tile must be enabled. Enabling it now.', 'info')
+        setConfig(prev => ({
+          ...prev,
+          tiles: prev.tiles?.map(t => t.id === titleTile.id ? { ...t, enabled: true } : t) || [],
+        }))
+      }
+      
+      // Build config to save - ALWAYS include customColors if it exists
+      const configToSave: InviteConfig = {
+        ...config,
+        // Ensure title tile is enabled in saved config
+        tiles: config.tiles?.map(t => 
+          t.type === 'title' ? { ...t, enabled: true } : t
+        ) || [],
+      }
+      
+      // Explicitly ensure customColors is included if it has any properties
+      if (config.customColors) {
+        configToSave.customColors = config.customColors
+      }
+      
+      await updateEventPageConfig(eventId, configToSave)
+      showToast('Invitation saved successfully!', 'success')
     } catch (error: any) {
-      const errorMsg = error.response?.data?.error || 'Failed to save design'
-      showToast(errorMsg, 'error')
+      console.error('Failed to save:', error)
+      showToast(error.response?.data?.error || 'Failed to save invitation', 'error')
     } finally {
       setSaving(false)
     }
   }
 
+  const handleTileUpdate = (updatedTile: Tile) => {
+    setConfig(prev => ({
+      ...prev,
+      tiles: prev.tiles?.map(t => t.id === updatedTile.id ? updatedTile : t) || [],
+    }))
+  }
+
+  const handleTileToggle = (tileId: string, enabled: boolean) => {
+    // Prevent disabling the title tile (it's mandatory)
+    const tile = config.tiles?.find(t => t.id === tileId)
+    if (tile?.type === 'title' && !enabled) {
+      showToast('Title tile cannot be disabled. It is required.', 'error')
+      return
+    }
+    
+    setConfig(prev => ({
+      ...prev,
+      tiles: prev.tiles?.map(t => t.id === tileId ? { ...t, enabled } : t) || [],
+    }))
+  }
+
+  const handleTileReorder = (reorderedTiles: Tile[]) => {
+    setConfig(prev => ({
+      ...prev,
+      tiles: reorderedTiles,
+    }))
+  }
+
+  const handleTileSelect = (tileId: string) => {
+    setSelectedTileId(tileId)
+  }
+
+  const handleOverlayToggle = (tileId: string, targetTileId: string | undefined) => {
+    setConfig(prev => ({
+      ...prev,
+      tiles: prev.tiles?.map(t => {
+        if (t.id === tileId) {
+          return {
+            ...t,
+            overlayTargetId: targetTileId,
+            settings: {
+              ...t.settings,
+              overlayMode: !!targetTileId,
+              overlayPosition: targetTileId ? ((t.settings as any).overlayPosition || { x: 50, y: 50 }) : undefined,
+            },
+          }
+        }
+        return t
+      }) || [],
+    }))
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-eco-beige flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-eco-beige">
         <div className="text-center">
           <div className="text-4xl mb-4">🌿</div>
           <p className="text-gray-600">Loading...</p>
@@ -219,232 +365,187 @@ export default function DesignEventPage() {
     )
   }
 
+  // Ensure we have valid tiles before rendering
+  if (!config.tiles || config.tiles.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-eco-beige">
+        <div className="text-center">
+          <div className="text-4xl mb-4">🌿</div>
+          <p className="text-gray-600">Loading tiles...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const selectedTile = config.tiles?.find(t => t.id === selectedTileId)
+  let sortedTiles: Tile[]
+  if (config.tiles && config.tiles.length > 0) {
+    sortedTiles = [...config.tiles].sort((a, b) => a.order - b.order)
+  } else {
+    sortedTiles = DEFAULT_TILES
+  }
+
   return (
     <div className="min-h-screen bg-eco-beige">
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <Link href={`/host/events/${eventId}`}>
-            <Button variant="outline" className="mb-4 border-eco-green text-eco-green hover:bg-eco-green-light">
-              ← Back to Event
-            </Button>
-          </Link>
+        {/* Header */}
+      <div ref={headerRef} className="bg-white border-b sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-bold mb-2 text-eco-green">Design Event Page</h1>
-            <p className="text-gray-700">
-              Customize your public invitation page. This will appear when guests click your RSVP link.
-            </p>
+            <Link href={`/host/events/${eventId}`}>
+                <Button variant="outline" className="mb-2">
+                ← Back to Event
+              </Button>
+            </Link>
+            <h1 className="text-3xl font-bold text-eco-green">Design Invitation Page</h1>
+              <p className="text-gray-600 mt-1">Customize your invitation using draggable tiles</p>
+          </div>
+          <div className="flex gap-3">
+              <Link href={`/invite/${event?.slug}`} target="_blank">
+                <Button variant="outline" className="border-eco-green text-eco-green">
+              👁️ Preview
+            </Button>
+              </Link>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-eco-green hover:bg-green-600 text-white"
+            >
+              {saving ? 'Saving...' : '💾 Save Changes'}
+            </Button>
+            </div>
+          </div>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <div className="space-y-6">
-            {/* Banner Image */}
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Banner Photo</CardTitle>
-                <CardDescription>
-                  This image will appear at the top of your invitation page and in WhatsApp link previews
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <input
-                  ref={bannerInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleBannerFileChange}
-                  className="hidden"
-                />
-                {bannerPreview ? (
-                  <div className="relative">
-                    <img
-                      src={bannerPreview}
-                      alt="Banner preview"
-                      className="w-full h-64 object-cover rounded-lg border-2 border-gray-200"
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          {/* Left Panel - Settings */}
+          <div className="lg:col-span-3 space-y-4">
+            {/* Page Settings */}
+            <div className="bg-white rounded-lg border-2 border-eco-green-light p-4">
+              <h2 className="text-lg font-semibold text-eco-green mb-4">Page Settings</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Page Background Color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={config.customColors?.backgroundColor || '#ffffff'}
+                      onChange={(e) => setConfig(prev => ({
+                        ...prev,
+                        customColors: {
+                          ...prev.customColors,
+                          backgroundColor: e.target.value,
+                        },
+                      }))}
+                      className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setValue('banner_image', '')
-                        setBannerPreview('')
-                      }}
-                      className="absolute top-2 right-2 bg-white/90 hover:bg-white"
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                    <div className="text-4xl mb-4">📸</div>
-                    <p className="text-gray-600 mb-4">No banner image uploaded</p>
-                    <Button
-                      type="button"
-                      onClick={handleBannerUpload}
-                      className="bg-eco-green hover:bg-green-600 text-white"
-                    >
-                      Upload Banner Photo
-                    </Button>
-                    <p className="text-xs text-gray-500 mt-2">Max 5MB • Recommended: 1200x400px</p>
-                  </div>
-                )}
-                {!bannerPreview && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Or enter image URL</label>
                     <Input
-                      {...register('banner_image')}
-                      placeholder="https://example.com/image.jpg"
-                      type="url"
+                      type="text"
+                      value={config.customColors?.backgroundColor || '#ffffff'}
+                      onChange={(e) => setConfig(prev => ({
+                        ...prev,
+                        customColors: {
+                          ...prev.customColors,
+                          backgroundColor: e.target.value,
+                        },
+                      }))}
+                      placeholder="#ffffff"
+                      className="flex-1"
                     />
-                    {errors.banner_image && (
-                      <p className="text-red-500 text-sm mt-1">{errors.banner_image.message}</p>
-                    )}
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Background color for the entire invitation page
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            {/* Description */}
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Description</CardTitle>
-                <CardDescription>
-                  Add a personal message or event details. Supports rich text formatting.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <textarea
-                  {...register('description')}
-                  rows={8}
-                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-eco-green"
-                  placeholder="We're excited to celebrate with you! 🌿 Your presence means the most to us..."
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  You can use basic HTML for formatting (e.g., &lt;strong&gt;, &lt;em&gt;, &lt;br&gt;)
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* Additional Photos */}
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Additional Photos</CardTitle>
-                <CardDescription>
-                  Add up to 5 photos to showcase your event (max 5MB each)
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handlePhotoFileChange}
-                  className="hidden"
-                />
-                
-                {photoPreviews.length > 0 && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {photoPreviews.map((photo, index) => (
-                      <div key={index} className="relative">
-                        <img
-                          src={photo}
-                          alt={`Photo ${index + 1}`}
-                          className="w-full h-48 object-cover rounded-lg border-2 border-gray-200"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => removePhoto(index)}
-                          className="absolute top-2 right-2 bg-white/90 hover:bg-white text-red-600 border-red-300"
-                        >
-                          ✕
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {photoPreviews.length < 5 && (
-                  <div>
-                    <Button
-                      type="button"
-                      onClick={handlePhotoUpload}
-                      variant="outline"
-                      className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                    >
-                      + Add Photo ({photoPreviews.length}/5)
-                    </Button>
-                    <p className="text-xs text-gray-500 mt-2">Max 5MB per photo</p>
-                  </div>
-                )}
-
-                {errors.additional_photos && (
-                  <p className="text-red-500 text-sm mt-1">{errors.additional_photos.message}</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Preview */}
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Preview</CardTitle>
-                <CardDescription>
-                  How your invitation page will look to guests
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="border-2 border-gray-200 rounded-lg overflow-hidden bg-white">
-                  {bannerPreview && (
-                    <img
-                      src={bannerPreview}
-                      alt="Banner"
-                      className="w-full h-48 object-cover"
+            <div className="bg-white rounded-lg border-2 border-eco-green-light p-4">
+              <h2 className="text-lg font-semibold text-eco-green mb-4">Tile Settings</h2>
+              <div className="space-y-4">
+                {sortedTiles && sortedTiles.length > 0 ? (
+                  sortedTiles.map((tile) => (
+                    <TileSettings
+                      key={tile.id}
+                      tile={tile}
+                      onUpdate={handleTileUpdate}
+                      onToggle={handleTileToggle}
+                      allTiles={sortedTiles}
+                      onOverlayToggle={handleOverlayToggle}
                     />
-                  )}
-                  <div className="p-6">
-                    <h2 className="text-2xl font-bold text-eco-green mb-2">{event?.title}</h2>
-                    {watch('description') && (
-                      <div
-                        className="text-gray-700 mb-4 prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: watch('description') }}
-                      />
-                    )}
-                    {photoPreviews.length > 0 && (
-                      <div className="grid grid-cols-2 gap-2 mt-4">
-                        {photoPreviews.map((photo, index) => (
-                          <img
-                            key={index}
-                            src={photo}
-                            alt={`Photo ${index + 1}`}
-                            className="w-full h-32 object-cover rounded"
-                          />
-                        ))}
-                      </div>
-                    )}
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">No tiles available</p>
+                )}
+                    </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* Actions */}
-            <div className="flex gap-4">
-              <Button
-                type="submit"
-                disabled={saving}
-                className="bg-eco-green hover:bg-green-600 text-white"
-              >
-                {saving ? 'Saving...' : 'Save Design'}
-              </Button>
-              <Link href={`/host/events/${eventId}`}>
-                <Button type="button" variant="outline" className="border-gray-300">
-                  Cancel
-                </Button>
-              </Link>
-            </div>
+          {/* Right Panel - Preview */}
+          <div className="lg:col-span-2">
+            <div 
+              className="lg:sticky lg:self-start lg:z-40 bg-white rounded-lg border-2 border-eco-green-light p-4"
+              style={{ top: `${headerHeight}px` }}
+            >
+              <h2 className="text-lg font-semibold text-eco-green mb-4">Mobile Preview</h2>
+              {/* iPhone 16 Frame - 1:1 Proportion */}
+              <div className="flex justify-center items-start">
+                <div className="relative">
+                  {/* iPhone 16 Frame - Black bezel with rounded corners */}
+                  <div className="bg-black rounded-[3rem] p-[6px] shadow-2xl mx-auto">
+                    {/* Screen Bezel */}
+                    <div className="bg-black rounded-[2.75rem] p-[3px] relative">
+                      {/* Dynamic Island (iPhone 16) */}
+                      <div className="absolute top-[12px] left-1/2 transform -translate-x-1/2 w-[126px] h-[37px] bg-black rounded-full z-20"></div>
+                      {/* Screen - iPhone 16 aspect ratio (1179:2556 ≈ 0.461) */}
+                <div 
+                        className="relative rounded-[2.5rem] overflow-hidden bg-white flex flex-col"
+                  style={{ 
+                          width: '390px',
+                          height: '844px',
+                          aspectRatio: '1179 / 2556',
+                    backgroundColor: config.customColors?.backgroundColor || '#ffffff',
+                        }}
+                      >
+                        {/* Status Bar Area with Dynamic Island space */}
+                        <div className="h-[47px] bg-transparent flex items-start justify-center flex-shrink-0 pt-[8px]">
+                          {/* Dynamic Island visual indicator */}
+                          <div className="w-[126px] h-[37px] bg-black rounded-full opacity-30"></div>
+                        </div>
+                        {/* Content Area */}
+                        <div className="overflow-y-auto flex-1" style={{ paddingBottom: '34px' }}>
+                    {sortedTiles && sortedTiles.length > 0 ? (
+                      <TileList
+                        tiles={sortedTiles}
+                        onReorder={handleTileReorder}
+                        eventDate={event?.date}
+                        eventSlug={event?.slug}
+                              eventTitle={(sortedTiles.find(t => t.type === 'title')?.settings as { text?: string })?.text || event?.title || 'Event'}
+                        hasRsvp={event?.has_rsvp}
+                        hasRegistry={event?.has_registry}
+                      />
+                    ) : (
+                      <div className="p-8 text-center text-gray-500">
+                        <p>Loading tiles...</p>
+                      </div>
+                    )}
+                        </div>
+                        {/* Home Indicator (iPhone 16) */}
+                        <div className="absolute bottom-[8px] left-1/2 transform -translate-x-1/2 w-[134px] h-[5px] bg-gray-800 rounded-full z-10"></div>
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                Drag tiles to reorder. Footer stays at the bottom.
+                </p>
+                </div>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   )
 }
-

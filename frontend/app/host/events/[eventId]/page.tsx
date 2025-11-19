@@ -217,22 +217,22 @@ export default function EventDetailPage() {
             <CardHeader>
               <CardTitle className="text-eco-green">Actions</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <Link href={`/host/events/${eventId}/design`}>
-                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light">
-                  🎨 Design Event Page
-                </Button>
-              </Link>
-              <Link href={`/host/items/${eventId}`}>
-                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light">
-                  Manage Items
-                </Button>
-              </Link>
-              <Link href={`/host/events/${eventId}/guests`}>
-                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light">
-                  Manage Guest List
-                </Button>
-              </Link>
+              <CardContent className="space-y-2">
+                <Link href={`/host/events/${eventId}/design`}>
+                  <Button className="w-full bg-eco-green hover:bg-green-600 text-white">
+                    🎨 Design Invitation Page
+                  </Button>
+                </Link>
+                <Link href={`/host/items/${eventId}`}>
+                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light">
+                    Manage Items
+                  </Button>
+                </Link>
+                <Link href={`/host/events/${eventId}/guests`}>
+                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light">
+                    Manage Guest List
+                  </Button>
+                </Link>
               <Button
                 variant="outline"
                 onClick={handleExportCSV}

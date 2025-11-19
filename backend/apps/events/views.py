@@ -1,15 +1,17 @@
 from rest_framework import viewsets, status
+from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 import csv
-from .models import Event, RSVP, Guest
+from .models import Event, RSVP, Guest, InvitePage
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
-    GuestSerializer, GuestCreateSerializer
+    GuestSerializer, GuestCreateSerializer,
+    InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer
 )
 from .utils import get_country_code, format_phone_with_country_code
 from apps.items.models import RegistryItem
@@ -214,67 +216,21 @@ class EventViewSet(viewsets.ModelViewSet):
             'errors': errors if errors else None
         }, status=status.HTTP_200_OK)
     
-    @action(detail=True, methods=['put', 'patch'], url_path='guests/(?P<guest_id>[^/.]+)')
-    def update_guest(self, request, id=None, guest_id=None):
-        """Update a guest in the list - host only, privacy protected"""
-        event = self.get_object()
-        self._verify_event_ownership(event)  # Explicit ownership check
-        
-        try:
-            guest = Guest.objects.get(id=guest_id, event=event)
-        except Guest.DoesNotExist:
-            return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-        serializer = GuestCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Format phone with country code
-        phone = serializer.validated_data.get('phone', '')
-        if phone and not phone.startswith('+'):
-            country_code = request.data.get('country_code') or get_country_code(event.country)
-            phone = format_phone_with_country_code(phone, country_code)
-        
-        # Check if phone is being changed and if new phone already exists
-        if phone and phone != guest.phone:
-            existing_guest = Guest.objects.filter(event=event, phone=phone).exclude(id=guest.id).first()
-            if existing_guest:
-                return Response(
-                    {'error': f'Phone number {phone} already exists (Name: {existing_guest.name})'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-        # Update guest fields
-        guest.name = serializer.validated_data.get('name', guest.name)
-        guest.phone = phone or guest.phone
-        guest.country_iso = request.data.get('country_iso', guest.country_iso) or ''
-        guest.email = serializer.validated_data.get('email') or None
-        guest.relationship = serializer.validated_data.get('relationship', '')
-        guest.notes = serializer.validated_data.get('notes', '')
-        guest.save()
-        
-        return Response(GuestSerializer(guest).data, status=status.HTTP_200_OK)
-    
-    def delete_guest(self, request, id=None, guest_id=None):
-        """Delete a guest from the list - host only, privacy protected"""
-        event = self.get_object()
-        self._verify_event_ownership(event)  # Explicit ownership check
-        
-        try:
-            # Only allow deleting guests from this specific event (ownership already verified)
-            guest = Guest.objects.get(id=guest_id, event=event)
-            guest.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Guest.DoesNotExist:
-            return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
-    
     @action(detail=True, methods=['put', 'patch'], url_path='design')
     def update_design(self, request, id=None):
         """Update event page design - host only, privacy protected"""
         event = self.get_object()
         self._verify_event_ownership(event)  # Explicit ownership check
         
-        # Update design fields
+        # Handle page_config (Living Poster template)
+        if 'page_config' in request.data:
+            page_config = request.data.get('page_config')
+            if isinstance(page_config, dict):
+                event.page_config = page_config
+                event.save()
+                return Response(EventSerializer(event).data, status=status.HTTP_200_OK)
+        
+        # Legacy form-based fields (for backward compatibility)
         banner_image = request.data.get('banner_image', '')
         description = request.data.get('description', '')
         additional_photos = request.data.get('additional_photos', [])
@@ -296,6 +252,131 @@ class EventViewSet(viewsets.ModelViewSet):
         
         event.save()
         return Response(EventSerializer(event).data, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['put', 'patch'], url_path='guests/(?P<guest_id>[^/.]+)')
+    def update_guest(self, request, id=None, guest_id=None):
+        """Update a guest in the list - host only, privacy protected"""
+        event = self.get_object()
+        self._verify_event_ownership(event)  # Explicit ownership check
+        
+        try:
+            guest = Guest.objects.get(id=guest_id, event=event)
+        except Guest.DoesNotExist:
+            return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = GuestCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class InvitePageViewSet(viewsets.ModelViewSet):
+    """
+    Invite page management - host only, privacy protected
+    """
+    serializer_class = InvitePageSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+    
+    def get_queryset(self):
+        """Hosts can only see invite pages for their own events"""
+        return InvitePage.objects.filter(event__host=self.request.user)
+    
+    def get_object(self):
+        """Override to retrieve invite page by event_id instead of id"""
+        # If event_id is in kwargs (from URL), get invite page by event
+        event_id = self.kwargs.get('event_id')
+        if event_id:
+            event = get_object_or_404(Event, id=event_id, host=self.request.user)
+            try:
+                invite_page = InvitePage.objects.get(event=event)
+            except InvitePage.DoesNotExist:
+                # Raise Http404 so DRF returns proper 404 response
+                from django.http import Http404
+                raise Http404("Invite page not found for this event")
+            # Verify ownership
+            if invite_page.event.host != self.request.user:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You can only access invite pages for your own events.")
+            return invite_page
+        
+        # Otherwise, use default behavior (lookup by id)
+        obj = super().get_object()
+        if obj.event.host != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access invite pages for your own events.")
+        return obj
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return InvitePageCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return InvitePageUpdateSerializer
+        return InvitePageSerializer
+    
+    def create(self, request, *args, **kwargs):
+        """Create invite page for an event"""
+        event_id = self.kwargs.get('event_id')
+        if not event_id:
+            return Response(
+                {'error': 'event_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        event = get_object_or_404(Event, id=event_id, host=request.user)
+        
+        # Check if invite page already exists
+        if InvitePage.objects.filter(event=event).exists():
+            return Response(
+                {'error': 'Invite page already exists for this event'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invite_page = serializer.save(event=event)
+        return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_201_CREATED)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve invite page by event_id"""
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        except InvitePage.DoesNotExist:
+            return Response(
+                {'error': 'Invite page not found for this event'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            # If get_object fails (e.g., invite page doesn't exist), return 404
+            if 'DoesNotExist' in str(type(e).__name__):
+                return Response(
+                    {'error': 'Invite page not found for this event'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            raise
+    
+    @action(detail=True, methods=['post'], url_path='publish')
+    def publish(self, request, id=None):
+        """Publish/unpublish invite page"""
+        invite_page = self.get_object()
+        is_published = request.data.get('is_published', True)
+        invite_page.is_published = is_published
+        invite_page.save()
+        return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_200_OK)
+
+
+class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Public invite page view - no authentication required
+    """
+    serializer_class = InvitePageSerializer
+    permission_classes = [AllowAny]
+    lookup_field = 'slug'
+    
+    def get_queryset(self):
+        """Only return published invite pages"""
+        return InvitePage.objects.filter(is_published=True)
     
     @action(detail=True, methods=['get'], url_path='guests.csv')
     def guests_csv(self, request, id=None):

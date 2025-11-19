@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Event, RSVP, Guest
+from .models import Event, RSVP, Guest, InvitePage
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code
 
@@ -11,12 +11,67 @@ class EventSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'created_at', 'updated_at')
         read_only_fields = ('id', 'host_name', 'country_code', 'created_at', 'updated_at')
     
     def get_country_code(self, obj):
         """Return phone country code for the event's country"""
         return get_country_code(obj.country or 'IN')
+
+
+class InvitePageSerializer(serializers.ModelSerializer):
+    """Full serializer for InvitePage - read/write"""
+    event_slug = serializers.CharField(source='event.slug', read_only=True)
+    
+    class Meta:
+        model = InvitePage
+        fields = ('id', 'event', 'event_slug', 'slug', 'background_url', 'config', 'is_published', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event_slug', 'created_at', 'updated_at')
+    
+    def validate_config(self, value):
+        """Validate config structure"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Config must be a dictionary")
+        
+        # Validate elements array if present
+        if 'elements' in value:
+            if not isinstance(value['elements'], list):
+                raise serializers.ValidationError("Elements must be an array")
+            for element in value['elements']:
+                if not isinstance(element, dict):
+                    raise serializers.ValidationError("Each element must be an object")
+                if 'id' not in element or 'type' not in element:
+                    raise serializers.ValidationError("Each element must have 'id' and 'type'")
+        
+        return value
+
+
+class InvitePageCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating InvitePage"""
+    
+    class Meta:
+        model = InvitePage
+        fields = ('slug', 'background_url', 'config')
+    
+    def validate_config(self, value):
+        """Validate config structure"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Config must be a dictionary")
+        return value
+
+
+class InvitePageUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating InvitePage"""
+    
+    class Meta:
+        model = InvitePage
+        fields = ('background_url', 'config', 'is_published')
+    
+    def validate_config(self, value):
+        """Validate config structure"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Config must be a dictionary")
+        return value
 
 
 class EventCreateSerializer(serializers.ModelSerializer):

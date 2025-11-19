@@ -24,9 +24,10 @@ class Event(models.Model):
     has_registry = models.BooleanField(default=True, help_text="Enable Gift Registry functionality for this event")
     
     # Event page customization
-    banner_image = models.TextField(blank=True, help_text="Banner image URL or data URL for public invitation page")
-    description = models.TextField(blank=True, help_text="Rich text description for public invitation page")
-    additional_photos = models.JSONField(default=list, blank=True, help_text="Array of up to 5 photo URLs or data URLs (max 5MB each)")
+    banner_image = models.TextField(blank=True, help_text="Banner image URL or data URL for public invitation page (deprecated - use page_config)")
+    description = models.TextField(blank=True, help_text="Rich text description for public invitation page (deprecated - use page_config)")
+    additional_photos = models.JSONField(default=list, blank=True, help_text="Array of up to 5 photo URLs or data URLs (deprecated - use page_config)")
+    page_config = models.JSONField(default=dict, blank=True, help_text="Living Poster invitation page configuration with theme, hero, description")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -37,6 +38,30 @@ class Event(models.Model):
     
     def __str__(self):
         return f"{self.title} ({self.slug})"
+
+
+class InvitePage(models.Model):
+    """Interactive invitation page with floating elements and motion"""
+    event = models.OneToOneField(Event, on_delete=models.CASCADE, related_name='invite_page')
+    slug = models.SlugField(unique=True, max_length=100, blank=True, help_text="Auto-generated if not provided")
+    background_url = models.TextField(blank=True, help_text="Background image URL or data URL")
+    config = models.JSONField(default=dict, help_text="Invite configuration (elements, theme, parallax)")
+    is_published = models.BooleanField(default=False, help_text="Whether the invite page is publicly accessible")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'invite_pages'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Invite for {self.event.title} ({self.slug})"
+    
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            # Generate slug from event slug
+            self.slug = f"{self.event.slug}-invite"
+        super().save(*args, **kwargs)
 
 
 class Guest(models.Model):
