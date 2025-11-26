@@ -1,0 +1,92 @@
+{
+  "family": "backend-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/backend-task-role",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/wedding-registry-backend-staging:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [],
+      "secrets": [
+        {
+          "name": "DJANGO_SECRET_KEY",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/DJANGO_SECRET_KEY"
+        },
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/DATABASE_URL"
+        },
+        {
+          "name": "AWS_S3_BUCKET",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/AWS_S3_BUCKET"
+        },
+        {
+          "name": "AWS_S3_REGION",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/AWS_S3_REGION"
+        },
+        {
+          "name": "ALLOWED_HOSTS",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/ALLOWED_HOSTS"
+        },
+        {
+          "name": "CORS_ALLOWED_ORIGINS",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/CORS_ALLOWED_ORIGINS"
+        },
+        {
+          "name": "FRONTEND_ORIGIN",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/FRONTEND_ORIGIN"
+        },
+        {
+          "name": "EMAIL_PROVIDER",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/EMAIL_PROVIDER"
+        },
+        {
+          "name": "SES_REGION",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/SES_REGION"
+        },
+        {
+          "name": "SES_FROM_EMAIL",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/SES_FROM_EMAIL"
+        },
+        {
+          "name": "WHATSAPP_ENABLED",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/WHATSAPP_ENABLED"
+        },
+        {
+          "name": "DEBUG",
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/DEBUG"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/wedding-registry-staging/backend",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:8000/api/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}
+
