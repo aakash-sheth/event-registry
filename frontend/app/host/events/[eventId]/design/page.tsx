@@ -81,6 +81,10 @@ export default function DesignInvitationPage() {
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null)
   const [headerHeight, setHeaderHeight] = useState(160)
   const headerRef = useRef<HTMLDivElement>(null)
+  const rightPanelRef = useRef<HTMLDivElement>(null)
+  const gridContainerRef = useRef<HTMLDivElement>(null)
+  const [rightPanelStyle, setRightPanelStyle] = useState<React.CSSProperties>({})
+  const [spacerHeight, setSpacerHeight] = useState<number | null>(null)
   const [config, setConfig] = useState<InviteConfig>({
     themeId: 'classic-noir',
     tiles: DEFAULT_TILES,
@@ -158,14 +162,39 @@ export default function DesignInvitationPage() {
                 : migratedConfig.customFonts,
             }
 
-            // Ensure we have tiles
+            // Ensure we have tiles and preserve all settings (especially coverPosition for image tiles)
             if (!preservedConfig.tiles || preservedConfig.tiles.length === 0) {
               finalConfig = {
                 ...preservedConfig,
                 tiles: createDefaultTiles(eventData),
               }
             } else {
-              finalConfig = preservedConfig
+              // Explicitly preserve all tile settings from loaded config
+              // This ensures coverPosition and other settings are not lost
+              finalConfig = {
+                ...preservedConfig,
+                tiles: preservedConfig.tiles.map(tile => {
+                  // Find the corresponding tile in loadedConfig to preserve all settings
+                  const loadedTile = loadedConfig.tiles?.find(lt => lt.id === tile.id)
+                  if (loadedTile && loadedTile.settings) {
+                    // Merge settings: loadedTile.settings takes precedence to preserve saved values like coverPosition
+                    // Then apply any defaults from migrated tile
+                    return {
+                      ...tile,
+                      settings: { ...tile.settings, ...loadedTile.settings }
+                    }
+                  }
+                  return tile
+                })
+              }
+              
+              // Debug: Log image tile settings when loading
+              if (process.env.NODE_ENV === 'development') {
+                const imageTile = finalConfig.tiles?.find(t => t.type === 'image')
+                if (imageTile) {
+                  console.log('Loaded config with image tile settings:', (imageTile.settings as any))
+                }
+              }
             }
 
             // Select first enabled tile by default
@@ -221,6 +250,9 @@ export default function DesignInvitationPage() {
     } catch (error: any) {
       if (error.response?.status === 401) {
         router.push('/host/login')
+      } else if (error.response?.status === 403 || error.response?.status === 404) {
+        showToast('You do not have access to this event', 'error')
+        router.push('/host/dashboard')
       } else {
           console.error('Failed to load data:', error)
         showToast('Failed to load event', 'error')
@@ -251,6 +283,56 @@ export default function DesignInvitationPage() {
     }
   }, [event])
 
+  // Calculate right panel position for fixed positioning on desktop
+  useEffect(() => {
+    const updateRightPanelPosition = () => {
+      if (rightPanelRef.current && gridContainerRef.current && window.innerWidth >= 1024) {
+        // Use requestAnimationFrame to ensure DOM is updated
+        requestAnimationFrame(() => {
+          if (rightPanelRef.current) {
+            const rightPanelRect = rightPanelRef.current.getBoundingClientRect()
+            const height = rightPanelRef.current.offsetHeight
+            
+            setRightPanelStyle({
+              position: 'fixed',
+              top: `${headerHeight + 20}px`,
+              left: `${rightPanelRect.left}px`,
+              width: `${rightPanelRect.width}px`,
+              maxHeight: `calc(100vh - ${headerHeight}px - 20px)`,
+            })
+            setSpacerHeight(height)
+          }
+        })
+      } else {
+        setRightPanelStyle({
+          position: 'relative',
+          top: 'auto',
+          left: 'auto',
+          width: 'auto',
+          maxHeight: 'none',
+        })
+        setSpacerHeight(null)
+      }
+    }
+
+    // Initial calculation with multiple attempts to ensure it works
+    const timeoutId1 = setTimeout(updateRightPanelPosition, 50)
+    const timeoutId2 = setTimeout(updateRightPanelPosition, 200)
+    const timeoutId3 = setTimeout(updateRightPanelPosition, 500)
+    
+    // Update on resize and scroll
+    window.addEventListener('resize', updateRightPanelPosition)
+    window.addEventListener('scroll', updateRightPanelPosition, { passive: true })
+    
+    return () => {
+      clearTimeout(timeoutId1)
+      clearTimeout(timeoutId2)
+      clearTimeout(timeoutId3)
+      window.removeEventListener('resize', updateRightPanelPosition)
+      window.removeEventListener('scroll', updateRightPanelPosition)
+    }
+  }, [event, headerHeight, config])
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -279,17 +361,39 @@ export default function DesignInvitationPage() {
       }
       
       // Build config to save - ALWAYS include customColors if it exists
+      // Also ensure all tile settings are preserved, including coverPosition
       const configToSave: InviteConfig = {
         ...config,
         // Ensure title tile is enabled in saved config
-        tiles: config.tiles?.map(t => 
-          t.type === 'title' ? { ...t, enabled: true } : t
-        ) || [],
+        // Also ensure all settings are preserved (including coverPosition for image tiles)
+        tiles: config.tiles?.map(t => {
+          if (t.type === 'title') {
+            return { ...t, enabled: true }
+          }
+          // For image tiles, explicitly preserve all settings including coverPosition
+          if (t.type === 'image') {
+            const imageSettings = t.settings as any
+            // Log to help debug position saving
+            if (imageSettings.coverPosition && process.env.NODE_ENV === 'development') {
+              console.log('Saving image tile with coverPosition:', imageSettings.coverPosition)
+            }
+            return { ...t, settings: { ...imageSettings } }
+          }
+          return t
+        }) || [],
       }
       
       // Explicitly ensure customColors is included if it has any properties
       if (config.customColors) {
         configToSave.customColors = config.customColors
+      }
+      
+      // Debug: Log what we're saving
+      if (process.env.NODE_ENV === 'development') {
+        const imageTile = configToSave.tiles?.find(t => t.type === 'image')
+        if (imageTile) {
+          console.log('Saving config with image tile settings:', (imageTile.settings as any))
+        }
       }
       
       await updateEventPageConfig(eventId, configToSave)
@@ -386,44 +490,44 @@ export default function DesignInvitationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-eco-beige">
+    <div className="min-h-screen bg-eco-beige w-full overflow-x-hidden">
         {/* Header */}
-      <div ref={headerRef} className="bg-white border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-          <div>
+      <div ref={headerRef} className="bg-white border-b fixed top-0 left-0 right-0 z-50 w-full overflow-x-hidden">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 w-full overflow-x-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 w-full">
+          <div className="flex-1 min-w-0 w-full">
             <Link href={`/host/events/${eventId}`}>
-                <Button variant="outline" className="mb-2">
+                <Button variant="outline" className="mb-2 text-xs sm:text-sm w-full sm:w-auto">
                 ← Back to Event
               </Button>
             </Link>
-            <h1 className="text-3xl font-bold text-eco-green">Design Invitation Page</h1>
-              <p className="text-gray-600 mt-1">Customize your invitation using draggable tiles</p>
+            <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-eco-green break-words">Design Invitation Page</h1>
+              <p className="text-gray-600 mt-1 text-xs sm:text-sm break-words">Customize your invitation page by arranging and configuring tiles. Drag tiles in the mobile preview to reorder them.</p>
           </div>
-          <div className="flex gap-3">
-              <Link href={`/invite/${event?.slug}`} target="_blank">
-                <Button variant="outline" className="border-eco-green text-eco-green">
-              👁️ Preview
+          <div className="flex gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto">
+              <Link href={`/invite/${event?.slug}`} target="_blank" className="flex-1 sm:flex-none">
+                <Button variant="outline" className="border-eco-green text-eco-green text-xs sm:text-sm px-3 sm:px-4 w-full sm:w-auto">
+              👁️ <span className="hidden sm:inline">Preview</span>
             </Button>
               </Link>
             <Button
               onClick={handleSave}
               disabled={saving}
-              className="bg-eco-green hover:bg-green-600 text-white"
+              className="bg-eco-green hover:bg-green-600 text-white text-xs sm:text-sm px-3 sm:px-4 flex-1 sm:flex-none w-full sm:w-auto"
             >
-              {saving ? 'Saving...' : '💾 Save Changes'}
+              {saving ? 'Saving...' : <><span className="hidden sm:inline">💾 </span>Save</>}
             </Button>
             </div>
           </div>
-          </div>
         </div>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 w-full overflow-x-hidden" style={{ paddingTop: `${headerHeight}px`, paddingBottom: '1.5rem' }}>
+        <div ref={gridContainerRef} className="grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6 w-full items-start">
           {/* Left Panel - Settings */}
-          <div className="lg:col-span-3 space-y-4">
+          <div className="lg:col-span-3 space-y-4 w-full min-w-0 pt-4 sm:pt-6">
             {/* Page Settings */}
-            <div className="bg-white rounded-lg border-2 border-eco-green-light p-4">
+            <div className="bg-white rounded-lg border-2 border-eco-green-light p-3 sm:p-4 w-full overflow-x-hidden">
               <h2 className="text-lg font-semibold text-eco-green mb-4">Page Settings</h2>
               <div className="space-y-4">
                 <div>
@@ -462,9 +566,9 @@ export default function DesignInvitationPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border-2 border-eco-green-light p-4">
-              <h2 className="text-lg font-semibold text-eco-green mb-4">Tile Settings</h2>
-              <div className="space-y-4">
+            <div className="bg-white rounded-lg border-2 border-eco-green-light p-3 sm:p-4 w-full overflow-x-hidden">
+              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-3 sm:mb-4">Tile Settings</h2>
+              <div className="space-y-4 w-full">
                 {sortedTiles && sortedTiles.length > 0 ? (
                   sortedTiles.map((tile) => (
                     <TileSettings
@@ -484,38 +588,84 @@ export default function DesignInvitationPage() {
                 </div>
 
           {/* Right Panel - Preview */}
-          <div className="lg:col-span-2">
+          <>
+            {/* Spacer to maintain grid layout when panel is fixed */}
+            {rightPanelStyle.position === 'fixed' && spacerHeight !== null && (
+              <div className="lg:col-span-2 w-full min-w-0" style={{ height: `${spacerHeight}px` }} />
+            )}
             <div 
-              className="lg:sticky lg:self-start lg:z-40 bg-white rounded-lg border-2 border-eco-green-light p-4"
-              style={{ top: `${headerHeight}px` }}
+              ref={rightPanelRef}
+              className="lg:col-span-2 w-full min-w-0 overflow-x-hidden"
+              style={rightPanelStyle}
             >
-              <h2 className="text-lg font-semibold text-eco-green mb-4">Mobile Preview</h2>
-              {/* iPhone 16 Frame - 1:1 Proportion */}
-              <div className="flex justify-center items-start">
-                <div className="relative">
+            <div 
+              className="lg:z-40 bg-white rounded-lg border-2 border-eco-green-light p-3 sm:p-4 w-full overflow-x-hidden"
+              style={{ 
+                maxHeight: `calc(100vh - ${headerHeight}px - 20px - 1rem)`,
+                overflowY: 'auto'
+              }}
+            >
+              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-2">Mobile Preview</h2>
+              <p className="text-xs text-gray-600 mb-3 sm:mb-4">Customize your invitation by dragging tiles up and down to reorder them.</p>
+              {/* iPhone 16 Frame - Responsive */}
+              <div className="flex justify-center items-start w-full overflow-x-hidden">
+                <div className="relative w-full flex justify-center" style={{ maxWidth: '100%' }}>
                   {/* iPhone 16 Frame - Black bezel with rounded corners */}
-                  <div className="bg-black rounded-[3rem] p-[6px] shadow-2xl mx-auto">
+                  <div 
+                    className="bg-black shadow-2xl mx-auto"
+                    style={{ 
+                      maxWidth: 'calc(100% - 16px)',
+                      width: 'min(100%, 320px, 390px)',
+                      borderRadius: 'clamp(1.5rem, 4vw, 3rem)',
+                      padding: 'clamp(3px, 1vw, 6px)'
+                    }}
+                  >
                     {/* Screen Bezel */}
-                    <div className="bg-black rounded-[2.75rem] p-[3px] relative">
+                    <div 
+                      className="bg-black relative"
+                      style={{ 
+                        borderRadius: 'clamp(1.25rem, 3.5vw, 2.75rem)',
+                        padding: 'clamp(1px, 0.5vw, 3px)'
+                      }}
+                    >
                       {/* Dynamic Island (iPhone 16) */}
-                      <div className="absolute top-[12px] left-1/2 transform -translate-x-1/2 w-[126px] h-[37px] bg-black rounded-full z-20"></div>
+                      <div 
+                        className="absolute left-1/2 transform -translate-x-1/2 bg-black rounded-full z-20"
+                        style={{ 
+                          top: 'clamp(6px, 1.5vw, 12px)',
+                          width: 'clamp(80px, 25vw, 126px)',
+                          height: 'clamp(24px, 7.5vw, 37px)'
+                        }}
+                      ></div>
                       {/* Screen - iPhone 16 aspect ratio (1179:2556 ≈ 0.461) */}
                 <div 
-                        className="relative rounded-[2.5rem] overflow-hidden bg-white flex flex-col"
+                        className="relative overflow-hidden bg-white flex flex-col w-full"
                   style={{ 
-                          width: '390px',
-                          height: '844px',
+                          width: '100%',
                           aspectRatio: '1179 / 2556',
                     backgroundColor: config.customColors?.backgroundColor || '#ffffff',
+                    borderRadius: 'clamp(1.25rem, 3vw, 2.5rem)'
                         }}
                       >
                         {/* Status Bar Area with Dynamic Island space */}
-                        <div className="h-[47px] bg-transparent flex items-start justify-center flex-shrink-0 pt-[8px]">
+                        <div 
+                          className="bg-transparent flex items-start justify-center flex-shrink-0"
+                          style={{
+                            height: 'clamp(30px, 8vw, 47px)',
+                            paddingTop: 'clamp(4px, 1vw, 8px)'
+                          }}
+                        >
                           {/* Dynamic Island visual indicator */}
-                          <div className="w-[126px] h-[37px] bg-black rounded-full opacity-30"></div>
+                          <div 
+                            className="bg-black rounded-full opacity-30"
+                            style={{
+                              width: 'clamp(80px, 25vw, 126px)',
+                              height: 'clamp(24px, 7.5vw, 37px)'
+                            }}
+                          ></div>
                         </div>
                         {/* Content Area */}
-                        <div className="overflow-y-auto flex-1" style={{ paddingBottom: '34px' }}>
+                        <div className="overflow-y-auto flex-1 w-full overflow-x-hidden" style={{ paddingBottom: '24px' }}>
                     {sortedTiles && sortedTiles.length > 0 ? (
                       <TileList
                         tiles={sortedTiles}
@@ -533,17 +683,25 @@ export default function DesignInvitationPage() {
                     )}
                         </div>
                         {/* Home Indicator (iPhone 16) */}
-                        <div className="absolute bottom-[8px] left-1/2 transform -translate-x-1/2 w-[134px] h-[5px] bg-gray-800 rounded-full z-10"></div>
+                        <div 
+                          className="absolute left-1/2 transform -translate-x-1/2 bg-gray-800 rounded-full z-10"
+                          style={{
+                            bottom: 'clamp(4px, 1vw, 8px)',
+                            width: 'clamp(90px, 28vw, 134px)',
+                            height: 'clamp(3px, 0.8vw, 5px)'
+                          }}
+                        ></div>
                       </div>
                     </div>
                   </div>
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 text-center">
-                Drag tiles to reorder. Footer stays at the bottom.
+                Use the drag handle (⋮⋮) on each tile to reorder. Footer stays at the bottom.
                 </p>
                 </div>
-          </div>
+            </div>
+          </>
         </div>
       </div>
     </div>

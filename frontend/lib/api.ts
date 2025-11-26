@@ -139,3 +139,25 @@ api.interceptors.response.use(
 
 export default api
 
+/**
+ * Upload an image file to S3 via backend
+ * @param file - Image file to upload
+ * @returns Promise resolving to S3 URL string
+ */
+export async function uploadImage(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('image', file)
+  
+  const response = await api.post('/api/events/upload-image/', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  
+  if (response.data.url) {
+    return response.data.url
+  }
+  
+  throw new Error(response.data.error || 'Failed to upload image')
+}
+

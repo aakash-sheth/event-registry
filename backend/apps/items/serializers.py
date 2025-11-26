@@ -13,7 +13,7 @@ class RegistryItemSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'event', 'name', 'description', 'image_url', 'price_inr',
             'qty_total', 'qty_purchased', 'remaining', 'priority_rank',
-            'status', 'is_available', 'created_at', 'updated_at'
+            'status', 'item_type', 'is_available', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'qty_purchased', 'created_at', 'updated_at')
 
@@ -25,7 +25,7 @@ class RegistryItemCreateSerializer(serializers.ModelSerializer):
         model = RegistryItem
         fields = (
             'name', 'description', 'image_url', 'price_inr',
-            'qty_total', 'priority_rank', 'status', 'event_id'
+            'qty_total', 'priority_rank', 'status', 'item_type', 'event_id'
         )
         extra_kwargs = {
             'description': {'required': False, 'allow_blank': True},

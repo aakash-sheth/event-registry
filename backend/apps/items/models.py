@@ -8,6 +8,12 @@ class RegistryItem(models.Model):
         ('hidden', 'Hidden'),
     ]
     
+    ITEM_TYPE_CHOICES = [
+        ('physical', 'Physical Gift'),
+        ('cash', 'Cash Gift'),
+        ('donation', 'Donation/Fundraiser'),
+    ]
+    
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='items')
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -17,6 +23,12 @@ class RegistryItem(models.Model):
     qty_purchased = models.IntegerField(default=0)
     priority_rank = models.IntegerField(default=0, help_text="Lower number = higher priority")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    item_type = models.CharField(
+        max_length=20,
+        choices=ITEM_TYPE_CHOICES,
+        default='physical',
+        help_text="Type of gift item - physical (paper saved on gift cards), cash (no paper), or donation"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

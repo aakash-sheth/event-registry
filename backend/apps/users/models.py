@@ -27,6 +27,9 @@ class User(AbstractBaseUser):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
+    # Email verification
+    email_verified = models.BooleanField(default=False)
+    
     # OTP fields
     otp_code = models.CharField(max_length=255, blank=True, null=True)
     otp_expires_at = models.DateTimeField(blank=True, null=True)

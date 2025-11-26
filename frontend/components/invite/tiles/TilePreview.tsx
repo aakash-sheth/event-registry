@@ -80,7 +80,7 @@ export default function TilePreview({
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full max-w-full overflow-x-hidden min-w-0">
       {renderTile()}
     </div>
   )

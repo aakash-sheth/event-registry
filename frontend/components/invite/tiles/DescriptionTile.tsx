@@ -23,35 +23,65 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
 
   if (preview) {
     return (
-      <div className="w-full py-8 pr-4 pl-4 md:pl-8 lg:pl-12 xl:pl-16" style={{ backgroundColor: 'transparent' }}>
-        {isHTML ? (
-          <div 
-            className="prose prose-sm max-w-none" 
-            style={{ backgroundColor: 'transparent' }}
-            dangerouslySetInnerHTML={{ __html: settings.content }}
-          />
-        ) : (
-          <div className="prose prose-sm max-w-none" style={{ backgroundColor: 'transparent' }}>
-            {settings.content}
-          </div>
-        )}
-      </div>
+      <>
+        <style>{`
+          .description-content p:empty,
+          .description-content div:empty {
+            min-height: 1.5em;
+            margin: 0.5em 0;
+            display: block;
+          }
+          .description-content p:empty:before,
+          .description-content div:empty:before {
+            content: '\\200B';
+            color: transparent;
+          }
+        `}</style>
+        <div className="w-full py-8 pr-4 pl-4 md:pl-8 lg:pl-12 xl:pl-16" style={{ backgroundColor: 'transparent' }}>
+          {isHTML ? (
+            <div 
+              className="prose prose-sm max-w-none description-content" 
+              style={{ backgroundColor: 'transparent' }}
+              dangerouslySetInnerHTML={{ __html: settings.content }}
+            />
+          ) : (
+            <div className="prose prose-sm max-w-none whitespace-pre-wrap description-content" style={{ backgroundColor: 'transparent' }}>
+              {settings.content}
+            </div>
+          )}
+        </div>
+      </>
     )
   }
 
   return (
-    <div className="w-full py-4 pr-4 pl-4 md:pl-8 lg:pl-12 border rounded">
-      {isHTML ? (
-        <div 
-          className="prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: settings.content }}
-        />
-      ) : (
-        <div className="prose prose-sm max-w-none">
-          {settings.content}
-        </div>
-      )}
-    </div>
+    <>
+      <style>{`
+        .description-content p:empty,
+        .description-content div:empty {
+          min-height: 1.5em;
+          margin: 0.5em 0;
+          display: block;
+        }
+        .description-content p:empty:before,
+        .description-content div:empty:before {
+          content: '\\200B';
+          color: transparent;
+        }
+      `}</style>
+      <div className="w-full py-4 pr-4 pl-4 md:pl-8 lg:pl-12 border rounded">
+        {isHTML ? (
+          <div 
+            className="prose prose-sm max-w-none description-content"
+            dangerouslySetInnerHTML={{ __html: settings.content }}
+          />
+        ) : (
+          <div className="prose prose-sm max-w-none whitespace-pre-wrap description-content">
+            {settings.content}
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 

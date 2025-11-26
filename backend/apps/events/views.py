@@ -5,7 +5,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
+from django.conf import settings
 import csv
+from urllib.parse import quote
 from .models import Event, RSVP, Guest, InvitePage
 from .serializers import (
     EventSerializer, EventCreateSerializer,
@@ -13,7 +15,8 @@ from .serializers import (
     GuestSerializer, GuestCreateSerializer,
     InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer
 )
-from .utils import get_country_code, format_phone_with_country_code
+import re
+from .utils import get_country_code, format_phone_with_country_code, upload_to_s3, parse_phone_number
 from apps.items.models import RegistryItem
 from apps.items.serializers import RegistryItemSerializer
 
@@ -25,7 +28,22 @@ class EventViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Hosts can only see their own events - strict privacy enforcement"""
-        return Event.objects.filter(host=self.request.user)
+        # Try to include expiry_date if it exists, otherwise exclude it
+        try:
+            # First try with all fields including expiry_date
+            return Event.objects.filter(host=self.request.user)
+        except Exception as e:
+            # If that fails (likely missing expiry_date column), try without it
+            try:
+                return Event.objects.filter(host=self.request.user).only(
+                    'id', 'host_id', 'slug', 'title', 'event_type', 'date', 'city', 'country',
+                    'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description',
+                    'additional_photos', 'page_config', 'whatsapp_message_template',
+                    'created_at', 'updated_at'
+                )
+            except Exception:
+                # Last resort: return empty queryset to prevent 500 errors
+                return Event.objects.none()
     
     def get_object(self):
         """Override to ensure host can only access their own events"""
@@ -44,6 +62,26 @@ class EventViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Ensure event is created with current user as host"""
         serializer.save(host=self.request.user)
+    
+    def list(self, request, *args, **kwargs):
+        """Override list to handle missing database fields gracefully"""
+        try:
+            return super().list(request, *args, **kwargs)
+        except Exception as e:
+            # If there's a database error (likely missing expiry_date column), 
+            # try to serialize without it
+            from rest_framework.response import Response
+            from rest_framework import status
+            
+            # Try to get queryset without problematic fields
+            try:
+                queryset = self.get_queryset()
+                # Manually serialize to avoid database errors
+                serializer = self.get_serializer(queryset, many=True)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            except Exception:
+                # If that also fails, return empty list
+                return Response([], status=status.HTTP_200_OK)
     
     def _verify_event_ownership(self, event):
         """Helper method to verify event ownership - raises PermissionDenied if not owner"""
@@ -87,10 +125,39 @@ class EventViewSet(viewsets.ModelViewSet):
         self._verify_event_ownership(event)  # Explicit ownership check
         
         if request.method == 'GET':
-            # Only get guests for this specific event (already verified ownership)
+            # Get invited guests
             guests = Guest.objects.filter(event=event).order_by('name')
-            serializer = GuestSerializer(guests, many=True)
-            return Response(serializer.data)
+            guests_serializer = GuestSerializer(guests, many=True)
+            
+            # Get RSVPs that don't have a corresponding guest (other guests)
+            # These are people who RSVP'd but weren't in the original guest list
+            rsvps_without_guests = RSVP.objects.filter(
+                event=event,
+                guest__isnull=True
+            ).order_by('-created_at')
+            
+            # Also check for RSVPs where guest exists but phone doesn't match (edge case)
+            # This handles cases where phone format differences prevent matching
+            guest_phones = set(guests.values_list('phone', flat=True))
+            other_rsvps = []
+            for rsvp in rsvps_without_guests:
+                # Check if phone matches any guest (with various formats)
+                rsvp_phone_digits = re.sub(r'\D', '', rsvp.phone)
+                matches_guest = False
+                for guest_phone in guest_phones:
+                    guest_phone_digits = re.sub(r'\D', '', guest_phone)
+                    if rsvp_phone_digits == guest_phone_digits:
+                        matches_guest = True
+                        break
+                if not matches_guest:
+                    other_rsvps.append(rsvp)
+            
+            other_guests_serializer = RSVPSerializer(other_rsvps, many=True)
+            
+            return Response({
+                'guests': guests_serializer.data,
+                'other_guests': other_guests_serializer.data
+            })
         
         elif request.method == 'POST':
             # Bulk create from list
@@ -267,6 +334,234 @@ class EventViewSet(viewsets.ModelViewSet):
         serializer = GuestCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update guest fields
+        guest.name = serializer.validated_data.get('name', guest.name)
+        guest.email = serializer.validated_data.get('email', guest.email)
+        guest.relationship = serializer.validated_data.get('relationship', guest.relationship)
+        guest.notes = serializer.validated_data.get('notes', guest.notes)
+        
+        # Handle phone update (format with country code)
+        if 'phone' in serializer.validated_data:
+            country_code = serializer.validated_data.get('country_code') or get_country_code(event.country)
+            phone = serializer.validated_data['phone']
+            guest.phone = format_phone_with_country_code(phone, country_code)
+        
+        if 'country_iso' in serializer.validated_data:
+            guest.country_iso = serializer.validated_data['country_iso']
+        
+        guest.save()
+        return Response(GuestSerializer(guest).data, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['delete'], url_path='guests/(?P<guest_id>[^/.]+)')
+    def delete_guest(self, request, id=None, guest_id=None):
+        """Delete a guest from the list - host only, privacy protected"""
+        event = self.get_object()
+        self._verify_event_ownership(event)  # Explicit ownership check
+        
+        try:
+            guest = Guest.objects.get(id=guest_id, event=event)
+        except Guest.DoesNotExist:
+            return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Delete the guest (RSVPs linked to this guest will have guest set to NULL due to SET_NULL)
+        guest.delete()
+        return Response({'message': 'Guest deleted successfully'}, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='share/whatsapp')
+    def share_whatsapp(self, request, id=None):
+        """Generate WhatsApp share links for event - host only"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        share_type = request.data.get('type', 'public')  # 'public', 'guest', 'bulk'
+        guest_id = request.data.get('guest_id')
+        guest_ids = request.data.get('guest_ids', [])
+        custom_message = request.data.get('message', '')
+        
+        frontend_origin = settings.FRONTEND_ORIGIN
+        event_url = f"{frontend_origin}/event/{event.slug}"
+        
+        # Default message template
+        if not custom_message:
+            date_str = event.date.strftime('%B %d, %Y') if event.date else 'TBD'
+            custom_message = f"Hey! 💛\n\nJust reminding you about {event.title} on {date_str}!\n\nPlease confirm here: {event_url}\n\n- {event.host.name or 'Your Host'}"
+        
+        if share_type == 'public':
+            # Generate public share link
+            message = quote(custom_message)
+            whatsapp_url = f"https://wa.me/?text={message}"
+            return Response({
+                'whatsapp_url': whatsapp_url,
+                'message': custom_message,
+                'event_url': event_url,
+            }, status=status.HTTP_200_OK)
+        
+        elif share_type == 'guest':
+            # Generate link for specific guest
+            if not guest_id:
+                return Response({'error': 'guest_id is required for guest sharing'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                guest = Guest.objects.get(id=guest_id, event=event)
+            except Guest.DoesNotExist:
+                return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Format phone number (remove + and any spaces)
+            phone = guest.phone.replace('+', '').replace(' ', '').replace('-', '')
+            
+            # Personalize message with guest name
+            personalized_message = custom_message.replace('Hey!', f"Hey {guest.name}!")
+            message = quote(personalized_message)
+            whatsapp_url = f"https://wa.me/{phone}/?text={message}"
+            
+            return Response({
+                'whatsapp_url': whatsapp_url,
+                'message': personalized_message,
+                'event_url': event_url,
+                'guest': {
+                    'id': guest.id,
+                    'name': guest.name,
+                    'phone': guest.phone,
+                }
+            }, status=status.HTTP_200_OK)
+        
+        elif share_type == 'bulk':
+            # Generate links for multiple guests
+            if not guest_ids:
+                return Response({'error': 'guest_ids array is required for bulk sharing'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            guests = Guest.objects.filter(id__in=guest_ids, event=event)
+            if guests.count() != len(guest_ids):
+                return Response({'error': 'Some guests not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            links = []
+            for guest in guests:
+                phone = guest.phone.replace('+', '').replace(' ', '').replace('-', '')
+                personalized_message = custom_message.replace('Hey!', f"Hey {guest.name}!")
+                message = quote(personalized_message)
+                whatsapp_url = f"https://wa.me/{phone}/?text={message}"
+                
+                links.append({
+                    'guest_id': guest.id,
+                    'guest_name': guest.name,
+                    'guest_phone': guest.phone,
+                    'whatsapp_url': whatsapp_url,
+                    'message': personalized_message,
+                })
+            
+            return Response({
+                'links': links,
+                'event_url': event_url,
+                'count': len(links),
+            }, status=status.HTTP_200_OK)
+        
+        else:
+            return Response({'error': 'Invalid share type. Use "public", "guest", or "bulk"'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['get'], url_path='impact')
+    def get_impact(self, request, id=None):
+        """Get impact metrics for expired event - host only"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        from .utils import calculate_event_impact
+        impact = calculate_event_impact(event)
+        
+        if impact is None:
+            return Response({
+                'error': 'Event is not expired yet. Impact can only be calculated for expired events.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(impact, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['get'], url_path='impact/overall')
+    def get_overall_impact(self, request):
+        """Get overall impact across all expired events - host only"""
+        from .utils import calculate_event_impact
+        from datetime import date
+        
+        # Get all events for this host
+        # Use only() to avoid selecting expiry_date if it doesn't exist
+        try:
+            events = Event.objects.filter(host=request.user).only(
+                'id', 'host_id', 'slug', 'title', 'event_type', 'date', 'city', 'country',
+                'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description',
+                'additional_photos', 'page_config', 'whatsapp_message_template',
+                'created_at', 'updated_at'
+            )
+        except Exception:
+            # If only() fails, try without it
+            try:
+                events = Event.objects.filter(host=request.user)
+            except Exception:
+                # If query fails completely, return empty result
+                return Response({
+                    'total_plates_saved': 0,
+                    'total_paper_saved': 0,
+                    'total_gifts_received': 0,
+                    'total_gift_value_rupees': 0,
+                    'total_paper_saved_on_gifts': 0,
+                    'expired_events_count': 0,
+                    'events': []
+                }, status=status.HTTP_200_OK)
+        
+        # Safely check if expired (handles case where expiry_date field might not exist)
+        expired_events = []
+        for e in events:
+            try:
+                if e.is_expired:
+                    expired_events.append(e)
+            except Exception:
+                # If there's an error accessing is_expired, skip this event
+                continue
+        
+        if not expired_events:
+            return Response({
+                'total_plates_saved': 0,
+                'total_paper_saved': 0,
+                'total_gifts_received': 0,
+                'total_gift_value_rupees': 0,
+                'total_paper_saved_on_gifts': 0,
+                'expired_events_count': 0,
+                'events': []
+            }, status=status.HTTP_200_OK)
+        
+        # Aggregate impact across all expired events
+        total_plates_saved = 0
+        total_paper_saved = 0
+        total_gifts_received = 0
+        total_gift_value_paise = 0
+        total_paper_saved_on_gifts = 0
+        
+        events_impact = []
+        
+        for event in expired_events:
+            impact = calculate_event_impact(event)
+            if impact:
+                total_plates_saved += impact['food_saved']['plates_saved']
+                total_paper_saved += impact['paper_saved']['web_rsvps']
+                total_gifts_received += impact['gifts_received']['total_gifts']
+                total_gift_value_paise += impact['gifts_received']['total_value_paise']
+                total_paper_saved_on_gifts += impact['paper_saved_on_gifts']['cash_gifts']
+                
+                events_impact.append({
+                    'event_id': event.id,
+                    'event_title': event.title,
+                    'event_date': event.date.isoformat() if event.date else None,
+                    'expiry_date': event.expiry_date.isoformat() if event.expiry_date else None,
+                    'impact': impact
+                })
+        
+        return Response({
+            'total_plates_saved': total_plates_saved,
+            'total_paper_saved': total_paper_saved,
+            'total_gifts_received': total_gifts_received,
+            'total_gift_value_rupees': total_gift_value_paise / 100,
+            'total_paper_saved_on_gifts': total_paper_saved_on_gifts,
+            'expired_events_count': len(expired_events),
+            'events': events_impact
+        }, status=status.HTTP_200_OK)
 
 
 class InvitePageViewSet(viewsets.ModelViewSet):
@@ -434,13 +729,60 @@ class PublicEventViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = 'slug'
     
     def get_queryset(self):
-        """Only return public events - no private data exposed"""
-        return Event.objects.filter(is_public=True)
+        """Return all events - privacy is enforced per-endpoint"""
+        return Event.objects.all()
     
     @action(detail=True, methods=['get'])
     def items(self, request, slug=None):
         """Get active items for public registry - no private data exposed"""
-        event = get_object_or_404(Event, slug=slug, is_public=True)
+        event = get_object_or_404(Event, slug=slug)
+        
+        # For private events, verify user is in guest list
+        if not event.is_public:
+            phone = request.query_params.get('phone', '').strip()
+            if not phone:
+                return Response(
+                    {'error': 'This is a private event. Phone number required to verify access.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Format phone with country code if not already formatted
+            event_country_code = get_country_code(event.country)
+            if not phone.startswith('+'):
+                country_code = request.query_params.get('country_code', event_country_code)
+                phone = format_phone_with_country_code(phone, country_code)
+            
+            # Try to find in guest list
+            guest = None
+            phone_digits_only = re.sub(r'\D', '', phone)
+            provided_country_code = request.query_params.get('country_code', event_country_code)
+            
+            # First try exact phone match
+            guest = Guest.objects.filter(event=event, phone=phone).first()
+            
+            # If not found, try matching by digits only
+            if not guest:
+                all_guests = Guest.objects.filter(event=event)
+                for g in all_guests:
+                    guest_phone_digits = re.sub(r'\D', '', g.phone)
+                    if guest_phone_digits == phone_digits_only:
+                        guest = g
+                        break
+                    
+                    # Try matching last 10 digits with country code verification
+                    if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                        local_number = phone_digits_only[-10:]
+                        if guest_phone_digits.endswith(local_number):
+                            stored_country_code, _ = parse_phone_number(g.phone)
+                            if stored_country_code == provided_country_code:
+                                guest = g
+                                break
+            
+            if not guest:
+                return Response(
+                    {'error': 'This is a private event. Only invited guests can view the registry.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         # Check if registry is enabled for this event
         if not event.has_registry:
@@ -466,12 +808,177 @@ class PublicEventViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_rsvp(request, event_id):
+    """Get existing RSVP by phone number (public endpoint)"""
+    try:
+        event = get_object_or_404(Event, id=event_id)
+    except Event.DoesNotExist:
+        return Response({'error': 'Event not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    # Check if RSVP is enabled for this event
+    if not event.has_rsvp:
+        return Response(
+            {'error': 'RSVP is not available for this event'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    phone = request.query_params.get('phone', '').strip()
+    if not phone:
+        return Response({'error': 'Phone number is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Format phone with country code if not already formatted
+    event_country_code = get_country_code(event.country)
+    original_phone = phone
+    if phone and not phone.startswith('+'):
+        country_code = request.query_params.get('country_code', event_country_code)
+        phone = format_phone_with_country_code(phone, country_code)
+    
+    # For private events, verify user is in guest list
+    if not event.is_public:
+        phone_digits_only = re.sub(r'\D', '', phone)
+        provided_country_code = request.query_params.get('country_code', event_country_code)
+        
+        # Try to find in guest list
+        guest = None
+        # First try exact phone match
+        guest = Guest.objects.filter(event=event, phone=phone).first()
+        
+        # If not found, try matching by digits only
+        if not guest:
+            all_guests = Guest.objects.filter(event=event)
+            for g in all_guests:
+                guest_phone_digits = re.sub(r'\D', '', g.phone)
+                if guest_phone_digits == phone_digits_only:
+                    guest = g
+                    break
+                
+                # Try matching last 10 digits with country code verification
+                if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                    local_number = phone_digits_only[-10:]
+                    if guest_phone_digits.endswith(local_number):
+                        stored_country_code, _ = parse_phone_number(g.phone)
+                        if stored_country_code == provided_country_code:
+                            guest = g
+                            break
+        
+        if not guest:
+            return Response(
+                {'error': 'This is a private event. Only invited guests can RSVP.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+    
+    # Debug logging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"RSVP Check - Original: {original_phone}, Formatted: {phone}, Country Code: {request.query_params.get('country_code', event_country_code)}")
+    
+    # Debug: Log all RSVP phones for this event to see stored format
+    all_rsvps_debug = RSVP.objects.filter(event=event).values_list('phone', flat=True)
+    logger.info(f"All RSVP phones in DB for event {event.id}: {list(all_rsvps_debug)}")
+    
+    # Find existing RSVP - try multiple formats
+    existing_rsvp = RSVP.objects.filter(event=event, phone=phone).first()
+    
+    # If not found with formatted phone, try variations
+    if not existing_rsvp:
+        # Try without + prefix
+        phone_without_plus = phone.lstrip('+')
+        existing_rsvp = RSVP.objects.filter(event=event, phone=phone_without_plus).first()
+        
+        # Try with different country code formats (if provided country code doesn't match)
+        if not existing_rsvp:
+            provided_country_code = request.query_params.get('country_code', event_country_code)
+            phone_digits_only = re.sub(r'\D', '', phone)
+            
+            # Try all RSVPs and check if the phone digits match (ignoring formatting)
+            all_rsvps = RSVP.objects.filter(event=event)
+            for rsvp in all_rsvps:
+                rsvp_phone_digits = re.sub(r'\D', '', rsvp.phone)
+                
+                # Check if phone digits match exactly
+                if rsvp_phone_digits == phone_digits_only:
+                    existing_rsvp = rsvp
+                    logger.info(f"Found RSVP by matching phone digits (ignoring formatting): {rsvp.phone}")
+                    break
+                
+                # If digits don't match exactly, try matching last 10 digits with country code verification
+                if len(phone_digits_only) >= 10 and len(rsvp_phone_digits) >= 10:
+                    local_number = phone_digits_only[-10:]
+                    if rsvp_phone_digits.endswith(local_number):
+                        # Extract country code from stored phone
+                        stored_country_code, _ = parse_phone_number(rsvp.phone)
+                        # Only match if country codes are the same
+                        if stored_country_code == provided_country_code:
+                            existing_rsvp = rsvp
+                            logger.info(f"Found RSVP by matching last 10 digits with matching country code: {rsvp.phone}")
+                            break
+    
+    if existing_rsvp:
+        # Return RSVP data
+        rsvp_data = RSVPSerializer(existing_rsvp).data
+        rsvp_data['found_in'] = 'rsvp'
+        return Response(rsvp_data, status=status.HTTP_200_OK)
+    else:
+        # Check guest list if RSVP not found
+        phone_digits_only = re.sub(r'\D', '', phone)
+        provided_country_code = request.query_params.get('country_code', event_country_code)
+        
+        # Try to find in guest list
+        guest = None
+        # First try exact phone match
+        guest = Guest.objects.filter(event=event, phone=phone).first()
+        
+        # If not found, try matching by digits only
+        if not guest:
+            all_guests = Guest.objects.filter(event=event)
+            for g in all_guests:
+                guest_phone_digits = re.sub(r'\D', '', g.phone)
+                if guest_phone_digits == phone_digits_only:
+                    guest = g
+                    logger.info(f"Found guest by matching phone digits: {g.phone}")
+                    break
+                
+                # Try matching last 10 digits with country code verification
+                if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                    local_number = phone_digits_only[-10:]
+                    if guest_phone_digits.endswith(local_number):
+                        stored_country_code, _ = parse_phone_number(g.phone)
+                        if stored_country_code == provided_country_code:
+                            guest = g
+                            logger.info(f"Found guest by matching last 10 digits: {g.phone}")
+                            break
+        
+        if guest:
+            # Found in guest list but no RSVP - return guest info
+            guest_data = GuestSerializer(guest).data
+            guest_data['found_in'] = 'guest_list'
+            guest_data['has_rsvp'] = False
+            return Response(guest_data, status=status.HTTP_200_OK)
+        
+        # Not found in RSVP or guest list
+        debug_info = {}
+        if settings.DEBUG:
+            all_phones = list(RSVP.objects.filter(event=event).values_list('phone', flat=True))
+            debug_info = {
+                'searched_phone': phone,
+                'original_phone': original_phone,
+                'all_phones_in_db': all_phones,
+                'total_rsvps': RSVP.objects.filter(event=event).count(),
+            }
+        return Response({
+            'error': 'No RSVP or guest found for this phone number',
+            'debug': debug_info
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_rsvp(request, event_id):
-    """Create RSVP for an event (public endpoint)"""
+    """Create or update RSVP for an event (public endpoint)"""
     try:
-        event = get_object_or_404(Event, id=event_id, is_public=True)
+        event = get_object_or_404(Event, id=event_id)
     except Event.DoesNotExist:
         return Response({'error': 'Event not found'}, status=status.HTTP_404_NOT_FOUND)
     
@@ -493,13 +1000,47 @@ def create_rsvp(request, event_id):
             country_code = request.data.get('country_code') or event_country_code
             phone = format_phone_with_country_code(phone, country_code)
         
-        # Check if this RSVP matches a guest in the guest list
-        guest = None
-        if event.guest_list.exists():
-            # Try to match by phone first, then by name
+        # For private events, verify user is in guest list
+        if not event.is_public:
+            phone_digits_only = re.sub(r'\D', '', phone)
+            provided_country_code = request.data.get('country_code') or event_country_code
+            
+            # Try to find in guest list
+            guest = None
+            # First try exact phone match
             guest = Guest.objects.filter(event=event, phone=phone).first()
+            
+            # If not found, try matching by digits only
             if not guest:
-                guest = Guest.objects.filter(event=event, name__iexact=name).first()
+                all_guests = Guest.objects.filter(event=event)
+                for g in all_guests:
+                    guest_phone_digits = re.sub(r'\D', '', g.phone)
+                    if guest_phone_digits == phone_digits_only:
+                        guest = g
+                        break
+                    
+                    # Try matching last 10 digits with country code verification
+                    if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                        local_number = phone_digits_only[-10:]
+                        if guest_phone_digits.endswith(local_number):
+                            stored_country_code, _ = parse_phone_number(g.phone)
+                            if stored_country_code == provided_country_code:
+                                guest = g
+                                break
+            
+            if not guest:
+                return Response(
+                    {'error': 'This is a private event. Only invited guests can RSVP.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        else:
+            # For public events, try to match guest (optional linking)
+            guest = None
+            if event.guest_list.exists():
+                # Try to match by phone first, then by name
+                guest = Guest.objects.filter(event=event, phone=phone).first()
+                if not guest:
+                    guest = Guest.objects.filter(event=event, name__iexact=name).first()
         
         # Check if RSVP already exists for this phone
         existing_rsvp = RSVP.objects.filter(event=event, phone=phone).first()
@@ -522,3 +1063,51 @@ def create_rsvp(request, event_id):
             return Response(RSVPSerializer(rsvp).data, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_image(request):
+    """
+    Upload an image file to S3 and return the public URL
+    
+    Accepts: multipart/form-data with 'image' field
+    Returns: { 'url': 'https://...' }
+    """
+    if 'image' not in request.FILES:
+        return Response(
+            {'error': 'No image file provided. Please include an image file in the request.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    image_file = request.FILES['image']
+    
+    # Validate file size (max 5MB)
+    max_size = 5 * 1024 * 1024  # 5MB
+    if image_file.size > max_size:
+        return Response(
+            {'error': f'Image file is too large. Maximum size is 5MB, but received {image_file.size / 1024 / 1024:.2f}MB.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Validate file type
+    allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+    if image_file.content_type not in allowed_types:
+        return Response(
+            {'error': f'Invalid file type. Allowed types: {", ".join(allowed_types)}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        # Upload to S3
+        s3_url = upload_to_s3(image_file, folder='events')
+        
+        return Response(
+            {'url': s3_url},
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to upload image: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

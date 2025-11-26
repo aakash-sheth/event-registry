@@ -86,6 +86,9 @@ export default function ItemsPage() {
     } catch (error: any) {
       if (error.response?.status === 401) {
         router.push('/host/login')
+      } else if (error.response?.status === 403 || error.response?.status === 404) {
+        showToast('You do not have access to this event', 'error')
+        router.push('/host/dashboard')
       } else {
         showToast('Failed to load items', 'error')
       }

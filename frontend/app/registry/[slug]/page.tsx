@@ -89,11 +89,32 @@ export default function RegistryPage() {
   // but registry items section is hidden (handled by conditional rendering)
 
   if (loading) {
-    return <div className="container mx-auto p-8">Loading...</div>
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-eco-beige to-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-eco-green mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading event...</p>
+        </div>
+      </div>
+    )
   }
 
   if (!event) {
-    return <div className="container mx-auto p-8">Registry not found</div>
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-eco-beige to-white flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto px-4">
+          <h1 className="text-3xl font-bold text-eco-green mb-4">Event Not Found</h1>
+          <p className="text-gray-600 mb-6">
+            The event you're looking for doesn't exist or may have been removed.
+          </p>
+          <Link href="/">
+            <Button className="bg-eco-green hover:bg-green-600 text-white">
+              Return to Home
+            </Button>
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -165,7 +186,7 @@ export default function RegistryPage() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-12 md:py-16 max-w-6xl">
         {/* Description Section */}
-        {event.description && event.description.trim() && (
+        {event.description && event.description.trim() ? (
           <div className="mb-12 md:mb-16">
             <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
               <CardContent className="p-8 md:p-12">
@@ -173,6 +194,16 @@ export default function RegistryPage() {
                   className="text-gray-700 prose prose-lg md:prose-xl max-w-none text-center leading-relaxed"
                   dangerouslySetInnerHTML={{ __html: event.description }}
                 />
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          <div className="mb-12 md:mb-16">
+            <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
+              <CardContent className="p-8 md:p-12 text-center">
+                <p className="text-gray-600 text-lg leading-relaxed">
+                  We're excited to celebrate with you! More details about this event will be shared soon.
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -216,7 +247,7 @@ export default function RegistryPage() {
         {/* Eco Message */}
         <div className="bg-gradient-to-r from-eco-green-light to-green-100 p-6 md:p-8 rounded-2xl mb-12 md:mb-16 text-center shadow-md">
           <p className="text-gray-800 text-lg md:text-xl">
-            🌱 <strong>Every meaningful gift reduces waste.</strong> Help us celebrate sustainably!
+            <strong>Every meaningful gift reduces waste.</strong> Help us celebrate sustainably!
           </p>
         </div>
 
@@ -284,7 +315,7 @@ export default function RegistryPage() {
                           : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       }`}
                     >
-                      {item.is_available ? '🎁 Gift This' : 'Out of Stock'}
+                      {item.is_available ? 'Gift This' : 'Out of Stock'}
                     </Button>
                   </CardContent>
                 </Card>
@@ -293,7 +324,6 @@ export default function RegistryPage() {
           ) : (
             <Card className="bg-white border-0 shadow-lg rounded-2xl">
               <CardContent className="p-12 text-center">
-                <div className="text-6xl mb-4">🎁</div>
                 <p className="text-gray-500 text-lg mb-2">No items available at the moment.</p>
                 <p className="text-gray-400 text-sm">
                   The host hasn't added any items to this registry yet. Check back soon!

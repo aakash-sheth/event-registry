@@ -97,11 +97,11 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
   const isMandatory = isTitleTile || tile.type === 'event-details'
 
   return (
-    <div className="border rounded-lg bg-white">
-      <div className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-3">
+    <div className="border rounded-lg bg-white w-full overflow-x-hidden">
+      <div className="flex items-center justify-between p-3 sm:p-4 border-b w-full min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {isMandatory ? (
-            <div className="w-4 h-4 flex items-center justify-center">
+            <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
               <span className="text-xs text-eco-green font-bold">*</span>
             </div>
           ) : (
@@ -109,23 +109,23 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
               type="checkbox"
               checked={tile.enabled}
               onChange={(e) => onToggle(tile.id, e.target.checked)}
-              className="w-4 h-4 text-eco-green"
+              className="w-4 h-4 text-eco-green flex-shrink-0"
             />
           )}
-          <h3 className="font-semibold text-gray-800">
+          <h3 className="font-semibold text-gray-800 text-sm sm:text-base truncate min-w-0">
             {TILE_LABELS[tile.type]}
             {isMandatory && <span className="text-red-500 ml-1">*</span>}
           </h3>
         </div>
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-gray-100 rounded"
+          className="p-1 hover:bg-gray-100 rounded flex-shrink-0"
         >
-          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          {isExpanded ? <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />}
         </button>
       </div>
       {isExpanded && (
-        <div className="p-4">
+        <div className="p-3 sm:p-4 w-full overflow-x-hidden">
           {renderSettings()}
         </div>
       )}

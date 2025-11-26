@@ -41,6 +41,17 @@ export default function InvitePage() {
           customColors: eventData.page_config.customColors || undefined,
         }
         
+        // Debug: Log image tile settings when loading public page
+        const imageTile = configWithCustomColors.tiles?.find((t: any) => t.type === 'image')
+        if (imageTile) {
+          console.log('[Public Invite Page] Raw API response - image tile:', imageTile)
+          console.log('[Public Invite Page] Image tile settings:', imageTile.settings)
+          console.log('[Public Invite Page] coverPosition from API:', (imageTile.settings as any)?.coverPosition)
+          console.log('[Public Invite Page] Full page_config from API:', JSON.stringify(eventData.page_config, null, 2))
+        } else {
+          console.log('[Public Invite Page] No image tile found in config')
+        }
+        
         setEvent(eventData)
         setConfig(configWithCustomColors)
       } else {

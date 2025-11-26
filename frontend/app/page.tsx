@@ -3,334 +3,295 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { 
+  Leaf, 
+  Mail, 
+  CheckCircle, 
+  Gift, 
+  Calendar, 
+  MapPin, 
+  FileText, 
+  UtensilsCrossed, 
+  Clock,
+  Check,
+  Bell,
+  Lock
+} from 'lucide-react'
+import { useEffect, useRef } from 'react'
 
 export default function LandingPage() {
+  const stepsRef = useRef<(HTMLDivElement | null)[]>([])
+
+  useEffect(() => {
+    const steps = stepsRef.current.filter(Boolean) as HTMLDivElement[]
+    
+    const observerOptions = {
+      threshold: 0.2,
+      rootMargin: '0px 0px -100px 0px'
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('step-visible')
+        }
+      })
+    }, observerOptions)
+
+    steps.forEach(step => {
+      observer.observe(step)
+    })
+
+    return () => {
+      steps.forEach(step => observer.unobserve(step))
+    }
+  }, [])
+
   return (
-    <div className="min-h-screen bg-eco-beige">
+    <div className="min-h-screen bg-white overflow-x-hidden">
       {/* Navigation Bar */}
-      <nav className="bg-white border-b border-eco-green-light sticky top-0 z-50 shadow-sm">
+      <nav className="bg-white border-b border-pastel-green sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">🌿</span>
-            <span className="text-xl font-bold text-eco-green">CelebrateMindfully</span>
+            <Leaf className="w-6 h-6 text-bright-teal" />
+            <div>
+              <div className="text-xl font-bold text-bright-teal">Celebrate Mindfully</div>
+              <div className="text-xs text-gray-500">by Sustain &amp; Slay</div>
+            </div>
           </div>
           <div className="flex gap-4">
             <Link href="/host/login">
-              <Button variant="ghost" className="text-eco-green">Host Login</Button>
+              <Button variant="ghost" className="text-bright-teal">Host Login</Button>
             </Link>
-            <Link href="/host/login">
-              <Button className="bg-eco-green hover:bg-green-600 text-white">Get Started</Button>
+            <Link href="/host/signup">
+              <Button className="bg-bright-teal hover:bg-forest-green text-white">Get Started</Button>
             </Link>
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="container mx-auto px-4 py-20">
-        <div className="text-center max-w-4xl mx-auto mb-16">
-          <div className="inline-block bg-eco-green-light px-4 py-2 rounded-full mb-6">
-            <span className="text-sm font-medium text-eco-green">✨ Trusted by 500+ hosts across India</span>
-          </div>
-          <h1 className="text-6xl font-bold mb-6 text-eco-green leading-tight">
-            Plan Smarter.<br />
-            Celebrate Sustainably.
-          </h1>
-          <p className="text-2xl text-gray-700 mb-8 leading-relaxed">
-            The all-in-one platform for RSVPs and gift registries.<br />
-            <span className="text-lg text-gray-600">Reduce waste, save time, and make every celebration meaningful.</span>
-          </p>
-          <div className="flex gap-4 justify-center mb-12">
-            <Link href="/host/signup">
-              <Button className="bg-eco-green hover:bg-green-600 text-white px-10 py-7 text-lg rounded-full shadow-lg hover:shadow-xl transition-all">
-                Start Free Trial →
-              </Button>
-            </Link>
-            <Link href="/registry/demo-wedding">
-              <Button variant="outline" className="border-2 border-eco-green text-eco-green hover:bg-eco-green-light px-10 py-7 text-lg rounded-full">
-                View Live Demo
-              </Button>
-            </Link>
-          </div>
+      <main>
+        {/* Hero Section */}
+        <section className="relative min-h-[90vh] flex items-center justify-center bg-gradient-to-br from-pastel-cream via-pastel-blue to-pastel-cream overflow-hidden px-4 py-8">
+          {/* Floating background elements */}
+          <div className="absolute w-[300px] h-[300px] bg-pastel-green rounded-full -top-[100px] -right-[100px] opacity-30 animate-float" />
+          <div className="absolute w-[200px] h-[200px] bg-sunshine-yellow rounded-full -bottom-[50px] -left-[50px] opacity-30 animate-float-reverse" />
           
-          {/* Trust Indicators */}
-          <div className="flex items-center justify-center gap-8 text-sm text-gray-600">
-            <div className="flex items-center gap-2">
-              <span className="text-green-600">✓</span>
-              <span>No credit card required</span>
+          <div className="text-center z-10 max-w-5xl mx-auto">
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-bright-teal mb-4">
+              🌿 Celebrate Mindfully
+            </h1>
+            <p className="text-xl md:text-2xl text-forest-green mb-4">
+              Plan Smarter. Celebrate Sustainably.
+            </p>
+            <p className="text-base md:text-lg text-earth-brown mb-8 max-w-3xl mx-auto">
+              Create beautiful digital invitations, manage RSVPs, and build gift registries—all in one place.<br />
+              <strong>Reduce waste, save time, and make every celebration meaningful.</strong>
+            </p>
+            <div className="flex gap-4 justify-center flex-wrap mb-6">
+              <Link href="/host/signup">
+                <Button className="bg-bright-teal hover:bg-forest-green text-white px-8 py-6 text-lg font-semibold rounded-full shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
+                  Start Free Trial →
+                </Button>
+              </Link>
+              <Link href="#how-it-works">
+                <Button variant="outline" className="border-2 border-bright-teal text-bright-teal hover:bg-bright-teal hover:text-white px-8 py-6 text-lg font-semibold rounded-full">
+                  View Live Demo
+                </Button>
+              </Link>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-green-600">✓</span>
-              <span>Setup in 5 minutes</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-green-600">✓</span>
-              <span>Free forever</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats Section */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-20 max-w-4xl mx-auto">
-          <div className="bg-white rounded-xl p-6 text-center border border-eco-green-light shadow-sm">
-            <div className="text-3xl font-bold text-eco-green mb-2">500+</div>
-            <div className="text-sm text-gray-600">Active Hosts</div>
-          </div>
-          <div className="bg-white rounded-xl p-6 text-center border border-eco-green-light shadow-sm">
-            <div className="text-3xl font-bold text-eco-green mb-2">2,500+</div>
-            <div className="text-sm text-gray-600">Events Created</div>
-          </div>
-          <div className="bg-white rounded-xl p-6 text-center border border-eco-green-light shadow-sm">
-            <div className="text-3xl font-bold text-eco-green mb-2">50K+</div>
-            <div className="text-sm text-gray-600">RSVPs Tracked</div>
-          </div>
-          <div className="bg-white rounded-xl p-6 text-center border border-eco-green-light shadow-sm">
-            <div className="text-3xl font-bold text-eco-green mb-2">₹2.5Cr+</div>
-            <div className="text-sm text-gray-600">Gifts Managed</div>
-          </div>
-        </div>
-      </section>
-
-      {/* Problem/Solution Section */}
-      <section className="bg-white py-20">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-eco-green">Stop the Guesswork</h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Traditional event planning leads to waste, stress, and missed opportunities. 
-              We make it simple, accurate, and sustainable.
+            <p className="text-sm text-earth-brown">
+              ✓ No credit card required &nbsp;•&nbsp; ✓ Setup in 5 minutes &nbsp;•&nbsp; ✓ Free invites for every celebration
             </p>
           </div>
+        </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <Card className="bg-eco-beige border-2 border-eco-green-light">
-              <CardHeader>
-                <div className="text-5xl mb-4">🌱</div>
-                <CardTitle className="text-2xl text-eco-green">Reduce Waste by 40%</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-base">
-                  Accurate RSVPs mean no over-ordering food. Digital invites save paper. 
-                  Every celebration becomes more sustainable without sacrificing the experience.
-                </CardDescription>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-eco-beige border-2 border-eco-green-light">
-              <CardHeader>
-                <div className="text-5xl mb-4">⏰</div>
-                <CardTitle className="text-2xl text-eco-green">Save 10+ Hours</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-base">
-                  Track RSVPs and gifts in one dashboard. No more spreadsheets, 
-                  WhatsApp chaos, or manual tracking. Everything organized automatically.
-                </CardDescription>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-eco-beige border-2 border-eco-green-light">
-              <CardHeader>
-                <div className="text-5xl mb-4">🎁</div>
-                <CardTitle className="text-2xl text-eco-green">Meaningful Gifting</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-base">
-                  Let guests gift what you'll actually use. Avoid duplicates, 
-                  reduce returns, and ensure every gift is appreciated and useful.
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section className="bg-eco-beige py-20">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-eco-green">How It Works</h2>
-            <p className="text-xl text-gray-600">Get started in minutes, not hours</p>
-          </div>
-          
-          <div className="max-w-4xl mx-auto">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="bg-white rounded-xl p-8 border-2 border-eco-green-light shadow-sm">
-                <div className="bg-eco-green text-white rounded-full w-12 h-12 flex items-center justify-center text-2xl font-bold mb-4">
-                  1
-                </div>
-                <h3 className="text-xl font-semibold mb-3 text-eco-green">Create Your Event</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Set up your event details in under 5 minutes. Add date, venue, and enable RSVP or Registry features.
-                </p>
+        {/* Moving Impact Banner */}
+        <section className="bg-gradient-to-r from-bright-teal via-forest-green to-bright-teal bg-[length:200%_100%] py-12 overflow-hidden animate-gradient-shift">
+          <div className="flex animate-scroll whitespace-nowrap">
+            {[
+              { number: '500+', text: 'Hosts Choosing Intention' },
+              { number: '2,500+', text: 'Celebrations Reimagined' },
+              { number: '50K+', text: 'RSVPs Tracked' },
+              { number: '₹2.5Cr+', text: 'Thoughtful Gifts' },
+              { number: '1M+', text: 'Sheets of Paper Saved' },
+              { number: '125K kg', text: 'Food Waste Prevented' },
+            ].concat([
+              { number: '500+', text: 'Hosts Choosing Intention' },
+              { number: '2,500+', text: 'Celebrations Reimagined' },
+              { number: '50K+', text: 'RSVPs Tracked' },
+              { number: '₹2.5Cr+', text: 'Thoughtful Gifts' },
+              { number: '1M+', text: 'Sheets of Paper Saved' },
+              { number: '125K kg', text: 'Food Waste Prevented' },
+            ]).map((item, idx) => (
+              <div key={idx} className="inline-flex items-center mx-12 text-white text-xl md:text-2xl font-semibold">
+                <span className="text-3xl md:text-4xl mr-2 text-sunshine-yellow">{item.number}</span>
+                <span>{item.text}</span>
               </div>
-              
-              <div className="bg-white rounded-xl p-8 border-2 border-eco-green-light shadow-sm">
-                <div className="bg-eco-green text-white rounded-full w-12 h-12 flex items-center justify-center text-2xl font-bold mb-4">
-                  2
-                </div>
-                <h3 className="text-xl font-semibold mb-3 text-eco-green">Share with Guests</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Send a simple link or QR code. Guests RSVP and browse your registry from any device, anywhere.
-                </p>
-              </div>
-              
-              <div className="bg-white rounded-xl p-8 border-2 border-eco-green-light shadow-sm">
-                <div className="bg-eco-green text-white rounded-full w-12 h-12 flex items-center justify-center text-2xl font-bold mb-4">
-                  3
-                </div>
-                <h3 className="text-xl font-semibold mb-3 text-eco-green">Track Everything</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Real-time dashboard shows RSVPs, gift bookings, and sustainability impact. Export data anytime.
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Features Grid */}
-      <section className="bg-white py-20">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-eco-green">Everything You Need</h2>
-            <p className="text-xl text-gray-600">All features included, no hidden costs</p>
+        {/* Problem Section */}
+        <section className="py-20 px-4 bg-pastel-cream text-center">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-bright-teal mb-12">
+            Yet here you are, drowning in...
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+            {[
+              { icon: '📱', title: 'RSVP Chaos', desc: 'Guests responding on different platforms (or not at all)' },
+              { icon: '📄', title: 'Paper Waste', desc: '500+ printed invitations for a single event, ending up in trash' },
+              { icon: '🎁', title: 'Duplicate Gifts', desc: 'Unwanted gifts piling up, returns, and landfill waste' },
+              { icon: '🍽️', title: 'Food Over-ordering', desc: '30-40% of catered food wasted due to inaccurate guest counts' },
+            ].map((problem, idx) => (
+              <Card key={idx} className="bg-white border-0 shadow-md hover:shadow-xl transition-all hover:-translate-y-2">
+                <CardContent className="p-6 text-center">
+                  <div className="text-5xl mb-4">{problem.icon}</div>
+                  <h3 className="text-xl font-semibold text-forest-green mb-3">{problem.title}</h3>
+                  <p className="text-gray-700">{problem.desc}</p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
+        </section>
 
+        {/* How It Works Section */}
+        <section id="how-it-works" className="py-20 px-4 bg-white">
+          <h2 className="text-center text-3xl md:text-4xl lg:text-5xl font-bold text-bright-teal mb-16">
+            How It Works – In 3 Simple Steps
+          </h2>
+          <div className="max-w-6xl mx-auto space-y-16">
+            {[
+              {
+                number: 1,
+                title: '💌 Create Your Digital Invitation',
+                description: 'Design beautiful, personalized digital invitations in under 5 minutes. Add your event details, enable RSVP tracking, and set up your gift registry. No printing. No postage. Instant delivery.',
+                impact: '🌱 Save 500+ sheets of paper per 100 guests',
+                visual: '📧',
+              },
+              {
+                number: 2,
+                title: '✅ Share & Track RSVPs',
+                description: 'Send one simple link via WhatsApp, email, or social media. Guests receive their invite, RSVP instantly, and browse your gift registry—all from any device. Real-time tracking. Zero chaos.',
+                impact: '🌱 Prevent 50-100kg of food waste with accurate counts',
+                visual: '📊',
+              },
+              {
+                number: 3,
+                title: '🎯 See Your Impact in Real-Time',
+                description: 'Watch RSVPs, gift bookings, and sustainability metrics update live. Export data anytime. See exactly how much waste you\'ve prevented. Celebrate with purpose.',
+                impact: '🌱 Track paper saved, food waste prevented, and positive impact',
+                visual: '🎉',
+              },
+            ].map((step, idx) => (
+              <div
+                key={idx}
+                ref={el => stepsRef.current[idx] = el}
+                className={`flex flex-col ${idx % 2 === 1 ? 'md:flex-row-reverse' : 'md:flex-row'} items-center gap-8 opacity-0 transition-all duration-700 ${
+                  idx % 2 === 1 ? 'translate-x-12' : '-translate-x-12'
+                }`}
+              >
+                <div className="flex-shrink-0 w-24 h-24 bg-gradient-to-br from-bright-teal to-pastel-green rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg">
+                  {step.number}
+                </div>
+                <div className="flex-1 bg-pastel-cream p-8 rounded-3xl shadow-lg">
+                  <h3 className="text-2xl md:text-3xl font-bold text-bright-teal mb-4">{step.title}</h3>
+                  <p className="text-lg text-earth-brown mb-4 leading-relaxed">{step.description}</p>
+                  <p className="text-bright-teal font-semibold">{step.impact}</p>
+                </div>
+                <div className="flex-1 bg-pastel-blue rounded-3xl p-8 min-h-[200px] flex items-center justify-center text-6xl shadow-lg">
+                  {step.visual}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Features Section */}
+        <section className="py-20 px-4 bg-gradient-to-br from-pastel-green via-pastel-blue to-pastel-green">
+          <h2 className="text-center text-3xl md:text-4xl lg:text-5xl font-bold text-bright-teal mb-16">
+            Everything You Need, All in One Platform
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
             {[
-              { icon: '📋', title: 'Smart RSVP Tracking', desc: 'Real-time responses with guest counts and meal preferences' },
-              { icon: '🎁', title: 'Gift Registry', desc: 'Add items, track bookings, avoid duplicates' },
-              { icon: '💳', title: 'Secure Payments', desc: 'Razorpay integration for seamless gift payments' },
-              { icon: '📊', title: 'Analytics Dashboard', desc: 'See RSVP trends, gift analytics, and sustainability metrics' },
-              { icon: '📧', title: 'Email Notifications', desc: 'Automatic updates to hosts and guests' },
-              { icon: '📱', title: 'Mobile Friendly', desc: 'Works perfectly on phones, tablets, and desktops' },
-              { icon: '🔒', title: 'Privacy First', desc: 'Your data is secure. We never share guest information' },
-              { icon: '🌐', title: 'Public or Private', desc: 'Control who can see your event and registry' },
-              { icon: '📥', title: 'CSV Export', desc: 'Download all data for your records anytime' },
+              { icon: Mail, title: 'Digital Invitations', desc: 'Beautiful, personalized invites with no paper waste. Share via link or QR code.' },
+              { icon: CheckCircle, title: 'Smart RSVP Tracking', desc: 'Real-time responses with guest counts and meal preferences. Order exactly what you need.' },
+              { icon: Gift, title: 'Gift Registry', desc: 'Avoid duplicates, reduce returns. Guests gift what you\'ll actually use.' },
+              { icon: Leaf, title: 'Sustainability Dashboard', desc: 'See your environmental impact: paper saved, food waste prevented, gifts managed mindfully.' },
+              { icon: Bell, title: 'Smart Notifications', desc: 'Auto-notify hosts and guests when RSVPs change, dress codes update, or gifts are added.' },
+              { icon: Lock, title: 'Private Guest Lists', desc: 'Control who can RSVP with private settings. Manage your approved guest list easily.' },
             ].map((feature, idx) => (
-              <Card key={idx} className="bg-eco-beige border border-eco-green-light hover:shadow-md transition-shadow">
-                <CardHeader>
-                  <div className="text-3xl mb-2">{feature.icon}</div>
-                  <CardTitle className="text-lg text-eco-green">{feature.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>{feature.desc}</CardDescription>
+              <Card key={idx} className="bg-white border-l-4 border-l-bright-teal shadow-md hover:shadow-xl transition-all hover:scale-105">
+                <CardContent className="p-6">
+                  <feature.icon className="w-12 h-12 text-bright-teal mb-4" />
+                  <h3 className="text-xl font-semibold text-bright-teal mb-3">{feature.title}</h3>
+                  <p className="text-gray-700">{feature.desc}</p>
                 </CardContent>
               </Card>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Social Proof / Testimonials */}
-      <section className="bg-eco-beige py-20">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-eco-green">Loved by Hosts</h2>
-            <p className="text-xl text-gray-600">See what others are saying</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        {/* Sustainability Impact Section */}
+        <section className="py-20 px-4 bg-pastel-cream text-center">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-bright-teal mb-6">
+            The Impact We&apos;re Creating Together
+          </h2>
+          <p className="text-xl text-forest-green mb-12 max-w-3xl mx-auto">
+            Every celebration on our platform creates real, measurable environmental impact
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {[
-              {
-                name: 'Priya Sharma',
-                event: 'Wedding',
-                text: 'Saved us so much time! RSVPs were organized automatically and we avoided over-ordering food. Highly recommend!',
-                rating: 5
-              },
-              {
-                name: 'Rahul Mehta',
-                event: 'Housewarming',
-                text: 'The gift registry feature is amazing. No more duplicate gifts, and guests loved how easy it was to use.',
-                rating: 5
-              },
-              {
-                name: 'Anjali Patel',
-                event: 'Birthday',
-                text: 'Setup took 5 minutes. The dashboard is clean and the sustainability metrics are a nice touch. Great platform!',
-                rating: 5
-              },
-            ].map((testimonial, idx) => (
-              <Card key={idx} className="bg-white border-2 border-eco-green-light shadow-sm">
-                <CardHeader>
-                  <div className="flex items-center gap-1 mb-2">
-                    {[...Array(testimonial.rating)].map((_, i) => (
-                      <span key={i} className="text-yellow-400">★</span>
-                    ))}
+              { stat: '40%', label: 'Less Food Waste' },
+              { stat: '100%', label: 'Paper Saved' },
+              { stat: '10+', label: 'Hours Saved' },
+              { stat: '0', label: 'Duplicate Gifts' },
+            ].map((impact, idx) => (
+              <Card key={idx} className="bg-white p-8 rounded-3xl shadow-md hover:shadow-xl transition-all hover:-translate-y-2 hover:bg-gradient-to-br hover:from-pastel-green hover:to-pastel-blue group">
+                <CardContent className="p-0">
+                  <div className="text-5xl font-bold text-bright-teal mb-2 group-hover:text-white transition-colors">
+                    {impact.stat}
                   </div>
-                  <CardDescription className="text-base">{testimonial.text}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="font-semibold text-eco-green">{testimonial.name}</div>
-                  <div className="text-sm text-gray-500">{testimonial.event}</div>
+                  <div className="text-lg font-semibold text-forest-green group-hover:text-white transition-colors">
+                    {impact.label}
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* CTA Section */}
-      <section className="bg-eco-green py-20">
-        <div className="container mx-auto px-4 text-center">
-          <h2 className="text-4xl font-bold mb-4 text-white">Ready to Plan Your Perfect Event?</h2>
-          <p className="text-xl text-green-100 mb-8 max-w-2xl mx-auto">
+        {/* CTA Section */}
+        <section className="bg-gradient-to-r from-bright-teal to-forest-green py-20 px-4 text-center text-white">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
+            Ready to Plan Your Perfect Event?
+          </h2>
+          <p className="text-xl md:text-2xl mb-8 opacity-90 max-w-2xl mx-auto">
             Join hundreds of hosts who are making their celebrations more meaningful and sustainable.
           </p>
           <Link href="/host/signup">
-            <Button className="bg-white text-eco-green hover:bg-green-50 px-10 py-7 text-lg rounded-full shadow-lg">
+            <Button className="bg-white text-bright-teal hover:bg-pastel-cream px-10 py-7 text-lg font-semibold rounded-full shadow-xl hover:shadow-2xl transition-all transform hover:scale-105">
               Get Started Free →
             </Button>
           </Link>
-          <p className="text-green-100 text-sm mt-4">No credit card required • Setup in 5 minutes • Free forever</p>
-        </div>
-      </section>
+          <p className="mt-6 text-sm opacity-90">
+            No credit card required • Setup in 5 minutes • Free invites for every celebration
+          </p>
+        </section>
+      </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-eco-green-light py-12">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-2xl">🌿</span>
-                <span className="text-lg font-bold text-eco-green">CelebrateMindfully</span>
-              </div>
-              <p className="text-sm text-gray-600">
-                Making celebrations smarter, more sustainable, and more meaningful.
-              </p>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4 text-eco-green">Product</h4>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li><Link href="/host/signup" className="hover:text-eco-green">Get Started</Link></li>
-                <li><Link href="/host/login" className="hover:text-eco-green">Host Login</Link></li>
-                <li><Link href="/registry/demo-wedding" className="hover:text-eco-green">View Demo</Link></li>
-                <li><Link href="#" className="hover:text-eco-green">Features</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4 text-eco-green">Company</h4>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li><Link href="#" className="hover:text-eco-green">About</Link></li>
-                <li><Link href="#" className="hover:text-eco-green">Sustainability</Link></li>
-                <li><Link href="#" className="hover:text-eco-green">Contact</Link></li>
-                <li><Link href="#" className="hover:text-eco-green">Blog</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4 text-eco-green">Legal</h4>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li><Link href="#" className="hover:text-eco-green">Privacy Policy</Link></li>
-                <li><Link href="#" className="hover:text-eco-green">Terms of Service</Link></li>
-                <li><Link href="#" className="hover:text-eco-green">Security</Link></li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-eco-green-light pt-8 text-center text-sm text-gray-600">
-            <p>© 2024 CelebrateMindfully. Made with 🌿 for sustainable celebrations.</p>
-          </div>
-        </div>
+      <footer className="bg-forest-green text-white py-8 px-4 text-center">
+        <p className="text-lg font-bold mb-2">🌿 <strong>Celebrate Mindfully</strong></p>
+        <p className="text-sm opacity-80">Making celebrations smarter, more sustainable, and more meaningful.</p>
       </footer>
+
+      <style jsx global>{`
+        .step-visible {
+          opacity: 1 !important;
+          transform: translateX(0) !important;
+        }
+      `}</style>
     </div>
   )
 }

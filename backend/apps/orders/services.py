@@ -71,7 +71,48 @@ class OrderService:
     @transaction.atomic
     def create_order(event_id, item_id, buyer_name, buyer_email, buyer_phone, amount_inr=None):
         """Create order and Razorpay order"""
+        from apps.events.models import Guest
+        from apps.events.utils import get_country_code, format_phone_with_country_code, parse_phone_number
+        import re
+        
         event = Event.objects.get(id=event_id)
+        
+        # For private events, verify buyer is in guest list
+        if not event.is_public and buyer_phone:
+            # Format phone
+            phone = buyer_phone
+            event_country_code = get_country_code(event.country)
+            if not phone.startswith('+'):
+                phone = format_phone_with_country_code(phone, event_country_code)
+            
+            # Try to find in guest list
+            guest = None
+            phone_digits_only = re.sub(r'\D', '', phone)
+            
+            # First try exact phone match
+            guest = Guest.objects.filter(event=event, phone=phone).first()
+            
+            # If not found, try matching by digits only
+            if not guest:
+                all_guests = Guest.objects.filter(event=event)
+                for g in all_guests:
+                    guest_phone_digits = re.sub(r'\D', '', g.phone)
+                    if guest_phone_digits == phone_digits_only:
+                        guest = g
+                        break
+                    
+                    # Try matching last 10 digits with country code verification
+                    if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                        local_number = phone_digits_only[-10:]
+                        if guest_phone_digits.endswith(local_number):
+                            stored_country_code, _ = parse_phone_number(g.phone)
+                            provided_country_code = event_country_code
+                            if stored_country_code == provided_country_code:
+                                guest = g
+                                break
+            
+            if not guest:
+                raise ValueError("This is a private event. Only invited guests can purchase items.")
         
         if item_id:
             item = RegistryItem.objects.get(id=item_id, event=event)

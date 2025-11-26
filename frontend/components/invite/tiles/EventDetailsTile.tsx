@@ -122,8 +122,8 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed">
                   {formatDate(settings.date)}
                 </div>
-              </div>
-            )}
+            </div>
+          )}
 
             {settings.time && (
               <div className="space-y-2">
@@ -133,8 +133,8 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed">
                   {formatTime(settings.time)}
                 </div>
-              </div>
-            )}
+            </div>
+          )}
 
             {settings.location && (
               <div className="space-y-2">
@@ -155,10 +155,10 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                     </a>
                   )}
                 </div>
-              </div>
-            )}
+            </div>
+          )}
 
-            {settings.dressCode && (
+          {settings.dressCode && (
               <div className="space-y-2">
                 <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
                   Dress Code
@@ -166,8 +166,8 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed italic">
                   {settings.dressCode}
                 </div>
-              </div>
-            )}
+            </div>
+          )}
           </div>
 
           {/* Decorative bottom border */}

@@ -140,8 +140,11 @@ def otp_verify(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Clear OTP
+    # Clear OTP and verify email (if not already verified)
     user.clear_otp()
+    if not user.email_verified:
+        user.email_verified = True
+        user.save(update_fields=['email_verified'])
     
     # Generate JWT tokens
     refresh = RefreshToken.for_user(user)

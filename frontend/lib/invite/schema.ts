@@ -30,15 +30,10 @@ export interface TitleTileSettings {
 
 export interface ImageTileSettings {
   src?: string // Image URL or data URL
-  fitMode?: 'fit-to-screen' | 'full-image' | 'crop-selected-section'
+  fitMode?: 'fit-to-screen' | 'full-image'
   backgroundColor?: string // Background color if image doesn't fill
   blur?: number // 0-100, only when Title overlay is active
-  cropData?: {
-    x: number
-    y: number
-    width: number
-    height: number
-  }
+  coverPosition?: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | { x: number; y: number } // Position for cover image mode (x, y are 0-100 percentages)
 }
 
 export interface TimerTileSettings {

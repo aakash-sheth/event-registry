@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -40,14 +40,34 @@ interface Event {
   slug?: string
 }
 
+interface ExistingRSVP {
+  id: number
+  name: string
+  phone: string
+  email: string
+  will_attend?: 'yes' | 'no' | 'maybe'
+  guests_count?: number
+  notes?: string
+  created_at?: string
+  updated_at?: string
+  found_in?: 'rsvp' | 'guest_list'
+  has_rsvp?: boolean
+}
+
 export default function RSVPPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
   const { showToast } = useToast()
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [existingRSVP, setExistingRSVP] = useState<ExistingRSVP | null>(null)
+  const [checkingRSVP, setCheckingRSVP] = useState(false)
+  
+  // Detect QR code source from URL parameter
+  const sourceChannel = searchParams.get('source') === 'qr' ? 'qr' : 'link'
 
   const {
     register,
@@ -65,10 +85,150 @@ export default function RSVPPage() {
   })
 
   const willAttend = watch('will_attend')
+  const phoneValue = watch('phone')
+  const countryCodeValue = watch('country_code')
 
   useEffect(() => {
     fetchEvent()
   }, [slug])
+
+  // Check for existing RSVP when phone number is entered
+  useEffect(() => {
+    if (!event || !phoneValue || phoneValue.length < 10) {
+      setExistingRSVP(null)
+      return
+    }
+
+    // Debounce the check
+    const timeoutId = setTimeout(async () => {
+      try {
+        setCheckingRSVP(true)
+        const countryCode = countryCodeValue || event?.country_code || '+91'
+        
+        console.log('=== RSVP Check Debug ===')
+        console.log('Phone entered:', phoneValue)
+        console.log('Country code selected:', countryCodeValue)
+        console.log('Country code used:', countryCode)
+        console.log('Event ID:', event.id)
+        console.log('Full request params:', {
+          phone: phoneValue,
+          country_code: countryCode,
+        })
+        
+        const response = await api.get(`/api/events/${event.id}/rsvp/check/`, {
+          params: {
+            phone: phoneValue,
+            country_code: countryCode,
+          },
+        })
+        
+        const foundIn = response.data.found_in || 'rsvp'
+        console.log(`=== ${foundIn === 'rsvp' ? 'RSVP' : 'Guest'} Found ===`)
+        console.log('Response data:', response.data)
+        console.log('Stored phone in DB:', response.data.phone)
+        setExistingRSVP(response.data)
+        
+        // Extract local phone number and country code from stored phone
+        // Stored phone format: +91XXXXXXXXXX
+        let localPhone = ''
+        let storedCountryCode = countryCode
+        
+        if (response.data.phone) {
+          const storedPhone = response.data.phone.trim()
+          
+          if (storedPhone.startsWith('+')) {
+            // Extract country code and local number
+            const phoneDigits = storedPhone.replace(/\D/g, '')
+            
+            // Try to match with current country code first
+            const currentCodeDigits = countryCode.replace('+', '')
+            if (phoneDigits.startsWith(currentCodeDigits)) {
+              storedCountryCode = countryCode
+              localPhone = phoneDigits.slice(currentCodeDigits.length)
+            } else {
+              // Try common country codes
+              const commonCodes = [
+                { code: '91', full: '+91' },   // India
+                { code: '1', full: '+1' },     // US/Canada
+                { code: '44', full: '+44' },   // UK
+                { code: '86', full: '+86' },   // China
+                { code: '81', full: '+81' },   // Japan
+                { code: '49', full: '+49' },   // Germany
+                { code: '33', full: '+33' },   // France
+                { code: '39', full: '+39' },   // Italy
+                { code: '7', full: '+7' },      // Russia
+                { code: '61', full: '+61' },    // Australia
+              ]
+              
+              for (const { code, full } of commonCodes) {
+                if (phoneDigits.startsWith(code)) {
+                  storedCountryCode = full
+                  localPhone = phoneDigits.slice(code.length)
+                  break
+                }
+              }
+              
+              // If no match found, assume it's the current country code
+              if (!localPhone) {
+                storedCountryCode = countryCode
+                localPhone = phoneDigits.slice(currentCodeDigits.length) || phoneDigits
+              }
+            }
+          } else {
+            // Phone doesn't start with +, might be just local number
+            localPhone = storedPhone.replace(/\D/g, '')
+          }
+        }
+        
+        // Pre-fill form with data
+        // Use shouldValidate: false to avoid validation errors during auto-fill
+        setValue('name', response.data.name, { shouldValidate: false, shouldDirty: true })
+        setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
+        setValue('country_code', storedCountryCode, { shouldValidate: false, shouldDirty: true })
+        setValue('email', response.data.email || '', { shouldValidate: false, shouldDirty: true })
+        
+        // Only pre-fill RSVP-specific fields if it's an existing RSVP
+        if (foundIn === 'rsvp' && response.data.will_attend) {
+          setValue('will_attend', response.data.will_attend, { shouldValidate: false, shouldDirty: true })
+          setValue('guests_count', response.data.guests_count || 1, { shouldValidate: false, shouldDirty: true })
+          setValue('notes', response.data.notes || '', { shouldValidate: false, shouldDirty: true })
+        } else {
+          // Guest list - set defaults for RSVP fields
+          setValue('will_attend', 'yes', { shouldValidate: false, shouldDirty: false })
+          setValue('guests_count', 1, { shouldValidate: false, shouldDirty: false })
+          setValue('notes', '', { shouldValidate: false, shouldDirty: false })
+        }
+        
+        console.log('Form values set:', {
+          name: response.data.name,
+          phone: localPhone,
+          country_code: storedCountryCode,
+          email: response.data.email,
+          found_in: foundIn,
+          will_attend: foundIn === 'rsvp' ? response.data.will_attend : 'yes (default)',
+        })
+      } catch (error: any) {
+        // No existing RSVP found - that's okay
+        if (error.response?.status === 404) {
+          console.log('No existing RSVP found for this phone number')
+          // Log debug info if available
+          if (error.response?.data?.debug) {
+            console.log('Debug info:', error.response.data.debug)
+            console.log('Searched phone:', error.response.data.debug.searched_phone)
+            console.log('All phones in DB:', error.response.data.debug.all_phones_in_db)
+          }
+        } else {
+          console.error('Error checking RSVP:', error)
+          showToast('Error checking for existing RSVP', 'error')
+        }
+        setExistingRSVP(null)
+      } finally {
+        setCheckingRSVP(false)
+      }
+    }, 1000) // Wait 1 second after user stops typing
+
+    return () => clearTimeout(timeoutId)
+  }, [phoneValue, countryCodeValue, event, setValue])
 
   const fetchEvent = async () => {
     try {
@@ -111,7 +271,7 @@ export default function RSVPPage() {
       const countryCode = data.country_code || event?.country_code || '+91'
       const formattedPhone = formatPhoneWithCountryCode(data.phone, countryCode)
       
-      await api.post(`/api/events/${event?.id}/rsvp/`, {
+      const response = await api.post(`/api/events/${event?.id}/rsvp/`, {
         name: data.name,
         phone: formattedPhone,
         country_code: countryCode,
@@ -119,13 +279,30 @@ export default function RSVPPage() {
         will_attend: data.will_attend,
         guests_count: data.guests_count,
         notes: data.notes || '',
-        source_channel: 'link',
+        source_channel: sourceChannel,
       })
-      showToast('RSVP confirmed! 🌿 Thanks for helping us plan better.', 'success')
-      // Redirect to registry after a moment
+      
+      const isUpdate = existingRSVP !== null && existingRSVP.found_in === 'rsvp'
+      const isFirstRSVP = existingRSVP !== null && existingRSVP.found_in === 'guest_list'
+      
+      let message = ''
+      if (isUpdate) {
+        message = 'RSVP updated successfully! 🌿 Thanks for keeping us informed.'
+      } else if (isFirstRSVP) {
+        message = 'RSVP confirmed! 🌿 Thanks for helping us plan better.'
+      } else {
+        message = 'RSVP confirmed! 🌿 Thanks for helping us plan better.'
+      }
+      
+      showToast(message, 'success')
+      
+      // Update existing RSVP state (now it will be an RSVP, not guest list)
+      setExistingRSVP({ ...response.data, found_in: 'rsvp' })
+      
+      // Redirect to registry after a moment (longer for updates so user can see the change)
       setTimeout(() => {
         window.location.href = `/registry/${slug}`
-      }, 2000)
+      }, isUpdate ? 3000 : 2000)
     } catch (error: any) {
       console.error('RSVP error:', error)
       const errorMsg = error.response?.data?.error || 
@@ -207,11 +384,51 @@ export default function RSVPPage() {
         <Card className="bg-white border-eco-green-light">
           <CardHeader>
             <CardTitle className="text-eco-green text-2xl">
-              Confirm your attendance 🌿
+              {existingRSVP 
+                ? (existingRSVP.found_in === 'guest_list' 
+                    ? 'You\'re Invited! 🌿' 
+                    : 'Update your RSVP 🌿')
+                : 'Confirm your attendance 🌿'}
             </CardTitle>
             <CardDescription>
-              Help us plan better and reduce waste with accurate RSVPs
+              {existingRSVP 
+                ? (existingRSVP.found_in === 'guest_list'
+                    ? 'You\'re on the guest list! Please confirm your attendance below.'
+                    : 'You already RSVP\'d. Update your response below if anything has changed.')
+                : 'Help us plan better and reduce waste with accurate RSVPs'
+              }
             </CardDescription>
+            {existingRSVP && existingRSVP.found_in === 'rsvp' && existingRSVP.will_attend && (
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Your current RSVP:</strong> {existingRSVP.will_attend === 'yes' ? 'Yes' : existingRSVP.will_attend === 'no' ? 'No' : 'Maybe'}
+                  {existingRSVP.will_attend === 'yes' && existingRSVP.guests_count && existingRSVP.guests_count > 0 && (
+                    <span> ({existingRSVP.guests_count} {existingRSVP.guests_count === 1 ? 'guest' : 'guests'})</span>
+                  )}
+                </p>
+                {existingRSVP.updated_at && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Last updated: {new Date(existingRSVP.updated_at).toLocaleString('en-IN', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
+            {existingRSVP && existingRSVP.found_in === 'guest_list' && (
+              <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-800">
+                  <strong>Welcome!</strong> We found you in our guest list. Please fill out the form below to confirm your attendance.
+                </p>
+              </div>
+            )}
+            {checkingRSVP && (
+              <p className="text-sm text-gray-500 mt-2">Checking for existing RSVP or guest list...</p>
+            )}
           </CardHeader>
         <CardContent className="pt-4">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -325,10 +542,13 @@ export default function RSVPPage() {
 
               <Button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || checkingRSVP}
                 className="w-full bg-eco-green hover:bg-green-600 text-white py-6 text-lg"
               >
-                {submitting ? 'Submitting...' : 'Confirm RSVP 🌿'}
+                {submitting 
+                  ? (existingRSVP?.found_in === 'rsvp' ? 'Updating...' : 'Submitting...') 
+                  : (existingRSVP?.found_in === 'rsvp' ? 'Update RSVP 🌿' : 'Confirm RSVP 🌿')
+                }
               </Button>
             </form>
           </CardContent>

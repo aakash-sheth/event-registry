@@ -14,8 +14,26 @@ interface Event {
   title: string
   event_type: string
   date: string
+  expiry_date?: string | null
+  is_expired?: boolean
   city: string
   is_public: boolean
+}
+
+interface ImpactData {
+  total_plates_saved: number
+  total_paper_saved: number
+  total_gifts_received: number
+  total_gift_value_rupees: number
+  total_paper_saved_on_gifts: number
+  expired_events_count: number
+  events: Array<{
+    event_id: number
+    event_title: string
+    event_date: string | null
+    expiry_date: string | null
+    impact: any
+  }>
 }
 
 export default function DashboardPage() {
@@ -23,11 +41,22 @@ export default function DashboardPage() {
   const { showToast } = useToast()
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
+  const [impact, setImpact] = useState<ImpactData | null>(null)
+  const [loadingImpact, setLoadingImpact] = useState(false)
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     checkAuth()
     fetchEvents()
+    fetchImpact()
   }, [])
+
+  useEffect(() => {
+    // Auto-select all expired events when impact data loads
+    if (impact && impact.events.length > 0) {
+      setSelectedEventIds(new Set(impact.events.map(e => e.event_id)))
+    }
+  }, [impact])
 
   const checkAuth = () => {
     const token = localStorage.getItem('access_token')
@@ -50,6 +79,72 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }
+
+  const fetchImpact = async () => {
+    setLoadingImpact(true)
+    try {
+      const response = await api.get('/api/events/impact/overall/')
+      setImpact(response.data)
+    } catch (error: any) {
+      if (error.response?.status !== 401) {
+        // Silently fail - impact is optional
+        console.error('Failed to load impact data:', error)
+      }
+    } finally {
+      setLoadingImpact(false)
+    }
+  }
+
+  const handleExtendExpiry = async (eventId: number) => {
+    // Navigate to event detail page where they can extend expiry
+    router.push(`/host/events/${eventId}`)
+  }
+
+  const toggleEventSelection = (eventId: number) => {
+    const newSelection = new Set(selectedEventIds)
+    if (newSelection.has(eventId)) {
+      newSelection.delete(eventId)
+    } else {
+      newSelection.add(eventId)
+    }
+    setSelectedEventIds(newSelection)
+  }
+
+  const selectAllEvents = () => {
+    if (impact && impact.events.length > 0) {
+      setSelectedEventIds(new Set(impact.events.map(e => e.event_id)))
+    }
+  }
+
+  const deselectAllEvents = () => {
+    setSelectedEventIds(new Set())
+  }
+
+  // Calculate filtered impact
+  const getFilteredImpact = () => {
+    if (!impact || selectedEventIds.size === 0) {
+      return {
+        plates_saved: 0,
+        paper_saved: 0,
+        gifts_received: 0,
+        gift_value_rupees: 0,
+        paper_saved_on_gifts: 0,
+      }
+    }
+
+    const selectedEvents = impact.events.filter(e => selectedEventIds.has(e.event_id))
+    return {
+      plates_saved: selectedEvents.reduce((sum, e) => sum + (e.impact?.food_saved?.plates_saved || 0), 0),
+      paper_saved: selectedEvents.reduce((sum, e) => sum + (e.impact?.paper_saved?.web_rsvps || 0), 0),
+      gifts_received: selectedEvents.reduce((sum, e) => sum + (e.impact?.gifts_received?.total_gifts || 0), 0),
+      gift_value_rupees: selectedEvents.reduce((sum, e) => sum + (e.impact?.gifts_received?.total_value_rupees || 0), 0),
+      paper_saved_on_gifts: selectedEvents.reduce((sum, e) => sum + (e.impact?.paper_saved_on_gifts?.cash_gifts || 0), 0),
+    }
+  }
+
+  const filteredImpact = getFilteredImpact()
+  const activeEvents = events.filter(e => !e.is_expired)
+  const expiredEvents = events.filter(e => e.is_expired)
 
   if (loading) {
     return (
@@ -105,8 +200,20 @@ export default function DashboardPage() {
               <CardTitle className="text-eco-green">Active Events</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold text-eco-green">{events.length}</p>
-              <CardDescription>Total events created</CardDescription>
+              <p className="text-3xl font-bold text-eco-green">{activeEvents.length}</p>
+              <CardDescription>Currently active events</CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white border-2 border-eco-green-light">
+            <CardHeader>
+              <CardTitle className="text-eco-green">Expired Events</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold text-gray-500">
+                {expiredEvents.length}
+              </p>
+              <CardDescription>Events that have passed</CardDescription>
             </CardContent>
           </Card>
 
@@ -121,17 +228,96 @@ export default function DashboardPage() {
               <CardDescription>Live and accessible</CardDescription>
             </CardContent>
           </Card>
+        </div>
 
-          <Card className="bg-white border-2 border-eco-green-light">
+        {/* Impact Section */}
+        {impact && impact.expired_events_count > 0 && (
+          <Card className="bg-white border-2 border-eco-green-light mb-8">
             <CardHeader>
-              <CardTitle className="text-eco-green">Sustainability Impact</CardTitle>
+              <CardTitle className="text-eco-green">🌱 Sustainability Impact</CardTitle>
+              <CardDescription>
+                Track your positive environmental impact from expired events
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold text-eco-green">🌱</p>
-              <CardDescription>Every event makes a difference</CardDescription>
+            <CardContent className="space-y-4">
+              {/* Event Filters */}
+              {impact.events.length > 0 && (
+                <div className="border-b border-gray-200 pb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-gray-700">
+                      Select events to view impact:
+                    </label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={selectAllEvents}
+                        className="text-xs"
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={deselectAllEvents}
+                        className="text-xs"
+                      >
+                        Deselect All
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto space-y-2">
+                    {impact.events.map((eventImpact) => (
+                      <label
+                        key={eventImpact.event_id}
+                        className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-2 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedEventIds.has(eventImpact.event_id)}
+                          onChange={() => toggleEventSelection(eventImpact.event_id)}
+                          className="form-checkbox text-eco-green"
+                        />
+                        <span className="flex-1">{eventImpact.event_title}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Impact Metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl mb-1">🍽️</div>
+                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.plates_saved}</p>
+                  <p className="text-xs text-gray-600">Plates Saved</p>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl mb-1">📄</div>
+                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.paper_saved}</p>
+                  <p className="text-xs text-gray-600">Paper Saved</p>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl mb-1">🎁</div>
+                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.gifts_received}</p>
+                  <p className="text-xs text-gray-600">Gifts Received</p>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl mb-1">💰</div>
+                  <p className="text-2xl font-bold text-eco-green">
+                    ₹{filteredImpact.gift_value_rupees.toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-xs text-gray-600">Gift Value</p>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl mb-1">💳</div>
+                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.paper_saved_on_gifts}</p>
+                  <p className="text-xs text-gray-600">Cash Gifts</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
-        </div>
+        )}
 
         {/* Events Section */}
         <div className="flex justify-between items-center mb-6">
@@ -160,59 +346,112 @@ export default function DashboardPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((event) => (
-              <Card key={event.id} className="bg-white border-2 border-eco-green-light hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="text-eco-green text-xl">{event.title}</CardTitle>
-                  <CardDescription className="capitalize">{event.event_type}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 mb-4">
-                    {event.date && (
-                      <p className="text-sm text-gray-700 flex items-center gap-2">
-                        <span>📅</span>
-                        {new Date(event.date).toLocaleDateString('en-IN', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })}
-                      </p>
-                    )}
-                    {event.city && (
-                      <p className="text-sm text-gray-700 flex items-center gap-2">
-                        <span>📍</span>
-                        {event.city}
-                      </p>
-                    )}
-                    <p className="text-sm text-gray-700 flex items-center gap-2">
-                      <span>{event.is_public ? '🌐' : '🔒'}</span>
-                      {event.is_public ? 'Public Registry' : 'Private Registry'}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Link href={`/host/events/${event.id}`} className="flex-1">
-                      <Button 
-                        variant="outline" 
-                        className="w-full border-eco-green text-eco-green hover:bg-eco-green-light"
+            {events.map((event) => {
+              const isExpired = event.is_expired || false
+              return (
+                <Card
+                  key={event.id}
+                  className={`bg-white border-2 transition-shadow ${
+                    isExpired
+                      ? 'border-gray-300 opacity-60'
+                      : 'border-eco-green-light hover:shadow-lg'
+                  }`}
+                >
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle
+                        className={`text-xl ${
+                          isExpired ? 'text-gray-500' : 'text-eco-green'
+                        }`}
                       >
-                        Manage
-                      </Button>
-                    </Link>
-                    {event.is_public && (
-                      <Link
-                        href={`/registry/${event.slug}`}
-                        target="_blank"
-                        className="flex-1"
-                      >
-                        <Button className="w-full bg-eco-green hover:bg-green-600 text-white">
-                          View Public
+                        {event.title}
+                      </CardTitle>
+                      {isExpired && (
+                        <span className="px-2 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded">
+                          Expired
+                        </span>
+                      )}
+                    </div>
+                    <CardDescription className="capitalize">{event.event_type}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 mb-4">
+                      {event.date && (
+                        <p className={`text-sm flex items-center gap-2 ${
+                          isExpired ? 'text-gray-500' : 'text-gray-700'
+                        }`}>
+                          <span>📅</span>
+                          {new Date(event.date).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                      )}
+                      {event.expiry_date && event.expiry_date !== event.date && (
+                        <p className={`text-xs flex items-center gap-2 ${
+                          isExpired ? 'text-gray-400' : 'text-gray-600'
+                        }`}>
+                          <span>⏰</span>
+                          Expires: {new Date(event.expiry_date).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                      )}
+                      {event.city && (
+                        <p className={`text-sm flex items-center gap-2 ${
+                          isExpired ? 'text-gray-500' : 'text-gray-700'
+                        }`}>
+                          <span>📍</span>
+                          {event.city}
+                        </p>
+                      )}
+                      <p className={`text-sm flex items-center gap-2 ${
+                        isExpired ? 'text-gray-500' : 'text-gray-700'
+                      }`}>
+                        <span>{event.is_public ? '🌐' : '🔒'}</span>
+                        {event.is_public ? 'Public Registry' : 'Private Registry'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Link href={`/host/events/${event.id}`} className="flex-1">
+                        <Button
+                          variant="outline"
+                          className={`w-full ${
+                            isExpired
+                              ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                              : 'border-eco-green text-eco-green hover:bg-eco-green-light'
+                          }`}
+                        >
+                          Manage
                         </Button>
                       </Link>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                      {isExpired && (
+                        <Button
+                          onClick={() => handleExtendExpiry(event.id)}
+                          className="flex-1 bg-eco-green hover:bg-green-600 text-white"
+                        >
+                          Extend Expiry
+                        </Button>
+                      )}
+                      {!isExpired && event.is_public && (
+                        <Link
+                          href={`/registry/${event.slug}`}
+                          target="_blank"
+                          className="flex-1"
+                        >
+                          <Button className="w-full bg-eco-green hover:bg-green-600 text-white">
+                            View Public
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
         )}
 

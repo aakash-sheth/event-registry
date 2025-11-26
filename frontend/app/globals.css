@@ -12,10 +12,17 @@
   --accent: #81C784;
 }
 
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  position: relative;
 }
 
 /* Safe area support for mobile devices */
@@ -72,6 +79,10 @@ body {
 
 .border-eco-green {
   border-color: #4CAF50;
+}
+
+.border-eco-green-light {
+  border-color: #A5D6A7;
 }
 
 /* Range slider styles */

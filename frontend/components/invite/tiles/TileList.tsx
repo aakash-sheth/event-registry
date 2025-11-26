@@ -77,9 +77,9 @@ function SortableTileItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`relative ${isDragging ? 'z-50' : ''}`}
+      className={`relative w-full ${isDragging ? 'z-50' : ''}`}
     >
-      <div className="bg-white rounded-lg border-2 border-gray-200 shadow-sm mb-4 overflow-hidden">
+      <div className="bg-white rounded-lg border-2 border-gray-200 shadow-sm mb-4 overflow-hidden w-full max-w-full">
         {!isFooter && (
           <div
             {...attributes}
@@ -147,7 +147,7 @@ function SortableImageWithOverlay({
       style={style}
       className={`relative ${isDragging ? 'z-50' : ''}`}
     >
-      <div className="bg-white rounded-lg border-2 border-gray-200 shadow-sm mb-4 overflow-hidden relative">
+      <div className="bg-white rounded-lg border-2 border-gray-200 shadow-sm mb-4 overflow-hidden relative w-full max-w-full">
         <div
           {...attributes}
           {...listeners}
@@ -239,7 +239,7 @@ export default function TileList({
       onDragEnd={handleDragEnd}
     >
       <SortableContext items={tilesToRender.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-        <div className="space-y-0">
+        <div className="space-y-0 w-full overflow-x-hidden">
           {tilesToRender.map((tile) => {
             // If this is an image tile with a title overlay, render both together
             const titleOverlay = tiles.find(t => t.type === 'title' && t.overlayTargetId === tile.id)
