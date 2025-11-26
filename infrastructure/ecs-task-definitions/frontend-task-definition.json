@@ -9,7 +9,7 @@
   "containerDefinitions": [
     {
       "name": "frontend",
-      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/wedding-registry-frontend-staging:latest",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/event-registry-frontend-staging:latest",
       "essential": true,
       "portMappings": [
         {
@@ -21,13 +21,13 @@
       "secrets": [
         {
           "name": "NEXT_PUBLIC_API_BASE",
-          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/registry-staging/NEXT_PUBLIC_API_BASE"
+          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/event-registry-staging/NEXT_PUBLIC_API_BASE"
         }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/wedding-registry-staging/frontend",
+          "awslogs-group": "/ecs/event-registry-staging/frontend",
           "awslogs-region": "REGION",
           "awslogs-stream-prefix": "ecs"
         }

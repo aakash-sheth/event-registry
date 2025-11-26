@@ -1,6 +1,6 @@
 # AWS Staging Deployment - Step-by-Step Guide
 
-This guide will walk you through deploying your wedding registry application to AWS staging environment.
+This guide will walk you through deploying your event registry application to AWS staging environment.
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ aws sts get-caller-identity
 # Create VPC
 VPC_ID=$(aws ec2 create-vpc \
   --cidr-block 10.0.0.0/16 \
-  --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=wedding-registry-staging}]' \
+  --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=event-registry-staging}]' \
   --query 'Vpc.VpcId' \
   --output text)
 
@@ -339,7 +339,7 @@ echo "Database Password: $DB_PASSWORD"
 
 # Create RDS instance
 aws rds create-db-instance \
-  --db-instance-identifier wedding-registry-staging \
+  --db-instance-identifier event-registry-staging \
   --db-instance-class db.t4g.micro \
   --engine postgres \
   --engine-version 15.4 \
@@ -355,15 +355,15 @@ aws rds create-db-instance \
   --tags Key=Name,Value=staging-db
 
 echo "RDS instance creation started. This will take 5-10 minutes."
-echo "Monitor with: aws rds describe-db-instances --db-instance-identifier wedding-registry-staging"
+echo "Monitor with: aws rds describe-db-instances --db-instance-identifier event-registry-staging"
 
 # Wait for RDS to be available
 echo "Waiting for RDS to be available..."
-aws rds wait db-instance-available --db-instance-identifier wedding-registry-staging
+aws rds wait db-instance-available --db-instance-identifier event-registry-staging
 
 # Get RDS endpoint
 RDS_ENDPOINT=$(aws rds describe-db-instances \
-  --db-instance-identifier wedding-registry-staging \
+  --db-instance-identifier event-registry-staging \
   --query 'DBInstances[0].Endpoint.Address' \
   --output text)
 
@@ -377,24 +377,24 @@ echo "DATABASE_URL will be: postgres://postgres:$DB_PASSWORD@$RDS_ENDPOINT:5432/
 ```bash
 # Create backend repository
 aws ecr create-repository \
-  --repository-name wedding-registry-backend-staging \
+  --repository-name event-registry-backend-staging \
   --image-scanning-configuration scanOnPush=true \
   --tags Key=Name,Value=staging-backend-ecr
 
 # Create frontend repository
 aws ecr create-repository \
-  --repository-name wedding-registry-frontend-staging \
+  --repository-name event-registry-frontend-staging \
   --image-scanning-configuration scanOnPush=true \
   --tags Key=Name,Value=staging-frontend-ecr
 
 # Get repository URIs
 BACKEND_ECR_URI=$(aws ecr describe-repositories \
-  --repository-names wedding-registry-backend-staging \
+  --repository-names event-registry-backend-staging \
   --query 'repositories[0].repositoryUri' \
   --output text)
 
 FRONTEND_ECR_URI=$(aws ecr describe-repositories \
-  --repository-names wedding-registry-frontend-staging \
+  --repository-names event-registry-frontend-staging \
   --query 'repositories[0].repositoryUri' \
   --output text)
 
@@ -407,7 +407,7 @@ echo "Frontend ECR URI: $FRONTEND_ECR_URI"
 
 ```bash
 # Set bucket name (must be globally unique)
-BUCKET_NAME="wedding-registry-staging-uploads-$(date +%s)"
+BUCKET_NAME="event-registry-staging-uploads-$(date +%s)"
 
 # Create bucket
 aws s3 mb s3://$BUCKET_NAME --region us-east-1
@@ -552,20 +552,20 @@ echo "Frontend Task Role created"
 ```bash
 # Create backend log group
 aws logs create-log-group \
-  --log-group-name /ecs/wedding-registry-staging/backend
+  --log-group-name /ecs/event-registry-staging/backend
 
 # Set retention to 14 days
 aws logs put-retention-policy \
-  --log-group-name /ecs/wedding-registry-staging/backend \
+  --log-group-name /ecs/event-registry-staging/backend \
   --retention-in-days 14
 
 # Create frontend log group
 aws logs create-log-group \
-  --log-group-name /ecs/wedding-registry-staging/frontend
+  --log-group-name /ecs/event-registry-staging/frontend
 
 # Set retention to 14 days
 aws logs put-retention-policy \
-  --log-group-name /ecs/wedding-registry-staging/frontend \
+  --log-group-name /ecs/event-registry-staging/frontend \
   --retention-in-days 14
 
 echo "CloudWatch Log Groups created"
@@ -612,7 +612,7 @@ echo "Task definitions registered"
 ```bash
 # Create cluster
 aws ecs create-cluster \
-  --cluster-name wedding-registry-staging \
+  --cluster-name event-registry-staging \
   --tags key=Name,value=staging-cluster
 
 echo "ECS Cluster created"
@@ -623,7 +623,7 @@ echo "ECS Cluster created"
 ```bash
 # Create backend service
 aws ecs create-service \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name backend-service \
   --task-definition backend-task \
   --desired-count 1 \
@@ -638,7 +638,7 @@ echo "Backend service created"
 ```bash
 # Create frontend service
 aws ecs create-service \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name frontend-service \
   --task-definition frontend-task \
   --desired-count 1 \
@@ -744,22 +744,22 @@ sleep 30
 
 # Get backend task IPs
 BACKEND_TASK_IPS=$(aws ecs list-tasks \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name backend-service \
   --query 'taskArns[]' \
   --output text | head -1 | xargs -I {} aws ecs describe-tasks \
-    --cluster wedding-registry-staging \
+    --cluster event-registry-staging \
     --tasks {} \
     --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' \
     --output text)
 
 # Get frontend task IPs
 FRONTEND_TASK_IPS=$(aws ecs list-tasks \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name frontend-service \
   --query 'taskArns[]' \
   --output text | head -1 | xargs -I {} aws ecs describe-tasks \
-    --cluster wedding-registry-staging \
+    --cluster event-registry-staging \
     --tasks {} \
     --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' \
     --output text)
@@ -786,35 +786,35 @@ echo "Targets registered (ECS will auto-register new tasks)"
 ```bash
 # Update ALB_DNS in SSM
 aws ssm put-parameter \
-  --name "/registry-staging/ALB_DNS" \
+  --name "/event-registry-staging/ALB_DNS" \
   --type "String" \
   --value "$ALB_DNS" \
   --overwrite
 
 # Update NEXT_PUBLIC_API_BASE
 aws ssm put-parameter \
-  --name "/registry-staging/NEXT_PUBLIC_API_BASE" \
+  --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" \
   --type "String" \
   --value "http://$ALB_DNS" \
   --overwrite
 
 # Update ALLOWED_HOSTS
 aws ssm put-parameter \
-  --name "/registry-staging/ALLOWED_HOSTS" \
+  --name "/event-registry-staging/ALLOWED_HOSTS" \
   --type "String" \
   --value "$ALB_DNS" \
   --overwrite
 
 # Update CORS_ALLOWED_ORIGINS
 aws ssm put-parameter \
-  --name "/registry-staging/CORS_ALLOWED_ORIGINS" \
+  --name "/event-registry-staging/CORS_ALLOWED_ORIGINS" \
   --type "String" \
   --value "http://$ALB_DNS" \
   --overwrite
 
 # Update FRONTEND_ORIGIN
 aws ssm put-parameter \
-  --name "/registry-staging/FRONTEND_ORIGIN" \
+  --name "/event-registry-staging/FRONTEND_ORIGIN" \
   --type "String" \
   --value "http://$ALB_DNS" \
   --overwrite
@@ -827,7 +827,7 @@ echo "SSM parameters updated with ALB DNS"
 ```bash
 # Run migrations as one-off task
 aws ecs run-task \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --task-definition backend-task \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_1],securityGroups=[$BACKEND_SG],assignPublicIp=DISABLED}" \
@@ -851,10 +851,10 @@ echo "Logged in to ECR"
 
 ```bash
 # Build backend image
-docker build -f backend/Dockerfile.prod -t wedding-registry-backend-staging ./backend
+docker build -f backend/Dockerfile.prod -t event-registry-backend-staging ./backend
 
 # Tag image
-docker tag wedding-registry-backend-staging:latest $BACKEND_ECR_URI:latest
+docker tag event-registry-backend-staging:latest $BACKEND_ECR_URI:latest
 
 # Push image
 docker push $BACKEND_ECR_URI:latest
@@ -866,10 +866,10 @@ echo "Backend image pushed"
 
 ```bash
 # Build frontend image
-docker build -f frontend/Dockerfile.prod -t wedding-registry-frontend-staging ./frontend
+docker build -f frontend/Dockerfile.prod -t event-registry-frontend-staging ./frontend
 
 # Tag image
-docker tag wedding-registry-frontend-staging:latest $FRONTEND_ECR_URI:latest
+docker tag event-registry-frontend-staging:latest $FRONTEND_ECR_URI:latest
 
 # Push image
 docker push $FRONTEND_ECR_URI:latest
@@ -882,12 +882,12 @@ echo "Frontend image pushed"
 ```bash
 # Force new deployment (will pull latest images)
 aws ecs update-service \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service backend-service \
   --force-new-deployment
 
 aws ecs update-service \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service frontend-service \
   --force-new-deployment
 
@@ -901,13 +901,13 @@ echo "Services updated. Wait for deployment to complete..."
 ```bash
 # Check backend service
 aws ecs describe-services \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --services backend-service \
   --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
 
 # Check frontend service
 aws ecs describe-services \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --services frontend-service \
   --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
 ```
@@ -928,10 +928,10 @@ echo "If you see responses, deployment is successful!"
 
 ```bash
 # View backend logs
-aws logs tail /ecs/wedding-registry-staging/backend --follow
+aws logs tail /ecs/event-registry-staging/backend --follow
 
 # View frontend logs (in another terminal)
-aws logs tail /ecs/wedding-registry-staging/frontend --follow
+aws logs tail /ecs/event-registry-staging/frontend --follow
 ```
 
 ## Step 18: Configure GitHub Actions (Optional)
@@ -989,13 +989,13 @@ aws acm request-certificate \
 ```bash
 # Check service events
 aws ecs describe-services \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --services backend-service \
   --query 'services[0].events[:5]'
 
 # Check task status
 aws ecs list-tasks \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name backend-service
 ```
 
@@ -1003,7 +1003,7 @@ aws ecs list-tasks \
 
 ```bash
 # Check CloudWatch logs
-aws logs tail /ecs/wedding-registry-staging/backend --since 10m
+aws logs tail /ecs/event-registry-staging/backend --since 10m
 
 # Check target health
 aws elbv2 describe-target-health --target-group-arn $BACKEND_TG_ARN
@@ -1023,12 +1023,12 @@ aws elbv2 describe-target-health --target-group-arn $BACKEND_TG_ARN
 
 ```bash
 # Scale down
-aws ecs update-service --cluster wedding-registry-staging --service backend-service --desired-count 0
-aws ecs update-service --cluster wedding-registry-staging --service frontend-service --desired-count 0
+aws ecs update-service --cluster event-registry-staging --service backend-service --desired-count 0
+aws ecs update-service --cluster event-registry-staging --service frontend-service --desired-count 0
 
 # Scale up
-aws ecs update-service --cluster wedding-registry-staging --service backend-service --desired-count 1
-aws ecs update-service --cluster wedding-registry-staging --service frontend-service --desired-count 1
+aws ecs update-service --cluster event-registry-staging --service backend-service --desired-count 1
+aws ecs update-service --cluster event-registry-staging --service frontend-service --desired-count 1
 ```
 
 ## Summary

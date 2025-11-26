@@ -100,8 +100,8 @@ The following must be completed in AWS Console/CLI:
    - [ ] Note DATABASE_URL for SSM
 
 4. **ECR Repositories**
-   - [ ] Create `wedding-registry-backend-staging`
-   - [ ] Create `wedding-registry-frontend-staging`
+   - [ ] Create `event-registry-backend-staging`
+   - [ ] Create `event-registry-frontend-staging`
 
 5. **S3 Bucket**
    - [ ] Create bucket
@@ -121,12 +121,12 @@ The following must be completed in AWS Console/CLI:
    - [ ] Attach policies
 
 8. **CloudWatch Log Groups**
-   - [ ] Create `/ecs/wedding-registry-staging/backend`
-   - [ ] Create `/ecs/wedding-registry-staging/frontend`
+   - [ ] Create `/ecs/event-registry-staging/backend`
+   - [ ] Create `/ecs/event-registry-staging/frontend`
    - [ ] Set 14-day retention
 
 9. **ECS Setup**
-   - [ ] Create cluster `wedding-registry-staging`
+   - [ ] Create cluster `event-registry-staging`
    - [ ] Update task definition JSON files (ACCOUNT_ID, REGION, subnet IDs, SG IDs)
    - [ ] Register task definitions
    - [ ] Create backend service
@@ -163,7 +163,7 @@ Before deploying, verify:
 - [ ] VPC Endpoints are configured correctly
 - [ ] RDS is accessible from ECS tasks
 - [ ] S3 bucket is accessible from ECS tasks
-- [ ] ALB DNS name is stored in SSM (`/registry-staging/ALB_DNS`)
+- [ ] ALB DNS name is stored in SSM (`/event-registry-staging/ALB_DNS`)
 
 ## 🚀 Deployment Steps
 

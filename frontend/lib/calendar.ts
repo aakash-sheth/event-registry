@@ -56,7 +56,7 @@ export function generateICS(event: CalendarEvent): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Wedding Registry//Invitation//EN',
+    'PRODID:-//Event Registry//Invitation//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
@@ -109,6 +109,6 @@ function escapeICS(text: string): string {
  * Generate unique ID for ICS event
  */
 function generateUID(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}@wedding-registry`
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}@event-registry`
 }
 

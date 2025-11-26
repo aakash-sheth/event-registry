@@ -1,6 +1,6 @@
-# India Wedding Registry MVP
+# Event Registry MVP
 
-Full-stack wedding registry application built with Django REST Framework and Next.js 14.
+Full-stack event registry application built with Django REST Framework and Next.js 14. Supports invitations, RSVP, and gift registries for any type of event.
 
 ## 🚀 Quick Start
 
@@ -15,7 +15,7 @@ Full-stack wedding registry application built with Django REST Framework and Nex
 1. **Clone and setup:**
 
    ```bash
-   cd "Wedding registry code"
+   cd "event-registry"
    ```
 
 2. **Backend Setup:**

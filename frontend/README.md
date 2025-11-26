@@ -1,6 +1,6 @@
-# Wedding Registry Frontend
+# Event Registry Frontend
 
-Next.js 14 frontend for the wedding registry MVP.
+Next.js 14 frontend for the event registry MVP.
 
 ## Setup
 

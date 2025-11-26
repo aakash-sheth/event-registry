@@ -57,7 +57,7 @@ aws ec2 create-vpc-endpoint \
 
 ```bash
 aws rds create-db-instance \
-  --db-instance-identifier wedding-registry-staging \
+  --db-instance-identifier event-registry-staging \
   --db-instance-class db.t4g.micro \
   --engine postgres \
   --engine-version 15 \
@@ -74,14 +74,14 @@ aws rds create-db-instance \
 ### 4. ECR Repositories
 
 ```bash
-aws ecr create-repository --repository-name wedding-registry-backend-staging
-aws ecr create-repository --repository-name wedding-registry-frontend-staging
+aws ecr create-repository --repository-name event-registry-backend-staging
+aws ecr create-repository --repository-name event-registry-frontend-staging
 ```
 
 ### 5. S3 Bucket
 
 ```bash
-aws s3 mb s3://wedding-registry-staging-uploads
+aws s3 mb s3://event-registry-staging-uploads
 # Configure bucket policy, CORS, and lifecycle policies
 ```
 
@@ -91,7 +91,7 @@ Use the script in `infrastructure/setup-ssm-parameters.sh` or manually create pa
 
 ```bash
 aws ssm put-parameter \
-  --name "/registry-staging/DJANGO_SECRET_KEY" \
+  --name "/event-registry-staging/DJANGO_SECRET_KEY" \
   --type "SecureString" \
   --value "<your-secret-key>"
 ```

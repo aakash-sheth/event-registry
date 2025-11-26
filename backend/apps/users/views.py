@@ -76,7 +76,7 @@ def _send_otp(user):
     
     # Send email with login link
     login_url = f"{settings.FRONTEND_ORIGIN}/host/login?token={token}&email={email}"
-    subject = "Your Wedding Registry Verification Code"
+    subject = "Your Event Registry Verification Code"
     message = f"""
     Hi {user.name or 'there'},
 

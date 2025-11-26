@@ -106,7 +106,7 @@ export default function CheckoutModal({
           key: rzp_key_id,
           amount: amount,
           currency: currency,
-          name: 'Wedding Registry',
+          name: 'Event Registry',
           description: item.name,
           order_id: rzp_order_id,
           handler: function (response: any) {

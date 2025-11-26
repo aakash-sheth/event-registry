@@ -61,7 +61,7 @@ def _send_via_ses(to_email, subject, body_text, body_html=None):
     if body_html:
         message['Body']['Html'] = {'Data': body_html}
     
-    from_email = getattr(settings, 'SES_FROM_EMAIL', 'noreply@weddingregistry.com')
+    from_email = getattr(settings, 'SES_FROM_EMAIL', 'noreply@eventregistry.com')
     
     ses_client.send_email(
         Source=from_email,
@@ -75,7 +75,7 @@ def _send_via_sendgrid(to_email, subject, body_text, body_html=None):
     if not settings.SENDGRID_API_KEY:
         raise ValueError("SENDGRID_API_KEY not configured")
     
-    from_email = getattr(settings, 'SENDGRID_FROM_EMAIL', 'noreply@weddingregistry.com')
+    from_email = getattr(settings, 'SENDGRID_FROM_EMAIL', 'noreply@eventregistry.com')
     
     message = Mail(
         from_email=from_email,

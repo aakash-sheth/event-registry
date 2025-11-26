@@ -8,7 +8,7 @@
         "ssm:GetParameters",
         "ssm:GetParametersByPath"
       ],
-      "Resource": "arn:aws:ssm:*:*:parameter/registry-staging/*"
+      "Resource": "arn:aws:ssm:*:*:parameter/event-registry-staging/*"
     }
   ]
 }

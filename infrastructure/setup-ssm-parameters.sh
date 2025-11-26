@@ -5,7 +5,7 @@
 set -e
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
-PARAM_PREFIX="/registry-staging"
+PARAM_PREFIX="/event-registry-staging"
 
 echo "Setting up SSM Parameters for staging environment..."
 

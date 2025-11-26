@@ -1,6 +1,6 @@
-# Wedding Registry Backend
+# Event Registry Backend
 
-Django + Django REST Framework backend for the wedding registry MVP.
+Django + Django REST Framework backend for the event registry MVP.
 
 ## Setup
 

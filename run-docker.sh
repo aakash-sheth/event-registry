@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Script to run the wedding registry app with Docker
+# Script to run the event registry app with Docker
 
 set -e
 
-echo "🚀 Starting Wedding Registry with Docker..."
+echo "🚀 Starting Event Registry with Docker..."
 echo ""
 
 # Check if Docker is running

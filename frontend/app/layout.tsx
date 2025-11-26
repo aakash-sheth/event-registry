@@ -3,8 +3,8 @@ import './globals.css'
 import { ToastProvider } from '@/components/ui/toast'
 
 export const metadata: Metadata = {
-  title: 'Wedding Registry',
-  description: 'India Wedding Registry MVP',
+  title: 'Event Registry',
+  description: 'Event Registry - Invitations, RSVP, and Gift Registry for any celebration',
 }
 
 export default function RootLayout({

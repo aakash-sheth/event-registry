@@ -8,9 +8,9 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_BACKEND_REPOSITORY: wedding-registry-backend-staging
-  ECR_FRONTEND_REPOSITORY: wedding-registry-frontend-staging
-  ECS_CLUSTER_NAME: wedding-registry-staging
+  ECR_BACKEND_REPOSITORY: event-registry-backend-staging
+  ECR_FRONTEND_REPOSITORY: event-registry-frontend-staging
+  ECS_CLUSTER_NAME: event-registry-staging
   ECS_BACKEND_SERVICE: backend-service
   ECS_FRONTEND_SERVICE: frontend-service
 
@@ -93,7 +93,7 @@ jobs:
       - name: Verify health checks
         run: |
           # Get ALB DNS name from SSM or output
-          ALB_DNS=$(aws ssm get-parameter --name "/registry-staging/ALB_DNS" --query "Parameter.Value" --output text || echo "")
+          ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text || echo "")
           if [ -n "$ALB_DNS" ]; then
             echo "Checking backend health at https://$ALB_DNS/api/health"
             curl -f https://$ALB_DNS/api/health || exit 1

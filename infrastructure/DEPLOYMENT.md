@@ -1,6 +1,6 @@
 # AWS Staging Deployment Guide
 
-This guide walks through deploying the wedding registry application to AWS staging environment.
+This guide walks through deploying the event registry application to AWS staging environment.
 
 ## Prerequisites
 
@@ -70,7 +70,7 @@ aws ec2 create-vpc-endpoint \
 
 ```bash
 aws rds create-db-instance \
-  --db-instance-identifier wedding-registry-staging \
+  --db-instance-identifier event-registry-staging \
   --db-instance-class db.t4g.micro \
   --engine postgres \
   --engine-version 15 \
@@ -89,27 +89,27 @@ aws rds create-db-instance \
 
 ```bash
 aws ecr create-repository \
-  --repository-name wedding-registry-backend-staging \
+  --repository-name event-registry-backend-staging \
   --region us-east-1
 
 aws ecr create-repository \
-  --repository-name wedding-registry-frontend-staging \
+  --repository-name event-registry-frontend-staging \
   --region us-east-1
 ```
 
 ### Step 5: Create S3 Bucket
 
 ```bash
-aws s3 mb s3://wedding-registry-staging-uploads --region us-east-1
+aws s3 mb s3://event-registry-staging-uploads --region us-east-1
 
 # Configure CORS
 aws s3api put-bucket-cors \
-  --bucket wedding-registry-staging-uploads \
+  --bucket event-registry-staging-uploads \
   --cors-configuration file://infrastructure/s3-cors.json
 
 # Configure lifecycle policy
 aws s3api put-bucket-lifecycle-configuration \
-  --bucket wedding-registry-staging-uploads \
+  --bucket event-registry-staging-uploads \
   --lifecycle-configuration file://infrastructure/s3-lifecycle.json
 ```
 
@@ -133,20 +133,20 @@ Or manually create parameters using AWS Console or CLI.
 
 ```bash
 aws logs create-log-group \
-  --log-group-name /ecs/wedding-registry-staging/backend \
+  --log-group-name /ecs/event-registry-staging/backend \
   --region us-east-1
 
 aws logs create-log-group \
-  --log-group-name /ecs/wedding-registry-staging/frontend \
+  --log-group-name /ecs/event-registry-staging/frontend \
   --region us-east-1
 
 # Set retention to 14 days
 aws logs put-retention-policy \
-  --log-group-name /ecs/wedding-registry-staging/backend \
+  --log-group-name /ecs/event-registry-staging/backend \
   --retention-in-days 14
 
 aws logs put-retention-policy \
-  --log-group-name /ecs/wedding-registry-staging/frontend \
+  --log-group-name /ecs/event-registry-staging/frontend \
   --retention-in-days 14
 ```
 
@@ -167,11 +167,11 @@ aws ecs register-task-definition \
 
 ```bash
 # Create cluster
-aws ecs create-cluster --cluster-name wedding-registry-staging
+aws ecs create-cluster --cluster-name event-registry-staging
 
 # Create backend service
 aws ecs create-service \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name backend-service \
   --task-definition backend-task \
   --desired-count 1 \
@@ -180,7 +180,7 @@ aws ecs create-service \
 
 # Create frontend service
 aws ecs create-service \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --service-name frontend-service \
   --task-definition frontend-task \
   --desired-count 1 \
@@ -202,7 +202,7 @@ aws ecs create-service \
 
 ```bash
 aws ecs run-task \
-  --cluster wedding-registry-staging \
+  --cluster event-registry-staging \
   --task-definition backend-task \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx],assignPublicIp=DISABLED}" \
@@ -239,14 +239,14 @@ The workflow file (`.github/workflows/deploy-staging.yml`) is already created an
 
 - Scale services to 0 when not testing:
   ```bash
-  aws ecs update-service --cluster wedding-registry-staging --service backend-service --desired-count 0
-  aws ecs update-service --cluster wedding-registry-staging --service frontend-service --desired-count 0
+  aws ecs update-service --cluster event-registry-staging --service backend-service --desired-count 0
+  aws ecs update-service --cluster event-registry-staging --service frontend-service --desired-count 0
   ```
 
 - Scale back up when needed:
   ```bash
-  aws ecs update-service --cluster wedding-registry-staging --service backend-service --desired-count 1
-  aws ecs update-service --cluster wedding-registry-staging --service frontend-service --desired-count 1
+  aws ecs update-service --cluster event-registry-staging --service backend-service --desired-count 1
+  aws ecs update-service --cluster event-registry-staging --service frontend-service --desired-count 1
   ```
 
 ## Troubleshooting
