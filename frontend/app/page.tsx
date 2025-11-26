@@ -186,7 +186,7 @@ export default function LandingPage() {
             ].map((step, idx) => (
               <div
                 key={idx}
-                ref={el => stepsRef.current[idx] = el}
+                ref={el => { stepsRef.current[idx] = el }}
                 className={`flex flex-col ${idx % 2 === 1 ? 'md:flex-row-reverse' : 'md:flex-row'} items-center gap-8 opacity-0 transition-all duration-700 ${
                   idx % 2 === 1 ? 'translate-x-12' : '-translate-x-12'
                 }`}
