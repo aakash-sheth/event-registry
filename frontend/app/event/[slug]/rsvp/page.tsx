@@ -444,7 +444,7 @@ export default function RSVPPage() {
                 <label className="block text-sm font-medium mb-1">Phone Number *</label>
                 <div className="flex gap-2">
                   <CountryCodeSelector
-                    {...register('country_code')}
+                    name="country_code"
                     defaultValue={event?.country_code || '+91'}
                     onChange={(value) => {
                       setValue('country_code', value, { shouldValidate: true })
