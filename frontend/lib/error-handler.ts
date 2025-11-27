@@ -120,13 +120,15 @@ async function sendToCloudWatch(message: string, level: string = 'INFO', data?: 
     // Use dynamic import to avoid issues if api is not available
     const api = (await import('./api')).default
     
-    await api.post('/api/logs/cloudwatch', {
+    await api.post('/api/logs/cloudwatch/', {
       message,
       level,
       data: data || {},
     })
-  } catch (error) {
+  } catch (error: any) {
     // Silently fail - don't break the app if logging fails
+    // 404 means endpoint doesn't exist yet (backend not deployed)
+    // Other errors are also ignored to prevent logging from breaking the app
     // In development, we'll still see console logs
   }
 }
