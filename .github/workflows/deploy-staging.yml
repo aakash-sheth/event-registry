@@ -29,7 +29,8 @@ jobs:
           
           python3 -m venv /tmp/venv
           source /tmp/venv/bin/activate
-          pip install -q django psycopg2-binary dj-database-url > /dev/null 2>&1
+          # Install all dependencies to ensure Django settings load correctly
+          pip install -q -r requirements.txt > /dev/null 2>&1
           
           export DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
           export DJANGO_SECRET_KEY="dummy-for-migration-check"
