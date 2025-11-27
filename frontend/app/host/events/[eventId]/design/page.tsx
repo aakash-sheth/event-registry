@@ -99,6 +99,14 @@ export default function DesignInvitationPage() {
         const eventData = eventResponse.data
       setEvent(eventData)
       
+      // Debug: Log API response to help diagnose staging issues
+      logDebug('Event data loaded:', {
+        eventId,
+        hasPageConfig: !!eventData?.page_config,
+        pageConfigKeys: eventData?.page_config ? Object.keys(eventData.page_config) : [],
+        tilesCount: eventData?.page_config?.tiles?.length || 0,
+      })
+      
         // Helper function to create default tiles
         const createDefaultTiles = (data: typeof eventData): Tile[] => [
           {
@@ -136,6 +144,10 @@ export default function DesignInvitationPage() {
         
         // Then fetch page config (which may need event data for migration)
         const pageConfig = await getEventPageConfig(eventId)
+        logDebug('Page config loaded:', {
+          hasPageConfig: !!pageConfig?.page_config,
+          tilesCount: pageConfig?.page_config?.tiles?.length || 0,
+        })
         let finalConfig: InviteConfig | null = null
         
         if (pageConfig?.page_config) {
@@ -226,6 +238,10 @@ export default function DesignInvitationPage() {
         
         // Set the final config
         if (finalConfig) {
+          logDebug('Final config before setting:', {
+            tilesCount: finalConfig.tiles?.length || 0,
+            tileTypes: finalConfig.tiles?.map(t => t.type) || [],
+          })
           // Ensure title tile always exists and is enabled
           if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
             // Add title tile if missing
@@ -245,6 +261,12 @@ export default function DesignInvitationPage() {
           }
           
           setConfig(finalConfig)
+          logDebug('Config set successfully:', {
+            tilesCount: finalConfig.tiles?.length || 0,
+            tileTypes: finalConfig.tiles?.map(t => t.type) || [],
+          })
+      } else {
+        logError('Final config is null - this should not happen')
       }
     } catch (error: any) {
       if (error.response?.status === 401) {
@@ -254,6 +276,11 @@ export default function DesignInvitationPage() {
         router.push('/host/dashboard')
       } else {
         logError('Failed to load data:', error)
+        logError('Error details:', {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+        })
         showToast(getErrorMessage(error), 'error')
       }
     } finally {
@@ -482,7 +509,14 @@ export default function DesignInvitationPage() {
   let sortedTiles: Tile[]
   if (config.tiles && config.tiles.length > 0) {
     sortedTiles = [...config.tiles].sort((a, b) => a.order - b.order)
+    // Debug: Log tiles being rendered (will show in console if DEBUG mode, or can be checked in network tab)
+    logDebug('Rendering tiles:', {
+      count: sortedTiles.length,
+      types: sortedTiles.map(t => t.type),
+      enabled: sortedTiles.filter(t => t.enabled).map(t => t.type),
+    })
   } else {
+    logError('No tiles in config, using DEFAULT_TILES')
     sortedTiles = DEFAULT_TILES
   }
 
