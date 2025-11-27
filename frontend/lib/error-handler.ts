@@ -105,7 +105,34 @@ export function getErrorMessage(error: any): string {
 }
 
 /**
- * Log error to console (only in development)
+ * Send log to CloudWatch via backend API
+ * @param message - Log message
+ * @param level - Log level (DEBUG, INFO, WARNING, ERROR)
+ * @param data - Additional data to log (optional)
+ */
+async function sendToCloudWatch(message: string, level: string = 'INFO', data?: any): Promise<void> {
+  // Only send to CloudWatch in production/staging (not local development)
+  if (isDevelopment) {
+    return
+  }
+
+  try {
+    // Use dynamic import to avoid issues if api is not available
+    const api = (await import('./api')).default
+    
+    await api.post('/api/logs/cloudwatch', {
+      message,
+      level,
+      data: data || {},
+    })
+  } catch (error) {
+    // Silently fail - don't break the app if logging fails
+    // In development, we'll still see console logs
+  }
+}
+
+/**
+ * Log error to console (development) and CloudWatch (staging/production)
  * @param message - Log message
  * @param error - Error object (optional)
  */
@@ -116,11 +143,24 @@ export function logError(message: string, error?: any): void {
     } else {
       console.error(message)
     }
+  } else {
+    // Send to CloudWatch in staging/production
+    const errorData = error ? {
+      error: error.message || String(error),
+      stack: error.stack,
+      code: error.code,
+      response: error.response?.data,
+      status: error.response?.status,
+    } : {}
+    
+    sendToCloudWatch(message, 'ERROR', errorData).catch(() => {
+      // Silently fail if CloudWatch logging fails
+    })
   }
 }
 
 /**
- * Log debug information (only in development)
+ * Log debug information to console (development) and CloudWatch (staging/production)
  * @param message - Log message
  * @param data - Additional data to log (optional)
  */
@@ -131,6 +171,11 @@ export function logDebug(message: string, data?: any): void {
     } else {
       console.log(message)
     }
+  } else {
+    // Send to CloudWatch in staging/production
+    sendToCloudWatch(message, 'DEBUG', data).catch(() => {
+      // Silently fail if CloudWatch logging fails
+    })
   }
 }
 

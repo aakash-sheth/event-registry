@@ -598,7 +598,14 @@ export default function DesignInvitationPage() {
             </div>
 
             <div className="bg-white rounded-lg border-2 border-eco-green-light p-3 sm:p-4 w-full overflow-x-hidden">
-              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-3 sm:mb-4">Tile Settings</h2>
+              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-3 sm:mb-4">
+                Tile Settings
+                {sortedTiles && sortedTiles.length > 0 && (
+                  <span className="text-xs text-gray-500 font-normal ml-2">
+                    ({sortedTiles.length} {sortedTiles.length === 1 ? 'tile' : 'tiles'})
+                  </span>
+                )}
+              </h2>
               <div className="space-y-4 w-full">
                 {sortedTiles && sortedTiles.length > 0 ? (
                   sortedTiles.map((tile) => (

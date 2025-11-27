@@ -33,6 +33,17 @@
         "ssm:GetParametersByPath"
       ],
       "Resource": "arn:aws:ssm:*:*:parameter/event-registry-staging/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:*:log-group:/ecs/event-registry-staging/backend:*",
+        "arn:aws:logs:us-east-1:*:log-group:/ecs/event-registry-staging/frontend:*"
+      ]
     }
   ]
 }
