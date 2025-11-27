@@ -22,6 +22,50 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check for missing migrations
+        run: |
+          echo "🔍 Checking for missing Django migrations..."
+          
+          cd backend
+          
+          # Set up minimal Python environment for Django check
+          python3 -m venv /tmp/venv
+          source /tmp/venv/bin/activate
+          pip install -q django psycopg2-binary > /dev/null 2>&1
+          
+          # Set dummy environment variables (we're not connecting to DB, just checking models)
+          export DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+          export DJANGO_SECRET_KEY="dummy-for-migration-check"
+          export DEBUG="False"
+          
+          # Check if makemigrations would create new migration files
+          echo "Running makemigrations --check --dry-run..."
+          if python manage.py makemigrations --check --dry-run 2>&1 | grep -q "No changes detected"; then
+            echo "✅ All migrations are up to date"
+          else
+            echo ""
+            echo "❌ ERROR: Missing migrations detected!"
+            echo ""
+            echo "Model changes were pushed without corresponding migration files."
+            echo "This will cause deployment failures and runtime errors."
+            echo ""
+            echo "To fix this:"
+            echo "  1. Create migrations locally:"
+            echo "     cd backend && python manage.py makemigrations"
+            echo ""
+            echo "  2. Review the generated migration files"
+            echo ""
+            echo "  3. Commit and push the migration files:"
+            echo "     git add backend/apps/*/migrations/"
+            echo "     git commit -m 'Add missing migrations'"
+            echo "     git push origin main"
+            echo ""
+            echo "  4. Re-run this deployment"
+            echo ""
+            echo "⚠️  DO NOT skip this step - missing migrations will break production!"
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
