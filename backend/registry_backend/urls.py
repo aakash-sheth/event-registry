@@ -11,7 +11,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('health', health_check, name='health'),
     path('api/health', health_check, name='api-health'),
-    path('api/logs/cloudwatch', log_to_cloudwatch_endpoint, name='cloudwatch-log'),
+    path('api/logs/cloudwatch/', log_to_cloudwatch_endpoint, name='cloudwatch-log'),
     path('api/auth/', include('apps.users.urls')),
     path('api/events/', include('apps.events.urls')),
     path('api/items/', include('apps.items.urls')),
