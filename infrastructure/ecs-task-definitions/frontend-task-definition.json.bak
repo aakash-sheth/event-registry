@@ -9,7 +9,7 @@
   "containerDefinitions": [
     {
       "name": "frontend",
-      "image": "630147069059.dkr.ecr.us-east-1.amazonaws.com/event-registry-frontend-staging:latest",
+      "image": "630147069059.dkr.ecr.REGION.amazonaws.com/event-registry-frontend-staging:latest",
       "essential": true,
       "portMappings": [
         {
@@ -21,14 +21,14 @@
       "secrets": [
         {
           "name": "NEXT_PUBLIC_API_BASE",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/NEXT_PUBLIC_API_BASE"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/NEXT_PUBLIC_API_BASE"
         }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
           "awslogs-group": "/ecs/event-registry-staging/frontend",
-          "awslogs-region": "us-east-1",
+          "awslogs-region": "REGION",
           "awslogs-stream-prefix": "ecs"
         }
       },

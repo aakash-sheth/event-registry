@@ -46,6 +46,7 @@ VPC_ID=$(aws ec2 create-vpc \
 echo "VPC ID: $VPC_ID"
 # Save this VPC_ID - you'll need it for subsequent steps
 ```
+vpc-0150736050b2f8bc7
 
 ### 2.2 Create Subnets
 
@@ -94,6 +95,8 @@ echo "Public Subnets: $PUBLIC_SUBNET_1, $PUBLIC_SUBNET_2"
 echo "Private Subnets: $PRIVATE_SUBNET_1, $PRIVATE_SUBNET_2"
 # Save these subnet IDs
 ```
+Public Subnets: , subnet-0781ee8d36f10d08e
+Private Subnets: subnet-047b6a50234127a66, subnet-043a1224e8eb0640d
 
 ### 2.3 Create Internet Gateway
 
@@ -111,6 +114,7 @@ aws ec2 attach-internet-gateway \
 
 echo "Internet Gateway ID: $IGW_ID"
 ```
+Internet Gateway ID: igw-0f357a95fb04ccd4c
 
 ### 2.4 Create Route Tables
 
@@ -128,10 +132,16 @@ aws ec2 create-route \
   --destination-cidr-block 0.0.0.0/0 \
   --gateway-id $IGW_ID
 
+# subnet-00903760b47ea9f39
+# PUBLIC_SUBNET_1: subnet-00903760b47ea9f39
 # Associate public subnets with public route table
 aws ec2 associate-route-table --subnet-id $PUBLIC_SUBNET_1 --route-table-id $PUBLIC_RT
 aws ec2 associate-route-table --subnet-id $PUBLIC_SUBNET_2 --route-table-id $PUBLIC_RT
 
+# PUBLIC_SUBNET_1: subnet-00903760b47ea9f39
+# PUBLIC_SUBNET_2: subnet-0781ee8d36f10d08e
+# PRIVATE_SUBNET_1: subnet-047b6a50234127a66
+# PRIVATE_SUBNET_2: subnet-043a1224e8eb0640d
 # Create private route table (no internet route - uses VPC endpoints)
 PRIVATE_RT=$(aws ec2 create-route-table \
   --vpc-id $VPC_ID \
@@ -145,6 +155,7 @@ aws ec2 associate-route-table --subnet-id $PRIVATE_SUBNET_2 --route-table-id $PR
 
 echo "Route Tables: Public=$PUBLIC_RT, Private=$PRIVATE_RT"
 ```
+<!-- Route Tables: Public=rtb-0ac008aef20b71775, Private=rtb-0f4d2c9b994b1e666 -->
 
 ### 2.5 Create Security Groups
 
@@ -244,6 +255,12 @@ echo "  RDS: $RDS_SG"
 echo "  VPC Endpoint: $VPC_ENDPOINT_SG"
 # Save all these security group IDs
 ```
+<!-- Security Groups:
+  ALB: sg-053cea6211c9e7db5
+  Backend: sg-02c8a03bf690d592f
+  Frontend: sg-0616bc6241976f231
+  RDS: sg-0de0023b26d1237de
+  VPC Endpoint: sg-040027b98e02a3973 -->
 
 ## Step 3: Create VPC Endpoints
 
@@ -337,12 +354,13 @@ DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
 echo "Database Password: $DB_PASSWORD"
 # SAVE THIS PASSWORD - you'll need it for DATABASE_URL
 
+# Database Password: eF0gyLk2k3MjUxhg1qPbGxVIz
 # Create RDS instance
 aws rds create-db-instance \
   --db-instance-identifier event-registry-staging \
   --db-instance-class db.t4g.micro \
   --engine postgres \
-  --engine-version 15.4 \
+  --engine-version 15.15 \
   --master-username postgres \
   --master-user-password $DB_PASSWORD \
   --allocated-storage 20 \
@@ -371,6 +389,8 @@ echo "RDS Endpoint: $RDS_ENDPOINT"
 echo "DATABASE_URL will be: postgres://postgres:$DB_PASSWORD@$RDS_ENDPOINT:5432/registry"
 # Save this DATABASE_URL for Step 7
 ```
+<!-- RDS Endpoint: event-registry-staging.c0fai6w4ivpm.us-east-1.rds.amazonaws.com
+DATABASE_URL will be: postgres://postgres:eF0gyLk2k3MjUxhg1qPbGxVIz@event-registry-staging.c0fai6w4ivpm.us-east-1.rds.amazonaws.com:5432/registry -->
 
 ## Step 5: Create ECR Repositories
 
@@ -402,6 +422,10 @@ echo "Backend ECR URI: $BACKEND_ECR_URI"
 echo "Frontend ECR URI: $FRONTEND_ECR_URI"
 # Save these URIs
 ```
+<!-- 
+echo "Frontend ECR URI: $FRONTEND_ECR_URI"
+Backend ECR URI: 630147069059.dkr.ecr.us-east-1.amazonaws.com/event-registry-backend-staging
+Frontend ECR URI: 630147069059.dkr.ecr.us-east-1.amazonaws.com/event-registry-frontend-staging -->
 
 ## Step 6: Create S3 Bucket
 
@@ -417,7 +441,7 @@ aws s3api put-bucket-cors \
   --bucket $BUCKET_NAME \
   --cors-configuration file://infrastructure/s3-cors.json
 
-# Apply lifecycle policy
+# Apply lifecycle policy (skipped for now)
 aws s3api put-bucket-lifecycle-configuration \
   --bucket $BUCKET_NAME \
   --lifecycle-configuration file://infrastructure/s3-lifecycle.json
@@ -446,7 +470,7 @@ aws s3api put-bucket-policy \
 echo "S3 Bucket: $BUCKET_NAME"
 # Save this bucket name
 ```
-
+<!-- S3 Bucket: event-registry-staging-uploads-1764200910 -->
 ## Step 7: Set Up SSM Parameters
 
 ```bash
@@ -663,7 +687,7 @@ ALB_ARN=$(aws elbv2 create-load-balancer \
   --output text)
 
 echo "ALB ARN: $ALB_ARN"
-
+# ALB ARN: arn:aws:elasticloadbalancing:us-east-1:630147069059:loadbalancer/app/staging-alb/ff8510f9e670183b
 # Get ALB DNS name
 ALB_DNS=$(aws elbv2 describe-load-balancers \
   --load-balancer-arns $ALB_ARN \
@@ -673,6 +697,7 @@ ALB_DNS=$(aws elbv2 describe-load-balancers \
 echo "ALB DNS: $ALB_DNS"
 # Save this DNS name - you'll need it for SSM parameters
 ```
+<!-- ALB DNS: staging-alb-33342285.us-east-1.elb.amazonaws.com -->
 
 ### 12.2 Create Target Groups
 

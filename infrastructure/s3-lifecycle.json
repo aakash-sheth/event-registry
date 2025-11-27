@@ -1,7 +1,7 @@
 {
   "Rules": [
     {
-      "Id": "Move to Infrequent Access after 30 days",
+      "ID": "LifecycleRule0",
       "Status": "Enabled",
       "Transitions": [
         {

@@ -57,11 +57,35 @@ jobs:
 
       - name: Run database migrations
         run: |
+          # Use migration task if exists, otherwise use backend-task
+          TASK_DEF="backend-migration-task"
+          if ! aws ecs describe-task-definition --task-definition $TASK_DEF >/dev/null 2>&1; then
+            echo "Migration task not found, using backend-task instead"
+            TASK_DEF="backend-task"
+          fi
+          
+          # Get subnet and security group IDs from secrets or use placeholders
+          SUBNET_1="${{ secrets.ECS_PRIVATE_SUBNET_1 }}"
+          SUBNET_2="${{ secrets.ECS_PRIVATE_SUBNET_2 }}"
+          SG_ID="${{ secrets.ECS_BACKEND_SECURITY_GROUP }}"
+          
+          if [ -z "$SUBNET_1" ] || [ -z "$SUBNET_2" ] || [ -z "$SG_ID" ]; then
+            echo "⚠️  ERROR: Subnet or Security Group secrets not set in GitHub!"
+            echo "   Please add these secrets:"
+            echo "   - ECS_PRIVATE_SUBNET_1"
+            echo "   - ECS_PRIVATE_SUBNET_2"
+            echo "   - ECS_BACKEND_SECURITY_GROUP"
+            echo ""
+            echo "   Or update line 64 of this workflow file with actual values."
+            echo "   Run: infrastructure/get-aws-values.sh to get the values"
+            exit 1
+          fi
+          
           aws ecs run-task \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
-            --task-definition backend-migration-task \
+            --task-definition $TASK_DEF \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx,subnet-yyy],securityGroups=[sg-xxx],assignPublicIp=DISABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SG_ID],assignPublicIp=DISABLED}" \
             --overrides '{"containerOverrides":[{"name":"backend","command":["python","manage.py","migrate"]}]}'
 
       - name: Update backend ECS service

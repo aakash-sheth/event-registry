@@ -9,7 +9,7 @@
   "containerDefinitions": [
     {
       "name": "backend",
-      "image": "630147069059.dkr.ecr.us-east-1.amazonaws.com/event-registry-backend-staging:latest",
+      "image": "630147069059.dkr.ecr.REGION.amazonaws.com/event-registry-backend-staging:latest",
       "essential": true,
       "portMappings": [
         {
@@ -21,58 +21,58 @@
       "secrets": [
         {
           "name": "DJANGO_SECRET_KEY",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/DJANGO_SECRET_KEY"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/DJANGO_SECRET_KEY"
         },
         {
           "name": "DATABASE_URL",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/DATABASE_URL"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/DATABASE_URL"
         },
         {
           "name": "AWS_S3_BUCKET",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/AWS_S3_BUCKET"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/AWS_S3_BUCKET"
         },
         {
-          "name": "AWS_S3_us-east-1",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/AWS_S3_us-east-1"
+          "name": "AWS_S3_REGION",
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/AWS_S3_REGION"
         },
         {
           "name": "ALLOWED_HOSTS",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/ALLOWED_HOSTS"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/ALLOWED_HOSTS"
         },
         {
           "name": "CORS_ALLOWED_ORIGINS",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/CORS_ALLOWED_ORIGINS"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/CORS_ALLOWED_ORIGINS"
         },
         {
           "name": "FRONTEND_ORIGIN",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/FRONTEND_ORIGIN"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/FRONTEND_ORIGIN"
         },
         {
           "name": "EMAIL_PROVIDER",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/EMAIL_PROVIDER"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/EMAIL_PROVIDER"
         },
         {
-          "name": "SES_us-east-1",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/SES_us-east-1"
+          "name": "SES_REGION",
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/SES_REGION"
         },
         {
           "name": "SES_FROM_EMAIL",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/SES_FROM_EMAIL"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/SES_FROM_EMAIL"
         },
         {
           "name": "WHATSAPP_ENABLED",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/WHATSAPP_ENABLED"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/WHATSAPP_ENABLED"
         },
         {
           "name": "DEBUG",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/DEBUG"
+          "valueFrom": "arn:aws:ssm:REGION:630147069059:parameter/event-registry-staging/DEBUG"
         }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
           "awslogs-group": "/ecs/event-registry-staging/backend",
-          "awslogs-region": "us-east-1",
+          "awslogs-region": "REGION",
           "awslogs-stream-prefix": "ecs"
         }
       },
