@@ -105,6 +105,8 @@ export default function DesignInvitationPage() {
         hasPageConfig: !!eventData?.page_config,
         pageConfigKeys: eventData?.page_config ? Object.keys(eventData.page_config) : [],
         tilesCount: eventData?.page_config?.tiles?.length || 0,
+        tileTypes: eventData?.page_config?.tiles?.map((t: any) => t.type) || [],
+        fullPageConfig: eventData?.page_config, // Log full config to see what's actually there
       })
       
         // Helper function to create default tiles
