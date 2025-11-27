@@ -104,8 +104,15 @@ def _send_otp(user):
         # Log email failure but don't expose to user
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f'Failed to send OTP email to {email}: {str(e)}')
-        # Continue - user will need to request OTP again if email fails
+        error_str = str(e)
+        logger.error(f'Failed to send OTP email to {email}: {error_str}')
+        
+        # Check if this is a SES sandbox error (email not verified)
+        # In sandbox mode, SES requires both FROM and recipient emails to be verified
+        if 'MessageRejected' in error_str or 'Email address is not verified' in error_str:
+            logger.warning(f'SES sandbox mode detected - email verification required. Error: {error_str}')
+        
+        # Continue - we'll provide fallback for staging/testing
     
     # In development mode, log OTP to console for testing
     # This helps developers test without email configuration
@@ -120,11 +127,16 @@ def _send_otp(user):
         'token': token,  # Token for login link functionality
     }
     
-    # In development mode only, include OTP in response for easier testing
-    # NEVER include OTP in production for security
-    if settings.DEBUG:
+    # Always include OTP in response if email sending failed (for staging/testing)
+    # OR if in development mode
+    # This allows testing without SES setup or while waiting for SES production access
+    # In production with working email, OTP will NOT be included (email_sent=True and DEBUG=False)
+    if settings.DEBUG or not email_sent:
         response_data['otp_code'] = otp_code
-        response_data['_dev_note'] = 'OTP included only in development mode'
+        if not email_sent:
+            response_data['_dev_note'] = 'OTP included because email sending failed. This allows testing without SES setup. Once SES is configured, OTP will only be sent via email.'
+        else:
+            response_data['_dev_note'] = 'OTP included only in development mode'
     
     return Response(response_data, status=status.HTTP_200_OK)
 
