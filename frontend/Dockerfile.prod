@@ -9,6 +9,9 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci
 
+# Ensure public directory exists (Next.js requires it)
+RUN mkdir -p public
+
 # Copy project files (including config files needed for build)
 COPY . .
 
@@ -28,13 +31,9 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/next.config.js ./next.config.js
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Copy public directory if it exists in builder, otherwise create empty directory
-RUN mkdir -p public && \
-    if [ -d /tmp/builder-public ]; then \
-      cp -r /tmp/builder-public/* ./public/ || true; \
-    fi
-COPY --from=builder --chown=node:node /app/public /tmp/builder-public 2>/dev/null || echo "Public directory not found, using empty directory"
-RUN if [ -d /tmp/builder-public ]; then cp -r /tmp/builder-public/* ./public/ 2>/dev/null || true; rm -rf /tmp/builder-public; fi
+# Ensure public directory exists, then copy from builder
+RUN mkdir -p public
+COPY --from=builder /app/public ./public
 
 # Install only production dependencies
 RUN npm ci --only=production
