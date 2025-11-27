@@ -30,12 +30,23 @@ jobs:
           python3 -m venv /tmp/venv
           source /tmp/venv/bin/activate
           
-          echo "Installing dependencies..."
-          if ! pip install -q -r requirements.txt 2>&1; then
+          echo "Installing minimal dependencies for migration check..."
+          # Install only dependencies needed for Django settings to load
+          # (INSTALLED_APPS requirements + database URL parser)
+          pip install -q \
+            Django==4.2.7 \
+            djangorestframework==3.14.0 \
+            djangorestframework-simplejwt==5.3.0 \
+            django-cors-headers==4.3.1 \
+            psycopg2-binary==2.9.9 \
+            dj-database-url==2.1.0 \
+            python-dotenv==1.0.0 \
+            2>&1 | tee /tmp/pip_install.log || {
             echo "❌ ERROR: Failed to install dependencies"
-            echo "This might indicate an issue with requirements.txt"
+            echo "Installation log:"
+            cat /tmp/pip_install.log
             exit 1
-          fi
+          }
           
           export DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
           export DJANGO_SECRET_KEY="dummy-for-migration-check"
@@ -66,6 +77,7 @@ jobs:
             if [ $MIGRATION_EXIT -ne 0 ]; then
               echo "⚠️  Note: makemigrations exited with code $MIGRATION_EXIT"
               echo "   This might indicate a configuration or dependency issue."
+              echo "   Check the output above for specific error messages."
             fi
             exit 1
           fi
