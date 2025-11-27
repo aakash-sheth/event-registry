@@ -3,8 +3,7 @@
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import CanvasArea from './CanvasArea'
-import FloatingElement from './FloatingElement'
-import { FloatingElement as FloatingElementType } from '@/lib/invite/schema'
+import FloatingElement, { FloatingElementType } from './FloatingElement'
 
 interface PreviewModalProps {
   isOpen: boolean

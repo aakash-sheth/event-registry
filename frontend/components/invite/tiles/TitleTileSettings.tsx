@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { TitleTileSettings, Tile } from '@/lib/invite/schema'
+import type { TitleTileSettings, Tile } from '@/lib/invite/schema'
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'

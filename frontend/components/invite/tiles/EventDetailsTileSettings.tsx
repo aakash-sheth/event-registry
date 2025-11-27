@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { EventDetailsTileSettings } from '@/lib/invite/schema'
+import type { EventDetailsTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
 
 interface EventDetailsTileSettingsProps {

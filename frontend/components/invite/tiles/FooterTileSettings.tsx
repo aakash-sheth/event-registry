@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { FooterTileSettings } from '@/lib/invite/schema'
+import type { FooterTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
 
 interface FooterTileSettingsProps {

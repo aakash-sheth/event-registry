@@ -53,8 +53,12 @@ export default function TilePreview({
       case 'timer':
         // Get event date and time from event-details tile, fallback to eventDate prop
         const eventDetailsTile = allTiles.find(t => t.type === 'event-details' && t.enabled)
-        const eventDetailsDate = eventDetailsTile?.settings?.date as string | undefined
-        const eventTime = eventDetailsTile?.settings?.time as string | undefined
+        const eventDetailsDate = eventDetailsTile && eventDetailsTile.type === 'event-details' 
+          ? (eventDetailsTile.settings as import('@/lib/invite/schema').EventDetailsTileSettings).date
+          : undefined
+        const eventTime = eventDetailsTile && eventDetailsTile.type === 'event-details'
+          ? (eventDetailsTile.settings as import('@/lib/invite/schema').EventDetailsTileSettings).time
+          : undefined
         // Use date from event-details tile if available, otherwise use eventDate prop
         const timerDate = eventDetailsDate || eventDate
         return <TimerTile settings={tile.settings as any} preview eventDate={timerDate} eventTime={eventTime} eventSlug={eventSlug} eventTitle={eventTitle} />

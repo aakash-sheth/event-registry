@@ -4,8 +4,24 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, RotateCw } from 'lucide-react'
 import { useElementDrag } from '@/hooks/useElementDrag'
-import { FloatingElement as FloatingElementType } from '@/lib/invite/schema'
 import { Button } from '@/components/ui/button'
+
+export interface FloatingElementType {
+  id: string
+  type: 'button' | 'emoji' | 'sticker' | 'text'
+  position: { x: number; y: number }
+  size: { w: number; h: number }
+  rotation?: number
+  motion?: 'float' | 'pulse' | 'sparkle' | 'none'
+  label?: string
+  link?: string
+  src?: string
+  fontSize?: number
+  fontFamily?: string
+  fontWeight?: string | number
+  color?: string
+  textAlign?: 'left' | 'center' | 'right'
+}
 
 interface FloatingElementProps {
   element: FloatingElementType
@@ -23,7 +39,7 @@ const motionVariants = {
     transition: {
       repeat: Infinity,
       duration: 3,
-      ease: 'easeInOut',
+      ease: 'easeInOut' as const,
     },
   },
   pulse: {
@@ -31,7 +47,7 @@ const motionVariants = {
     transition: {
       repeat: Infinity,
       duration: 2.5,
-      ease: 'easeInOut',
+      ease: 'easeInOut' as const,
     },
   },
   sparkle: {
@@ -40,7 +56,7 @@ const motionVariants = {
     transition: {
       repeat: Infinity,
       duration: 1.5,
-      ease: 'easeInOut',
+      ease: 'easeInOut' as const,
     },
   },
   none: {},

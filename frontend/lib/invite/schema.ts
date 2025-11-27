@@ -125,3 +125,15 @@ export interface InviteConfig {
   }
 }
 
+export interface InvitePage {
+  id: number
+  event: number
+  event_slug: string
+  slug: string
+  background_url: string
+  config: InviteConfig
+  is_published: boolean
+  created_at: string
+  updated_at: string
+}
+

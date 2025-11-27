@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { FeatureButtonsTileSettings } from '@/lib/invite/schema'
+import type { FeatureButtonsTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
 
 interface FeatureButtonsTileSettingsProps {

@@ -480,7 +480,7 @@ export default function GuestsPage() {
                   <div>
                     <label className="block text-sm font-medium mb-1">Country Code</label>
                     <CountryCodeSelector
-                      {...register('country_code')}
+                      name="country_code"
                       value={watch('country_code') || event?.country_code || '+91'}
                       countryIso={watch('country_iso') || undefined}
                       defaultValue={event?.country_code || '+91'}

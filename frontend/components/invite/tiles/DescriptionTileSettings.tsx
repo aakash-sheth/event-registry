@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { Maximize2 } from 'lucide-react'
-import { DescriptionTileSettings } from '@/lib/invite/schema'
+import type { DescriptionTileSettings } from '@/lib/invite/schema'
 import RichTextEditor from '@/components/invite/RichTextEditor'
 import DescriptionEditorModal from '@/components/invite/DescriptionEditorModal'
 import { Button } from '@/components/ui/button'

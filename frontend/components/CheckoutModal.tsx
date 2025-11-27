@@ -177,7 +177,7 @@ export default function CheckoutModal({
               </label>
               <div className="flex gap-2">
                 <CountryCodeSelector
-                  {...register('country_code')}
+                  name="country_code"
                   defaultValue={eventCountryCode}
                   onChange={(value) => {
                     setValue('country_code', value, { shouldValidate: true })

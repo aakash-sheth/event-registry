@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { TimerTileSettings } from '@/lib/invite/schema'
+import type { TimerTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
 
 interface TimerTileSettingsProps {
@@ -31,7 +31,7 @@ export default function TimerTileSettings({ settings, onChange }: TimerTileSetti
                 type="radio"
                 id="circle-custom"
                 name="circleColor"
-                checked={!settings.circleColor || (settings.circleColor && settings.circleColor !== 'transparent')}
+                checked={Boolean(!settings.circleColor || (settings.circleColor && settings.circleColor !== 'transparent'))}
                 onChange={() => onChange({ ...settings, circleColor: settings.circleColor && settings.circleColor !== 'transparent' ? settings.circleColor : '#E55A9E' })}
                 className="w-4 h-4 text-eco-green"
               />

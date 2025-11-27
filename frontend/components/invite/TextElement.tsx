@@ -4,14 +4,14 @@ import React, { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FloatingElement } from '@/lib/invite/schema'
+import { FloatingElementType } from './FloatingElement'
 import { useElementDrag } from '@/hooks/useElementDrag'
 
 interface TextElementProps {
-  element: FloatingElement
+  element: FloatingElementType
   isSelected: boolean
   onSelect: () => void
-  onUpdate: (element: FloatingElement) => void
+  onUpdate: (element: FloatingElementType) => void
   onDelete: () => void
   motionEnabled: boolean
   canvasRef: React.RefObject<HTMLElement>
@@ -85,16 +85,16 @@ export default function TextElement({
   const motionVariants = {
     float: {
       y: [0, -4, 0],
-      transition: { repeat: Infinity, duration: 3, ease: 'easeInOut' },
+      transition: { repeat: Infinity, duration: 3, ease: 'easeInOut' as const },
     },
     pulse: {
       scale: [1, 1.04, 1],
-      transition: { repeat: Infinity, duration: 2.5 },
+      transition: { repeat: Infinity, duration: 2.5, ease: 'easeInOut' as const },
     },
     sparkle: {
       opacity: [1, 0.8, 1],
       scale: [1, 1.1, 1],
-      transition: { repeat: Infinity, duration: 1.5 },
+      transition: { repeat: Infinity, duration: 1.5, ease: 'easeInOut' as const },
     },
     none: {},
   }
@@ -154,9 +154,8 @@ export default function TextElement({
         <>
           {/* Delete Handle */}
           <Button
-            variant="destructive"
-            size="icon"
-            className="absolute -top-3 -right-3 h-6 w-6 rounded-full"
+            variant="ghost"
+            className="absolute -top-3 -right-3 h-6 w-6 rounded-full p-0 bg-red-500 hover:bg-red-600 text-white"
             onClick={(e) => {
               e.stopPropagation()
               onDelete()
@@ -168,8 +167,7 @@ export default function TextElement({
           {/* Rotate Handle */}
           <Button
             variant="outline"
-            size="icon"
-            className="absolute -top-3 left-1/2 -translate-x-1/2 h-6 w-6 rounded-full bg-white"
+            className="absolute -top-3 left-1/2 -translate-x-1/2 h-6 w-6 rounded-full bg-white p-0"
             onMouseDown={handleRotateStart}
             onTouchStart={handleRotateStart}
           >

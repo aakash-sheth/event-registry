@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { ImageTileSettings } from '@/lib/invite/schema'
+import type { ImageTileSettings } from '@/lib/invite/schema'
 import { Button } from '@/components/ui/button'
 import { extractDominantColors, rgbToHex } from '@/lib/invite/imageAnalysis'
 
@@ -55,8 +55,10 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
 
     const reader = new FileReader()
     reader.onloadend = async () => {
+      const dataUrl = reader.result as string
+      if (!dataUrl) return
+      
       try {
-        const dataUrl = reader.result as string
         // Extract dominant color for background
         const colors = await extractDominantColors(dataUrl, 3)
         const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')

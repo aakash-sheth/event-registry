@@ -75,7 +75,7 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
     return 'center center'
   }
 
-  const getImageStyle = () => {
+  const getImageStyle = (): React.CSSProperties => {
     const baseStyle: React.CSSProperties = {
       filter: blurValue > 0 ? `blur(${blurValue}px)` : 'none',
     }
@@ -87,7 +87,7 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
           ...baseStyle, 
           width: '100%', 
           height: '100%', 
-          objectFit: 'contain' 
+          objectFit: 'contain' as const
         }
 
       case 'full-image':
@@ -96,12 +96,12 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
           ...baseStyle, 
           width: '100%', 
           height: '100%', 
-          objectFit: 'cover',
+          objectFit: 'cover' as const,
           objectPosition: getObjectPosition()
         }
 
       default:
-        return { ...baseStyle, width: '100%', height: 'auto', objectFit: 'cover' }
+        return { ...baseStyle, width: '100%', height: 'auto', objectFit: 'cover' as const }
     }
   }
 

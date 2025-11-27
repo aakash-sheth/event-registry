@@ -92,7 +92,6 @@ export default function Description({ markdown, theme }: DescriptionProps) {
                   className="underline hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-offset-2 rounded"
                   style={{
                     color: theme.palette.primary,
-                    focusRingColor: theme.palette.primary,
                   }}
                   {...props}
                 />
