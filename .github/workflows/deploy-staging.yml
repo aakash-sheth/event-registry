@@ -56,27 +56,32 @@ jobs:
           MIGRATION_OUTPUT=$(python manage.py makemigrations --check --dry-run 2>&1)
           MIGRATION_EXIT=$?
           
-          if [ $MIGRATION_EXIT -eq 0 ] && echo "$MIGRATION_OUTPUT" | grep -q "No changes detected"; then
+          # makemigrations --check returns:
+          # - Exit code 0: No migrations needed (success)
+          # - Exit code 1: Migrations needed (failure)
+          # - Exit code > 1: Error occurred (failure)
+          if [ $MIGRATION_EXIT -eq 0 ]; then
             echo "✅ All migrations are up to date"
+            echo "$MIGRATION_OUTPUT"
           else
-            echo "❌ ERROR: Missing migrations detected!"
+            echo "❌ ERROR: Missing migrations detected or error occurred!"
             echo ""
             echo "=== Full Migration Check Output ==="
             echo "$MIGRATION_OUTPUT"
             echo "=================================="
             echo ""
-            echo "Model changes were pushed without corresponding migration files."
-            echo "This will cause deployment failures and runtime errors."
-            echo ""
-            echo "To fix:"
-            echo "  1. cd backend && python manage.py makemigrations"
-            echo "  2. Review the generated migration files"
-            echo "  3. git add backend/apps/*/migrations/ && git commit -m 'Add missing migrations' && git push"
-            echo "  4. Re-run this deployment"
-            echo ""
-            if [ $MIGRATION_EXIT -ne 0 ]; then
-              echo "⚠️  Note: makemigrations exited with code $MIGRATION_EXIT"
-              echo "   This might indicate a configuration or dependency issue."
+            if [ $MIGRATION_EXIT -eq 1 ]; then
+              echo "Model changes were pushed without corresponding migration files."
+              echo "This will cause deployment failures and runtime errors."
+              echo ""
+              echo "To fix:"
+              echo "  1. cd backend && python manage.py makemigrations"
+              echo "  2. Review the generated migration files"
+              echo "  3. git add backend/apps/*/migrations/ && git commit -m 'Add missing migrations' && git push"
+              echo "  4. Re-run this deployment"
+            else
+              echo "⚠️  makemigrations command failed with exit code $MIGRATION_EXIT"
+              echo "   This indicates a configuration or dependency issue."
               echo "   Check the output above for specific error messages."
             fi
             exit 1
