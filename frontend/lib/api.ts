@@ -1,18 +1,25 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 
-// Get API base URL - use build-time env var or runtime detection
-// In production/staging, if we're on the staging domain, use the ALB URL
+/**
+ * Get API base URL with automatic mixed content fix
+ * - Uses NEXT_PUBLIC_API_BASE from build-time env
+ * - In production, if page is HTTPS but API_BASE is HTTP, uses current origin
+ * - This fixes mixed content issues when using CloudFront or HTTPS-enabled distributions
+ */
 function getApiBase(): string {
   let apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
   
-  // Runtime override: If we're running in production and API_BASE is still localhost,
-  // try to detect the correct URL from the current origin
+  // Runtime override: Fix mixed content issues
   if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
     const currentOrigin = window.location.origin
-    // If we're on staging ALB and API_BASE is localhost, use the current origin (preserves HTTPS)
-    if (apiBase.includes('localhost') && currentOrigin.includes('staging-alb')) {
-      apiBase = currentOrigin // Use current origin (will be https:// if site is HTTPS)
-      console.warn('[API] Overriding localhost API_BASE with:', apiBase)
+    const isPageHTTPS = currentOrigin.startsWith('https://')
+    const isApiHTTP = apiBase.startsWith('http://')
+    
+    // If page is HTTPS but API is HTTP, use current origin (HTTPS)
+    // This handles CloudFront -> ALB and other HTTPS distribution scenarios
+    if (isPageHTTPS && isApiHTTP) {
+      apiBase = currentOrigin
+      console.warn('[API] Auto-fixing mixed content: Using HTTPS origin:', apiBase)
     }
   }
   

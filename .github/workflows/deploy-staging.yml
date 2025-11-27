@@ -115,14 +115,26 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Get API base URL from SSM (supports both HTTP and HTTPS)
-          # If NEXT_PUBLIC_API_BASE is set, use it; otherwise construct from ALB_DNS
-          NEXT_PUBLIC_API_BASE=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          # Get FRONTEND_URL (single source of truth) from SSM
+          # If FRONTEND_URL exists, use it; otherwise fall back to NEXT_PUBLIC_API_BASE or ALB_DNS
+          FRONTEND_URL=$(aws ssm get-parameter --name "/event-registry-staging/FRONTEND_URL" --query "Parameter.Value" --output text 2>/dev/null || echo "")
           
-          if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
-            # Fallback: construct from ALB_DNS (defaults to HTTP)
-            ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
-            NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
+          if [ -n "$FRONTEND_URL" ]; then
+            # Use FRONTEND_URL as NEXT_PUBLIC_API_BASE (new flexible distribution system)
+            NEXT_PUBLIC_API_BASE="$FRONTEND_URL"
+            echo "✅ Using FRONTEND_URL from SSM: ${FRONTEND_URL}"
+          else
+            # Fallback: Try NEXT_PUBLIC_API_BASE directly
+            NEXT_PUBLIC_API_BASE=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+            
+            if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
+              # Final fallback: construct from ALB_DNS (defaults to HTTP)
+              ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
+              NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
+              echo "⚠️  Using fallback: constructed from ALB_DNS"
+            else
+              echo "✅ Using NEXT_PUBLIC_API_BASE from SSM"
+            fi
           fi
           
           echo "Building frontend with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
