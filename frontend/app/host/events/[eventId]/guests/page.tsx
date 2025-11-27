@@ -63,6 +63,7 @@ interface Event {
   date: string | null
   country: string
   country_code: string
+  city?: string
   whatsapp_message_template?: string
 }
 
