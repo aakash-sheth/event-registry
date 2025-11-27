@@ -23,6 +23,24 @@ from apps.items.serializers import RegistryItemSerializer
 
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Override retrieve to log page_config for debugging"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        response_data = serializer.data
+        
+        # Log page_config details for debugging tile issues
+        import logging
+        logger = logging.getLogger(__name__)
+        if response_data.get('page_config'):
+            page_config = response_data['page_config']
+            tiles_count = len(page_config.get('tiles', [])) if isinstance(page_config, dict) else 0
+            logger.info(f'Event {instance.id} page_config: tiles_count={tiles_count}, has_tiles={bool(page_config.get("tiles"))}')
+        else:
+            logger.info(f'Event {instance.id} page_config: None or empty')
+        
+        return Response(response_data)
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
     
