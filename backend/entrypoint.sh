@@ -25,6 +25,22 @@ until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U postgres 2>/dev/null || pg_isrea
 done
 echo "Database is ready!"
 
+# Extract database name from DATABASE_URL and create it if it doesn't exist
+if [ -n "$DATABASE_URL" ]; then
+    DB_NAME=$(echo "$DATABASE_URL" | sed -n 's/.*\/\([^?]*\).*/\1/p')
+    if [ -n "$DB_NAME" ] && [ "$DB_NAME" != "postgres" ]; then
+        echo "Checking if database '$DB_NAME' exists..."
+        DB_EXISTS=$(PGPASSWORD=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p') psql -h "$DB_HOST" -p "$DB_PORT" -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" 2>/dev/null || echo "0")
+        if [ "$DB_EXISTS" != "1" ]; then
+            echo "Database '$DB_NAME' does not exist. Creating it..."
+            PGPASSWORD=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p') psql -h "$DB_HOST" -p "$DB_PORT" -U postgres -d postgres -c "CREATE DATABASE $DB_NAME;" || echo "Warning: Failed to create database (may already exist or insufficient permissions)"
+            echo "Database '$DB_NAME' created or already exists."
+        else
+            echo "Database '$DB_NAME' already exists."
+        fi
+    fi
+fi
+
 # Skip migrations and collectstatic if SKIP_MIGRATIONS is set
 if [ -z "$SKIP_MIGRATIONS" ]; then
     echo "Collecting static files..."
