@@ -9,9 +9,9 @@ function getApiBase(): string {
   // try to detect the correct URL from the current origin
   if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
     const currentOrigin = window.location.origin
-    // If we're on staging ALB and API_BASE is localhost, use the ALB URL
+    // If we're on staging ALB and API_BASE is localhost, use the current origin (preserves HTTPS)
     if (apiBase.includes('localhost') && currentOrigin.includes('staging-alb')) {
-      apiBase = currentOrigin.replace(/^https?:\/\//, 'http://')
+      apiBase = currentOrigin // Use current origin (will be https:// if site is HTTPS)
       console.warn('[API] Overriding localhost API_BASE with:', apiBase)
     }
   }

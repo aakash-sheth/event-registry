@@ -115,9 +115,15 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Get ALB DNS from SSM for build-time environment variable
-          ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
-          NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
+          # Get API base URL from SSM (supports both HTTP and HTTPS)
+          # If NEXT_PUBLIC_API_BASE is set, use it; otherwise construct from ALB_DNS
+          NEXT_PUBLIC_API_BASE=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          
+          if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
+            # Fallback: construct from ALB_DNS (defaults to HTTP)
+            ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
+            NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
+          fi
           
           echo "Building frontend with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
           
@@ -336,7 +342,14 @@ jobs:
           fi
           
           # Capture HTTP code and response body for debugging
-          HTTP_CODE=$(curl -s -o /tmp/health_response.json -w "%{http_code}" -m 10 https://$ALB_DNS/api/health 2>&1)
+          # Use HTTPS if ALB_DNS starts with https://, otherwise use HTTP
+          if [[ "$ALB_DNS" == https://* ]]; then
+            HEALTH_URL="${ALB_DNS}/api/health"
+          else
+            HEALTH_URL="http://${ALB_DNS}/api/health"
+          fi
+          
+          HTTP_CODE=$(curl -s -o /tmp/health_response.json -w "%{http_code}" -m 10 "$HEALTH_URL" 2>&1)
           CURL_EXIT=$?
           
           if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
