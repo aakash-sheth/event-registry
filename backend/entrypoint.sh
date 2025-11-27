@@ -25,11 +25,16 @@ until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U postgres 2>/dev/null || pg_isrea
 done
 echo "Database is ready!"
 
-echo "Collecting static files..."
-python manage.py collectstatic --noinput || echo "Warning: Static file collection failed"
+# Skip migrations and collectstatic if SKIP_MIGRATIONS is set
+if [ -z "$SKIP_MIGRATIONS" ]; then
+    echo "Collecting static files..."
+    python manage.py collectstatic --noinput || echo "Warning: Static file collection failed"
 
-echo "Running migrations..."
-python manage.py migrate
+    echo "Running migrations..."
+    python manage.py migrate
+else
+    echo "Skipping migrations and collectstatic (SKIP_MIGRATIONS is set)"
+fi
 
 echo "Starting server..."
 exec "$@"
