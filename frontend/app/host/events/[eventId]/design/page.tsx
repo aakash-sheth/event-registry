@@ -100,14 +100,17 @@ export default function DesignInvitationPage() {
       setEvent(eventData)
       
       // Debug: Log API response to help diagnose staging issues
-      logDebug('Event data loaded:', {
+      const debugInfo = {
         eventId,
         hasPageConfig: !!eventData?.page_config,
         pageConfigKeys: eventData?.page_config ? Object.keys(eventData.page_config) : [],
         tilesCount: eventData?.page_config?.tiles?.length || 0,
         tileTypes: eventData?.page_config?.tiles?.map((t: any) => t.type) || [],
         fullPageConfig: eventData?.page_config, // Log full config to see what's actually there
-      })
+      }
+      logDebug('Event data loaded:', debugInfo)
+      // Also log to console for immediate debugging (works even if CloudWatch fails)
+      console.log('[DESIGNER DEBUG] Event data loaded:', JSON.stringify(debugInfo, null, 2))
       
         // Helper function to create default tiles
         const createDefaultTiles = (data: typeof eventData): Tile[] => [
@@ -146,10 +149,13 @@ export default function DesignInvitationPage() {
         
         // Then fetch page config (which may need event data for migration)
         const pageConfig = await getEventPageConfig(eventId)
-        logDebug('Page config loaded:', {
+        const pageConfigDebug = {
           hasPageConfig: !!pageConfig?.page_config,
           tilesCount: pageConfig?.page_config?.tiles?.length || 0,
-        })
+          tileTypes: pageConfig?.page_config?.tiles?.map((t: any) => t.type) || [],
+        }
+        logDebug('Page config loaded:', pageConfigDebug)
+        console.log('[DESIGNER DEBUG] Page config loaded:', JSON.stringify(pageConfigDebug, null, 2))
         let finalConfig: InviteConfig | null = null
         
         if (pageConfig?.page_config) {
@@ -240,10 +246,13 @@ export default function DesignInvitationPage() {
         
         // Set the final config
         if (finalConfig) {
-          logDebug('Final config before setting:', {
-            tilesCount: finalConfig.tiles?.length || 0,
-            tileTypes: finalConfig.tiles?.map(t => t.type) || [],
-          })
+                const finalConfigDebug = {
+                  tilesCount: finalConfig.tiles?.length || 0,
+                  tileTypes: finalConfig.tiles?.map(t => t.type) || [],
+                  allTiles: finalConfig.tiles,
+                }
+                logDebug('Final config before setting:', finalConfigDebug)
+                console.log('[DESIGNER DEBUG] Final config before setting:', JSON.stringify(finalConfigDebug, null, 2))
           // Ensure title tile always exists and is enabled
           if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
             // Add title tile if missing
