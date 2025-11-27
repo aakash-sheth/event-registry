@@ -62,7 +62,7 @@ npm run dev
 
 - [ ] PostgreSQL database
 - [ ] Razorpay test account & keys
-- [ ] Email provider (SES or SendGrid) - optional for testing
+- [ ] AWS SES email configuration - optional for testing
 
 ### Optional
 
@@ -83,8 +83,8 @@ Use Razorpay test cards:
 For development, you can skip email setup - OTP codes will be logged/returned in response.
 
 For production:
-- **AWS SES:** Verify domain/email, set credentials
-- **SendGrid:** Create API key, verify sender
+- **AWS SES:** Verify domain/email in SES console, set SES_REGION and SES_FROM_EMAIL
+- Ensure IAM role has SES send permissions
 
 ## 🐛 Common Issues
 

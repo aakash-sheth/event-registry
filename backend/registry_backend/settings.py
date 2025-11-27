@@ -143,18 +143,14 @@ CORS_ALLOWED_ORIGINS = os.environ.get(
 CORS_ALLOW_CREDENTIALS = True
 
 # Email Configuration
-EMAIL_PROVIDER = os.environ.get('EMAIL_PROVIDER', 'ses')
 # Note: We use apps.common.email_backend.send_email() directly in views
+# Email is sent via AWS SES only
 
 # AWS SES
 SES_REGION = os.environ.get('SES_REGION', 'us-east-1')
 SES_ACCESS_KEY_ID = os.environ.get('SES_ACCESS_KEY_ID', '')
 SES_SECRET_ACCESS_KEY = os.environ.get('SES_SECRET_ACCESS_KEY', '')
 SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'noreply@eventregistry.com')
-
-# SendGrid
-SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY', '')
-SENDGRID_FROM_EMAIL = os.environ.get('SENDGRID_FROM_EMAIL', 'noreply@eventregistry.com')
 
 # Frontend
 FRONTEND_ORIGIN = os.environ.get('FRONTEND_ORIGIN', 'http://localhost:3000')

@@ -32,8 +32,8 @@
           "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/AWS_S3_BUCKET"
         },
         {
-          "name": "AWS_S3_us-east-1",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/AWS_S3_us-east-1"
+          "name": "AWS_S3_REGION_NAME",
+          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/AWS_S3_REGION_NAME"
         },
         {
           "name": "ALLOWED_HOSTS",
@@ -48,12 +48,8 @@
           "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/FRONTEND_ORIGIN"
         },
         {
-          "name": "EMAIL_PROVIDER",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/EMAIL_PROVIDER"
-        },
-        {
-          "name": "SES_us-east-1",
-          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/SES_us-east-1"
+          "name": "SES_REGION",
+          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/SES_REGION"
         },
         {
           "name": "SES_FROM_EMAIL",

@@ -106,7 +106,8 @@ See `backend/.env.example` for all variables. Key ones:
 
 - `DATABASE_URL` - PostgreSQL connection string
 - `RAZORPAY_KEY_ID` & `RAZORPAY_KEY_SECRET` - Razorpay credentials
-- `EMAIL_PROVIDER` - `ses` or `sendgrid`
+- `SES_REGION` - AWS SES region (e.g., `us-east-1`)
+- `SES_FROM_EMAIL` - Email address for sending emails via SES
 - `FRONTEND_ORIGIN` - Frontend URL for CORS
 
 ### Frontend (.env.local)
@@ -240,8 +241,9 @@ python manage.py test
 
 ### Emails not sending
 
-- Check `EMAIL_PROVIDER` setting
-- Verify SES/SendGrid credentials
+- Verify AWS SES credentials and permissions
+- Check SES_REGION and SES_FROM_EMAIL settings
+- Ensure email/domain is verified in SES (if in sandbox mode)
 - Check notification logs in admin panel
 
 ## 📚 Next Steps (Deferred Features)

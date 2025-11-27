@@ -492,7 +492,7 @@ chmod +x setup-ssm-parameters.sh
 # - AWS_S3_BUCKET: $BUCKET_NAME
 # - AWS_S3_REGION: us-east-1 (or your region)
 # - ALB DNS: (you'll get this after creating ALB in Step 10)
-# - Email provider: ses or sendgrid
+# - Email provider: AWS SES (configured via SES_REGION and SES_FROM_EMAIL)
 # - Other values as needed
 
 cd ..

@@ -1,26 +1,17 @@
 """
-Email backend supporting AWS SES and SendGrid
+Email backend using AWS SES
 """
 import boto3
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from django.conf import settings
 from apps.notifications.models import NotificationLog
 
 
 def send_email(to_email, subject, body_text, body_html=None):
     """
-    Send email using configured provider (SES or SendGrid)
+    Send email using AWS SES
     """
-    provider = settings.EMAIL_PROVIDER.lower()
-    
     try:
-        if provider == 'ses':
-            _send_via_ses(to_email, subject, body_text, body_html)
-        elif provider == 'sendgrid':
-            _send_via_sendgrid(to_email, subject, body_text, body_html)
-        else:
-            raise ValueError(f"Unknown email provider: {provider}")
+        _send_via_ses(to_email, subject, body_text, body_html)
         
         # Log success
         NotificationLog.objects.create(
@@ -68,28 +59,4 @@ def _send_via_ses(to_email, subject, body_text, body_html=None):
         Destination={'ToAddresses': [to_email]},
         Message=message,
     )
-
-
-def _send_via_sendgrid(to_email, subject, body_text, body_html=None):
-    """Send email via SendGrid"""
-    if not settings.SENDGRID_API_KEY:
-        raise ValueError("SENDGRID_API_KEY not configured")
-    
-    from_email = getattr(settings, 'SENDGRID_FROM_EMAIL', 'noreply@eventregistry.com')
-    
-    message = Mail(
-        from_email=from_email,
-        to_emails=to_email,
-        subject=subject,
-        plain_text_content=body_text,
-    )
-    
-    if body_html:
-        message.html_content = body_html
-    
-    sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-    response = sg.send(message)
-    
-    if response.status_code not in [200, 201, 202]:
-        raise Exception(f"SendGrid error: {response.status_code}")
 

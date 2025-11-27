@@ -58,26 +58,13 @@ create_param "${PARAM_PREFIX}/ALLOWED_HOSTS" "String" "$ALB_DNS" "Django ALLOWED
 create_param "${PARAM_PREFIX}/CORS_ALLOWED_ORIGINS" "String" "$ALB_URL" "CORS allowed origins"
 create_param "${PARAM_PREFIX}/FRONTEND_ORIGIN" "String" "$ALB_URL" "Frontend origin URL"
 
-# Email configuration
-read -p "Enter EMAIL_PROVIDER (ses or sendgrid, default: ses): " EMAIL_PROVIDER
-EMAIL_PROVIDER=${EMAIL_PROVIDER:-ses}
-create_param "${PARAM_PREFIX}/EMAIL_PROVIDER" "String" "$EMAIL_PROVIDER" "Email provider"
+# Email configuration (AWS SES only)
+read -p "Enter SES_REGION (default: us-east-1): " SES_REGION
+SES_REGION=${SES_REGION:-us-east-1}
+create_param "${PARAM_PREFIX}/SES_REGION" "String" "$SES_REGION" "SES region"
 
-if [ "$EMAIL_PROVIDER" = "ses" ]; then
-    read -p "Enter SES_REGION (default: us-east-1): " SES_REGION
-    SES_REGION=${SES_REGION:-us-east-1}
-    create_param "${PARAM_PREFIX}/SES_REGION" "String" "$SES_REGION" "SES region"
-    
-    read -p "Enter SES_FROM_EMAIL: " SES_FROM_EMAIL
-    create_param "${PARAM_PREFIX}/SES_FROM_EMAIL" "String" "$SES_FROM_EMAIL" "SES from email address"
-elif [ "$EMAIL_PROVIDER" = "sendgrid" ]; then
-    read -sp "Enter SENDGRID_API_KEY: " SENDGRID_KEY
-    echo
-    create_param "${PARAM_PREFIX}/SENDGRID_API_KEY" "SecureString" "$SENDGRID_KEY" "SendGrid API key"
-    
-    read -p "Enter SENDGRID_FROM_EMAIL: " SENDGRID_FROM_EMAIL
-    create_param "${PARAM_PREFIX}/SENDGRID_FROM_EMAIL" "String" "$SENDGRID_FROM_EMAIL" "SendGrid from email address"
-fi
+read -p "Enter SES_FROM_EMAIL: " SES_FROM_EMAIL
+create_param "${PARAM_PREFIX}/SES_FROM_EMAIL" "String" "$SES_FROM_EMAIL" "SES from email address"
 
 # Feature flags
 read -p "Enable WhatsApp? (true/false, default: false): " WHATSAPP_ENABLED
