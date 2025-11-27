@@ -153,6 +153,13 @@ class EventCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("This slug is already taken.")
         return value
     
+    def validate_date(self, value):
+        """Handle empty date strings from frontend"""
+        # If value is an empty string, return None
+        if value == '' or value is None:
+            return None
+        return value
+    
     def to_representation(self, instance):
         """Return full event data including id after creation"""
         return EventSerializer(instance).data

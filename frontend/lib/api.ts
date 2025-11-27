@@ -163,11 +163,11 @@ export default api
  * @param file - Image file to upload
  * @returns Promise resolving to S3 URL string
  */
-export async function uploadImage(file: File): Promise<string> {
+export async function uploadImage(file: File, eventId: number): Promise<string> {
   const formData = new FormData()
   formData.append('image', file)
   
-  const response = await api.post('/api/events/upload-image/', formData, {
+  const response = await api.post(`/api/events/${eventId}/upload-image/`, formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },

@@ -18,7 +18,7 @@ urlpatterns = [
     # Public invite routes
     path('invite/<str:slug>/', PublicInviteViewSet.as_view({'get': 'retrieve'}), name='public-invite'),
     path('invite/<str:slug>/publish/', InvitePageViewSet.as_view({'post': 'publish'}), name='invite-publish'),
-    # Image upload endpoint
-    path('upload-image/', upload_image, name='upload-image'),
+    # Image upload endpoint (event-specific)
+    path('<int:event_id>/upload-image/', upload_image, name='upload-image'),
     path('', include(router.urls)),
 ]

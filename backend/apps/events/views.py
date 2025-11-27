@@ -81,6 +81,38 @@ class EventViewSet(viewsets.ModelViewSet):
         """Ensure event is created with current user as host"""
         serializer.save(host=self.request.user)
     
+    def create(self, request, *args, **kwargs):
+        """Override create to add better error handling"""
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception as e:
+            # Log the full error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error creating event: {str(e)}", exc_info=True)
+            
+            # Return a more helpful error message
+            error_message = str(e)
+            if 'has_registry' in error_message or 'has_rsvp' in error_message:
+                return Response(
+                    {'error': 'Database migration required. Please run: python manage.py migrate'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            elif 'slug' in error_message.lower():
+                return Response(
+                    {'error': f'Slug validation error: {error_message}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                return Response(
+                    {'error': f'Failed to create event: {error_message}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+    
     def list(self, request, *args, **kwargs):
         """Override list to handle missing database fields gracefully"""
         try:
@@ -1085,13 +1117,39 @@ def create_rsvp(request, event_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def upload_image(request):
+def upload_image(request, event_id):
     """
     Upload an image file to S3 and return the public URL
     
     Accepts: multipart/form-data with 'image' field
+    URL: /api/events/{event_id}/upload-image/
     Returns: { 'url': 'https://...' }
     """
+    # Validate event_id is an integer
+    try:
+        event_id = int(event_id)
+    except (ValueError, TypeError):
+        return Response(
+            {'error': 'Invalid event_id. Must be an integer.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Get event and validate ownership
+    try:
+        event = Event.objects.get(id=event_id)
+    except Event.DoesNotExist:
+        return Response(
+            {'error': 'Event not found.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Verify user owns the event
+    if event.host != request.user:
+        return Response(
+            {'error': 'You do not have permission to upload images to this event.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     if 'image' not in request.FILES:
         return Response(
             {'error': 'No image file provided. Please include an image file in the request.'},
@@ -1117,11 +1175,19 @@ def upload_image(request):
         )
     
     try:
-        # Upload to S3
-        s3_url = upload_to_s3(image_file, folder='events')
+        # Upload to S3 or local storage with event_id
+        uploaded_url = upload_to_s3(image_file, event_id=event_id)
+        
+        # If in DEBUG mode and URL is relative, make it absolute
+        if settings.DEBUG and uploaded_url.startswith('/'):
+            # Construct full URL using request
+            scheme = request.scheme
+            host = request.get_host()
+            full_url = f"{scheme}://{host}{uploaded_url}"
+            uploaded_url = full_url
         
         return Response(
-            {'url': s3_url},
+            {'url': uploaded_url},
             status=status.HTTP_200_OK
         )
     except Exception as e:

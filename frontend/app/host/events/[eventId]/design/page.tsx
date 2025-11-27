@@ -34,24 +34,45 @@ const DEFAULT_TILES: Tile[] = [
     settings: { text: 'Event Title' },
   },
   {
-    id: 'tile-event-details-1',
+    id: 'tile-image-1',
+    type: 'image',
+    enabled: false,
+    order: 1,
+    settings: { src: '', fitMode: 'fit-to-screen' },
+  },
+  {
+    id: 'tile-event-details-2',
     type: 'event-details',
     enabled: true,
-    order: 1,
+    order: 2,
     settings: { location: '', date: new Date().toISOString().split('T')[0] },
   },
   {
-    id: 'tile-feature-buttons-2',
+    id: 'tile-description-3',
+    type: 'description',
+    enabled: false,
+    order: 3,
+    settings: { content: '' },
+  },
+  {
+    id: 'tile-timer-4',
+    type: 'timer',
+    enabled: false,
+    order: 4,
+    settings: { enabled: true, format: 'circle', circleColor: '#0D6EFD', textColor: '#000000' },
+  },
+  {
+    id: 'tile-feature-buttons-5',
     type: 'feature-buttons',
     enabled: true,
-    order: 2,
+    order: 5,
     settings: { buttonColor: '#0D6EFD' },
   },
   {
-    id: 'tile-footer-3',
+    id: 'tile-footer-6',
     type: 'footer',
     enabled: false,
-    order: 3,
+    order: 6,
     settings: { text: '' },
   },
 ]
@@ -122,27 +143,48 @@ export default function DesignInvitationPage() {
             settings: { text: data?.title || 'Event Title' },
           },
           {
-            id: 'tile-event-details-1',
+            id: 'tile-image-1',
+            type: 'image',
+            enabled: false,
+            order: 1,
+            settings: { src: '', fitMode: 'fit-to-screen' },
+          },
+          {
+            id: 'tile-event-details-2',
             type: 'event-details',
             enabled: true,
-            order: 1,
+            order: 2,
             settings: {
               location: data?.city || '',
               date: data?.date || new Date().toISOString().split('T')[0],
             },
           },
           {
-            id: 'tile-feature-buttons-2',
+            id: 'tile-description-3',
+            type: 'description',
+            enabled: false,
+            order: 3,
+            settings: { content: '' },
+          },
+          {
+            id: 'tile-timer-4',
+            type: 'timer',
+            enabled: false,
+            order: 4,
+            settings: { enabled: true, format: 'circle', circleColor: '#0D6EFD', textColor: '#000000' },
+          },
+          {
+            id: 'tile-feature-buttons-5',
             type: 'feature-buttons',
             enabled: true,
-            order: 2,
+            order: 5,
             settings: { buttonColor: '#0D6EFD' },
           },
           {
-            id: 'tile-footer-3',
+            id: 'tile-footer-6',
             type: 'footer',
             enabled: false,
-            order: 3,
+            order: 6,
             settings: { text: '' },
           },
         ]
@@ -192,21 +234,40 @@ export default function DesignInvitationPage() {
             } else {
               // Explicitly preserve all tile settings from loaded config
               // This ensures coverPosition and other settings are not lost
+              const existingTiles = preservedConfig.tiles.map(tile => {
+                // Find the corresponding tile in loadedConfig to preserve all settings
+                const loadedTile = loadedConfig.tiles?.find(lt => lt.id === tile.id)
+                if (loadedTile && loadedTile.settings) {
+                  // Merge settings: loadedTile.settings takes precedence to preserve saved values like coverPosition
+                  // Then apply any defaults from migrated tile
+                  return {
+                    ...tile,
+                    settings: { ...tile.settings, ...loadedTile.settings }
+                  }
+                }
+                return tile
+              })
+              
+              // Ensure all tile types are present - add missing ones from defaults
+              const defaultTiles = createDefaultTiles(eventData)
+              const existingTileTypes = new Set(existingTiles.map(t => t.type))
+              const missingTiles = defaultTiles.filter(t => !existingTileTypes.has(t.type))
+              
+              // Merge existing tiles with missing default tiles, preserving order
+              const allTiles = [...existingTiles, ...missingTiles]
+                .sort((a, b) => {
+                  // Keep existing tiles in their current order, new tiles go after
+                  const aExists = existingTiles.some(t => t.id === a.id)
+                  const bExists = existingTiles.some(t => t.id === b.id)
+                  if (aExists && !bExists) return -1
+                  if (!aExists && bExists) return 1
+                  return a.order - b.order
+                })
+                .map((tile, index) => ({ ...tile, order: index }))
+              
               finalConfig = {
                 ...preservedConfig,
-                tiles: preservedConfig.tiles.map(tile => {
-                  // Find the corresponding tile in loadedConfig to preserve all settings
-                  const loadedTile = loadedConfig.tiles?.find(lt => lt.id === tile.id)
-                  if (loadedTile && loadedTile.settings) {
-                    // Merge settings: loadedTile.settings takes precedence to preserve saved values like coverPosition
-                    // Then apply any defaults from migrated tile
-                    return {
-                      ...tile,
-                      settings: { ...tile.settings, ...loadedTile.settings }
-                    }
-                  }
-                  return tile
-                })
+                tiles: allTiles
               }
               
               // Debug: Log image tile settings when loading
@@ -493,6 +554,7 @@ export default function DesignInvitationPage() {
     }))
   }
 
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-eco-beige">
@@ -627,6 +689,7 @@ export default function DesignInvitationPage() {
                       onToggle={handleTileToggle}
                       allTiles={sortedTiles}
                       onOverlayToggle={handleOverlayToggle}
+                      eventId={eventId}
                     />
                   ))
                 ) : (

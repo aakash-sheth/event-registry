@@ -4,6 +4,7 @@ Utility functions for events app
 
 import os
 import uuid
+import hashlib
 from datetime import datetime
 import boto3
 from botocore.exceptions import ClientError
@@ -202,82 +203,113 @@ def parse_phone_number(phone: str) -> tuple[str, str]:
     return DEFAULT_COUNTRY_CODE, phone.lstrip('+')
 
 
-def upload_to_s3(file, folder='events'):
+def upload_to_s3(file, event_id, folder='events'):
     """
-    Upload a file to AWS S3 and return the public URL
+    Upload a file to AWS S3 or local storage (in DEBUG mode) and return the public URL
+    
+    Uses content hash for filename to enable automatic deduplication within events.
     
     Args:
         file: Django UploadedFile object or file-like object
+        event_id: Event ID for organizing files by event
         folder: S3 folder path (default: 'events')
     
     Returns:
-        Public S3 URL string
+        Public URL string (S3 URL in production, local URL in development)
     
     Raises:
         Exception: If upload fails
     """
-    # Get S3 configuration from settings
+    # Validate event_id
+    if not event_id or not isinstance(event_id, int):
+        raise ValueError('event_id must be a valid integer')
+    
+    # Read file content and calculate hash
+    file.seek(0)  # Reset file pointer
+    file_content = file.read()
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    
+    # Get file extension
+    file_extension = os.path.splitext(file.name)[1] if hasattr(file, 'name') else '.jpg'
+    if not file_extension:
+        file_extension = '.jpg'
+    
+    # Generate filename: events/{event_id}/{hash}.jpg
+    filename = f"{folder}/{event_id}/{file_hash}{file_extension}"
+    
+    # Check if we should use local storage (DEBUG mode and S3 credentials missing)
+    debug_mode = getattr(settings, 'DEBUG', False)
     bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', '')
-    region = getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
     access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', '')
     secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', '')
     
-    if not bucket_name or not access_key or not secret_key:
-        raise Exception('S3 configuration is missing. Please set AWS_STORAGE_BUCKET_NAME, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY in settings.')
+    use_local_storage = debug_mode and (not bucket_name or not access_key or not secret_key)
     
-    # Initialize S3 client
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region
-    )
-    
-    # Generate unique filename
-    file_extension = os.path.splitext(file.name)[1] if hasattr(file, 'name') else '.jpg'
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    unique_id = str(uuid.uuid4())[:8]
-    filename = f"{folder}/{timestamp}_{unique_id}{file_extension}"
-    
-    try:
-        # Upload file to S3
-        # Set content type based on file extension
-        content_type_map = {
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.webp': 'image/webp',
-            '.gif': 'image/gif',
-        }
-        content_type = content_type_map.get(file_extension.lower(), 'image/jpeg')
+    if use_local_storage:
+        # Local file storage for development
+        media_root = getattr(settings, 'MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'media'))
+        upload_dir = os.path.join(media_root, 'uploads', folder, str(event_id))
         
-        # Read file content
-        file.seek(0)  # Reset file pointer
-        file_content = file.read()
+        # Create directory if it doesn't exist
+        os.makedirs(upload_dir, exist_ok=True)
         
-        # Upload to S3 with public read access
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=filename,
-            Body=file_content,
-            ContentType=content_type,
-            ACL='public-read'  # Make file publicly accessible
+        # Save file locally
+        file_path = os.path.join(upload_dir, f"{file_hash}{file_extension}")
+        with open(file_path, 'wb') as f:
+            f.write(file_content)
+        
+        # Return local URL
+        media_url = getattr(settings, 'MEDIA_URL', '/media/')
+        return f"{media_url}uploads/{filename}"
+    else:
+        # S3 upload for production
+        if not bucket_name or not access_key or not secret_key:
+            raise Exception('S3 configuration is missing. Please set AWS_STORAGE_BUCKET_NAME, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY in settings.')
+        
+        region = getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
+        
+        # Initialize S3 client
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region
         )
         
-        # Construct public URL
-        # Format: https://bucket-name.s3.region.amazonaws.com/folder/filename
-        if region == 'us-east-1':
-            # us-east-1 uses different URL format
-            url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
-        else:
-            url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{filename}"
-        
-        return url
-        
-    except ClientError as e:
-        raise Exception(f'Failed to upload file to S3: {str(e)}')
-    except Exception as e:
-        raise Exception(f'Error uploading file: {str(e)}')
+        try:
+            # Set content type based on file extension
+            content_type_map = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.webp': 'image/webp',
+                '.gif': 'image/gif',
+            }
+            content_type = content_type_map.get(file_extension.lower(), 'image/jpeg')
+            
+            # Upload to S3 (bucket policy handles public read access, no ACL needed)
+            # If file with same hash exists, it will be overwritten (automatic deduplication)
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=filename,
+                Body=file_content,
+                ContentType=content_type,
+            )
+            
+            # Construct public URL
+            # Format: https://bucket-name.s3.region.amazonaws.com/folder/filename
+            if region == 'us-east-1':
+                # us-east-1 uses different URL format
+                url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
+            else:
+                url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{filename}"
+            
+            return url
+            
+        except ClientError as e:
+            raise Exception(f'Failed to upload file to S3: {str(e)}')
+        except Exception as e:
+            raise Exception(f'Error uploading file: {str(e)}')
 
 
 def calculate_event_impact(event):

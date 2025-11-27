@@ -4,19 +4,22 @@ import React, { useState, useEffect } from 'react'
 import type { ImageTileSettings } from '@/lib/invite/schema'
 import { Button } from '@/components/ui/button'
 import { extractDominantColors, rgbToHex } from '@/lib/invite/imageAnalysis'
+import { uploadImage } from '@/lib/api'
 
 interface ImageTileSettingsProps {
   settings: ImageTileSettings
   onChange: (settings: ImageTileSettings) => void
   hasTitleOverlay?: boolean
+  eventId: number
 }
 
 // iPhone 16 aspect ratio: 1179:2556
 const IPHONE_ASPECT_RATIO = 1179 / 2556
 const ASPECT_RATIO_TOLERANCE = 0.01 // Allow small tolerance for floating point comparison
 
-export default function ImageTileSettings({ settings, onChange, hasTitleOverlay = false }: ImageTileSettingsProps) {
+export default function ImageTileSettings({ settings, onChange, hasTitleOverlay = false, eventId }: ImageTileSettingsProps) {
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   // Detect image aspect ratio when image loads
   useEffect(() => {
@@ -39,6 +42,7 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
   // Check if image aspect ratio matches iPhone aspect ratio
   const matchesMobileAspectRatio = imageAspectRatio !== null && 
     Math.abs(imageAspectRatio - IPHONE_ASPECT_RATIO) < ASPECT_RATIO_TOLERANCE
+  
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -53,28 +57,34 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
       return
     }
 
-    const reader = new FileReader()
-    reader.onloadend = async () => {
-      const dataUrl = reader.result as string
-      if (!dataUrl) return
+    setUploading(true)
+    try {
+      // Upload file to S3 (or local storage in development)
+      const imageUrl = await uploadImage(file, eventId)
       
+      // Extract dominant color for background from the uploaded URL
       try {
-        // Extract dominant color for background
-        const colors = await extractDominantColors(dataUrl, 3)
+        const colors = await extractDominantColors(imageUrl, 3)
         const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
         
         onChange({
           ...settings,
-          src: dataUrl,
+          src: imageUrl,
           backgroundColor: primaryColor,
         })
       } catch (error) {
-        console.error('Error loading image:', error)
-        // Fallback to basic upload
-        onChange({ ...settings, src: dataUrl })
+        console.error('Error extracting dominant colors:', error)
+        // Fallback to basic upload without color extraction
+        onChange({ ...settings, src: imageUrl })
       }
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      alert('Failed to upload image. Please try again.')
+    } finally {
+      setUploading(false)
+      // Reset file input
+      e.target.value = ''
     }
-    reader.readAsDataURL(file)
   }
 
   return (
@@ -85,9 +95,12 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
           type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleImageUpload}
-          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-eco-green file:text-white hover:file:bg-green-600"
+          disabled={uploading}
+          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-eco-green file:text-white hover:file:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
         />
-        <p className="text-xs text-gray-500 mt-1">Supported: JPG, PNG, WEBP (max 5MB)</p>
+        <p className="text-xs text-gray-500 mt-1">
+          {uploading ? 'Uploading...' : 'Supported: JPG, PNG, WEBP (max 5MB)'}
+        </p>
       </div>
 
       {settings.src && (

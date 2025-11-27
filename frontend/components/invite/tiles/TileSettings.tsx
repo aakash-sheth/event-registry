@@ -17,6 +17,7 @@ interface TileSettingsProps {
   onToggle: (tileId: string, enabled: boolean) => void
   allTiles?: Tile[]
   onOverlayToggle?: (tileId: string, targetTileId: string | undefined) => void
+  eventId: number
 }
 
 const TILE_LABELS: Record<TileType, string> = {
@@ -29,7 +30,7 @@ const TILE_LABELS: Record<TileType, string> = {
   'footer': 'Footer',
 }
 
-export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle }: TileSettingsProps) {
+export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId }: TileSettingsProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   const handleSettingsChange = (settings: any) => {
@@ -76,7 +77,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
         )
       case 'image':
         const hasTitleOverlay = allTiles.some(t => t.type === 'title' && t.overlayTargetId === tile.id)
-        return <ImageTileSettings settings={tile.settings as any} onChange={handleSettingsChange} hasTitleOverlay={hasTitleOverlay} />
+        return <ImageTileSettings settings={tile.settings as any} onChange={handleSettingsChange} hasTitleOverlay={hasTitleOverlay} eventId={eventId} />
       case 'timer':
         return <TimerTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
       case 'event-details':
