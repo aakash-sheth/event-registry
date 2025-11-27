@@ -115,7 +115,15 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f frontend/Dockerfile.prod -t $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
+          # Get ALB DNS from SSM for build-time environment variable
+          ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
+          NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
+          
+          echo "Building frontend with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
+          
+          docker build -f frontend/Dockerfile.prod \
+            --build-arg NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE}" \
+            -t $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
           docker push $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG
           docker tag $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:latest
           docker push $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:latest
@@ -228,22 +236,70 @@ jobs:
       - name: Wait for backend service to stabilize
         timeout-minutes: 20
         run: |
+          echo "Waiting for backend service to stabilize..."
           if aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
             --services ${{ env.ECS_BACKEND_SERVICE }}; then
             echo "✅ Backend service is stable"
           else
             echo "❌ Backend service did not stabilize within timeout"
+            echo ""
+            echo "=== Service Status ==="
             aws ecs describe-services \
               --cluster ${{ env.ECS_CLUSTER_NAME }} \
               --services ${{ env.ECS_BACKEND_SERVICE }} \
-              --query 'services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
-              --output table
+              --query 'services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount,Deployments:deployments[*].{Status:status,Running:runningCount,Desired:desiredCount,Id:id}}' \
+              --output json
+            echo ""
+            echo "=== Recent Service Events (last 10) ==="
             aws ecs describe-services \
               --cluster ${{ env.ECS_CLUSTER_NAME }} \
               --services ${{ env.ECS_BACKEND_SERVICE }} \
-              --query 'services[0].events[:3]' \
+              --query 'services[0].events[:10]' \
               --output table
+            echo ""
+            echo "=== Running Tasks Status ==="
+            TASKS=$(aws ecs list-tasks \
+              --cluster ${{ env.ECS_CLUSTER_NAME }} \
+              --service-name ${{ env.ECS_BACKEND_SERVICE }} \
+              --query 'taskArns[]' \
+              --output text)
+            if [ -n "$TASKS" ]; then
+              for TASK in $TASKS; do
+                echo "--- Task: $TASK ---"
+                aws ecs describe-tasks \
+                  --cluster ${{ env.ECS_CLUSTER_NAME }} \
+                  --tasks "$TASK" \
+                  --query 'tasks[0].{LastStatus:lastStatus,DesiredStatus:desiredStatus,HealthStatus:healthStatus,StoppedReason:stoppedReason,StoppedAt:stoppedAt,Containers:containers[*].{Name:name,LastStatus:lastStatus,ExitCode:exitCode,Reason:reason}}' \
+                  --output json
+                echo ""
+              done
+            else
+              echo "No running tasks found"
+            fi
+            echo ""
+            echo "=== Stopped Tasks (last 5) ==="
+            STOPPED_TASKS=$(aws ecs list-tasks \
+              --cluster ${{ env.ECS_CLUSTER_NAME }} \
+              --service-name ${{ env.ECS_BACKEND_SERVICE }} \
+              --desired-status STOPPED \
+              --max-items 5 \
+              --query 'taskArns[]' \
+              --output text)
+            if [ -n "$STOPPED_TASKS" ]; then
+              for TASK in $STOPPED_TASKS; do
+                echo "--- Stopped Task: $TASK ---"
+                aws ecs describe-tasks \
+                  --cluster ${{ env.ECS_CLUSTER_NAME }} \
+                  --tasks "$TASK" \
+                  --query 'tasks[0].{LastStatus:lastStatus,StoppedReason:stoppedReason,StoppedAt:stoppedAt,Containers:containers[*].{Name:name,ExitCode:exitCode,Reason:reason}}' \
+                  --output json
+                echo ""
+              done
+            fi
+            echo ""
+            echo "=== Check CloudWatch Logs ==="
+            echo "Run: aws logs tail /ecs/${{ env.ECS_CLUSTER_NAME }}/backend --follow"
             exit 1
           fi
 
