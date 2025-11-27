@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
 import { formatPhoneWithCountryCode } from '@/lib/countryCodesFull'
 import CountryCodeSelector from '@/components/CountryCodeSelector'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 const checkoutSchema = z.object({
   buyer_name: z.string().min(1, 'Name is required'),
@@ -71,13 +72,7 @@ export default function CheckoutModal({
       }
       
       // Create order
-      console.log('Creating order with:', {
-        event_id: eventId,
-        item_id: item.id,
-        buyer_name: data.buyer_name,
-        buyer_email: data.buyer_email,
-        buyer_phone: formattedPhone,
-      })
+      logDebug('Creating order')
       
       const orderResponse = await api.post('/api/orders/', {
         event_id: eventId,
@@ -133,12 +128,8 @@ export default function CheckoutModal({
       }
       document.body.appendChild(script)
     } catch (error: any) {
-      console.error('Order creation error:', error)
-      console.error('Error response:', error.response?.data)
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.detail ||
-                          (typeof error.response?.data === 'object' ? JSON.stringify(error.response?.data) : 'Failed to create order')
-      showToast(errorMessage, 'error')
+      logError('Order creation error:', error)
+      showToast(getErrorMessage(error), 'error')
       setLoading(false)
     }
   }

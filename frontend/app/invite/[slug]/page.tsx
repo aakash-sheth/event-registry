@@ -6,6 +6,7 @@ import api from '@/lib/api'
 import { InviteConfig } from '@/lib/invite/schema'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
 import { DEMO } from '@/lib/invite/loadConfig'
+import { logError, logDebug } from '@/lib/error-handler'
 
 interface Event {
   id: number
@@ -44,12 +45,7 @@ export default function InvitePage() {
         // Debug: Log image tile settings when loading public page
         const imageTile = configWithCustomColors.tiles?.find((t: any) => t.type === 'image')
         if (imageTile) {
-          console.log('[Public Invite Page] Raw API response - image tile:', imageTile)
-          console.log('[Public Invite Page] Image tile settings:', imageTile.settings)
-          console.log('[Public Invite Page] coverPosition from API:', (imageTile.settings as any)?.coverPosition)
-          console.log('[Public Invite Page] Full page_config from API:', JSON.stringify(eventData.page_config, null, 2))
-        } else {
-          console.log('[Public Invite Page] No image tile found in config')
+          logDebug('[Public Invite Page] Image tile loaded')
         }
         
         setEvent(eventData)
@@ -79,7 +75,7 @@ export default function InvitePage() {
         setConfig(fallbackConfig)
       }
     } catch (error: any) {
-      console.error('Failed to fetch invite:', error)
+      logError('Failed to fetch invite:', error)
       // For demo route, use DEMO config
       if (slug === 'aakash-alisha') {
         setConfig(DEMO)

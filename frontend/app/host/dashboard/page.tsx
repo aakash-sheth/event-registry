@@ -7,6 +7,7 @@ import api from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
+import { logError } from '@/lib/error-handler'
 
 interface Event {
   id: number
@@ -88,7 +89,7 @@ export default function DashboardPage() {
     } catch (error: any) {
       if (error.response?.status !== 401) {
         // Silently fail - impact is optional
-        console.error('Failed to load impact data:', error)
+        logError('Failed to load impact data:', error)
       }
     } finally {
       setLoadingImpact(false)

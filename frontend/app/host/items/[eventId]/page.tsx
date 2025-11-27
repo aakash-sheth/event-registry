@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 const itemSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -114,7 +115,7 @@ export default function ItemsPage() {
         payload.image_url = data.image_url.trim()
       }
 
-      console.log('Creating item with payload:', payload)
+      logDebug('Creating/updating item')
 
       if (editingItem) {
         await api.put(`/api/items/${editingItem.id}/`, payload)
@@ -129,12 +130,8 @@ export default function ItemsPage() {
       setEditingItem(null)
       fetchItems()
     } catch (error: any) {
-      console.error('Item creation error:', error)
-      console.error('Error response:', error.response?.data)
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.detail || 
-                          (typeof error.response?.data === 'object' ? JSON.stringify(error.response?.data) : 'Failed to save item')
-      showToast(errorMessage, 'error')
+      logError('Item creation error:', error)
+      showToast(getErrorMessage(error), 'error')
     }
   }
 

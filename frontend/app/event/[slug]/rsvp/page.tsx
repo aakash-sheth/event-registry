@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/components/ui/toast'
 import { formatPhoneWithCountryCode } from '@/lib/countryCodesFull'
 import CountryCodeSelector from '@/components/CountryCodeSelector'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 const rsvpSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -105,15 +106,7 @@ export default function RSVPPage() {
         setCheckingRSVP(true)
         const countryCode = countryCodeValue || event?.country_code || '+91'
         
-        console.log('=== RSVP Check Debug ===')
-        console.log('Phone entered:', phoneValue)
-        console.log('Country code selected:', countryCodeValue)
-        console.log('Country code used:', countryCode)
-        console.log('Event ID:', event.id)
-        console.log('Full request params:', {
-          phone: phoneValue,
-          country_code: countryCode,
-        })
+        logDebug('Checking RSVP for phone:', { phone: phoneValue, country_code: countryCode })
         
         const response = await api.get(`/api/events/${event.id}/rsvp/check/`, {
           params: {
@@ -123,9 +116,7 @@ export default function RSVPPage() {
         })
         
         const foundIn = response.data.found_in || 'rsvp'
-        console.log(`=== ${foundIn === 'rsvp' ? 'RSVP' : 'Guest'} Found ===`)
-        console.log('Response data:', response.data)
-        console.log('Stored phone in DB:', response.data.phone)
+        logDebug('RSVP check result:', { found_in: foundIn, phone: response.data.phone })
         setExistingRSVP(response.data)
         
         // Extract local phone number and country code from stored phone
@@ -199,26 +190,13 @@ export default function RSVPPage() {
           setValue('notes', '', { shouldValidate: false, shouldDirty: false })
         }
         
-        console.log('Form values set:', {
-          name: response.data.name,
-          phone: localPhone,
-          country_code: storedCountryCode,
-          email: response.data.email,
-          found_in: foundIn,
-          will_attend: foundIn === 'rsvp' ? response.data.will_attend : 'yes (default)',
-        })
+        logDebug('Form values pre-filled from existing RSVP')
       } catch (error: any) {
         // No existing RSVP found - that's okay
         if (error.response?.status === 404) {
-          console.log('No existing RSVP found for this phone number')
-          // Log debug info if available
-          if (error.response?.data?.debug) {
-            console.log('Debug info:', error.response.data.debug)
-            console.log('Searched phone:', error.response.data.debug.searched_phone)
-            console.log('All phones in DB:', error.response.data.debug.all_phones_in_db)
-          }
+          logDebug('No existing RSVP found for this phone number')
         } else {
-          console.error('Error checking RSVP:', error)
+          logError('Error checking RSVP:', error)
           showToast('Error checking for existing RSVP', 'error')
         }
         setExistingRSVP(null)
@@ -234,10 +212,6 @@ export default function RSVPPage() {
     try {
       const response = await api.get(`/api/registry/${slug}/items/`)
       const eventData = response.data.event
-      console.log('Event data received:', eventData)
-      console.log('Banner image:', eventData?.banner_image)
-      console.log('Description:', eventData?.description)
-      console.log('Additional photos:', eventData?.additional_photos)
       
       // Check if RSVP is enabled
       if (!eventData.has_rsvp) {
@@ -253,7 +227,7 @@ export default function RSVPPage() {
         setValue('country_code', eventData.country_code)
       }
     } catch (error: any) {
-      console.error('Failed to fetch event:', error)
+      logError('Failed to fetch event:', error)
       // If 403 error, RSVP is disabled
       if (error.response?.status === 403) {
         showToast('RSVP is not available for this event', 'info')
@@ -304,7 +278,7 @@ export default function RSVPPage() {
         window.location.href = `/registry/${slug}`
       }, isUpdate ? 3000 : 2000)
     } catch (error: any) {
-      console.error('RSVP error:', error)
+      logError('RSVP error:', error)
       const errorMsg = error.response?.data?.error || 
                       (error.response?.data ? JSON.stringify(error.response.data) : 'Failed to submit RSVP')
       showToast(errorMsg, 'error')

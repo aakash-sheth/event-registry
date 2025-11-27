@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ZoomIn, ZoomOut } from 'lucide-react'
 import { useToast } from '@/components/ui/toast'
+import { logError, logDebug } from '@/lib/error-handler'
 
 interface CropArea {
   x: number
@@ -339,12 +340,10 @@ export default function ImageCropModal({
   // Debug logging to help diagnose issues (only log when key values change)
   useEffect(() => {
     if (hasInitializedRef.current) {
-      console.log('ImageCropModal Debug:', {
+      logDebug('ImageCropModal state:', {
         containerSize,
         imageScale,
         imagePosition,
-        imageSrc,
-        imageDimensions,
         cropArea: cropArea ? { ...cropArea } : null,
       })
     }
@@ -468,26 +467,11 @@ export default function ImageCropModal({
     cropWidth = Math.max(0, cropWidth)
     cropHeight = Math.max(0, cropHeight)
     
-    console.log('Crop area calculation:', {
-      frameLeft: currentFrameLeft,
-      frameTop: currentFrameTop,
-      frameWidth: currentFrameWidth,
-      frameHeight: currentFrameHeight,
-      imageLeft: currentImageLeft,
-      imageTop: currentImageTop,
-      imagePosition,
-      imageScale: validImageScale,
-      imageDisplaySize: currentImageDisplaySize,
-      frameRelativeToImageX,
-      frameRelativeToImageY,
+    logDebug('Crop area calculation:', {
       cropX,
       cropY,
       cropWidth,
       cropHeight,
-      imageDimensions,
-      // Verify: cropWidth should be much smaller than image width (frame size in original coords)
-      cropWidthVsImageWidth: `${cropWidth.toFixed(1)} / ${imageDimensions.width} = ${(cropWidth / imageDimensions.width * 100).toFixed(1)}%`,
-      expectedCropWidth: `${currentFrameWidth}px frame / ${validImageScale} scale = ${(currentFrameWidth / validImageScale).toFixed(1)}px`,
     })
     
     // Final crop area (already constrained above)
@@ -505,8 +489,6 @@ export default function ImageCropModal({
         height: finalHeight,
       }
       
-      console.log('New crop area:', newCropArea, 'Old crop area:', cropArea)
-      
       // Only update if values actually changed to prevent infinite loops
       // Use smaller threshold (0.01 instead of 0.1) to catch smaller movements
       if (
@@ -516,10 +498,8 @@ export default function ImageCropModal({
         Math.abs(cropArea.width - newCropArea.width) > 0.01 ||
         Math.abs(cropArea.height - newCropArea.height) > 0.01
       ) {
-        console.log('Updating crop area:', newCropArea)
+        logDebug('Updating crop area:', newCropArea)
         setCropArea(newCropArea)
-      } else {
-        console.log('Crop area unchanged (within threshold)')
       }
     }
   }, [imagePosition.x, imagePosition.y, imageScale, containerSize.width, containerSize.height, selectedAspectRatio, imageDimensions.width, imageDimensions.height])
@@ -729,7 +709,7 @@ export default function ImageCropModal({
 
   const handleCrop = () => {
     if (!cropArea) {
-      console.error('No crop area defined')
+      logError('No crop area defined')
       return
     }
 
@@ -739,7 +719,7 @@ export default function ImageCropModal({
       aspectRatio: selectedAspectRatio,
     }
     
-    console.log('Applying crop:', { originalImageSrc, metadata })
+    logDebug('Applying crop:', { originalImageSrc })
     onCrop(originalImageSrc, metadata)
     setIsSaved(true) // Mark as saved - show success message
     setHasUnsavedChanges(false) // No unsaved changes after saving
@@ -958,13 +938,11 @@ export default function ImageCropModal({
                   }}
                   draggable={false}
                   onError={(e) => {
-                    console.error('Image failed to load:', imageSrc)
-                    console.error('Error event:', e)
-                    console.error('Image element:', e.target)
+                    logError('Image failed to load:', { imageSrc, error: e })
                   }}
                   onLoad={(e) => {
                     const img = e.target as HTMLImageElement
-                    console.log('Image loaded successfully:', {
+                    logDebug('Image loaded successfully:', {
                       src: imageSrc,
                       naturalWidth: img.naturalWidth,
                       naturalHeight: img.naturalHeight,

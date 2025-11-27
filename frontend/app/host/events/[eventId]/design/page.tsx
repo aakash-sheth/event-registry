@@ -12,6 +12,7 @@ import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import TileList from '@/components/invite/tiles/TileList'
 import TileSettings from '@/components/invite/tiles/TileSettings'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 interface Event {
   id: number
@@ -189,11 +190,9 @@ export default function DesignInvitationPage() {
               }
               
               // Debug: Log image tile settings when loading
-              if (process.env.NODE_ENV === 'development') {
-                const imageTile = finalConfig.tiles?.find(t => t.type === 'image')
-                if (imageTile) {
-                  console.log('Loaded config with image tile settings:', (imageTile.settings as any))
-                }
+              const imageTile = finalConfig.tiles?.find(t => t.type === 'image')
+              if (imageTile) {
+                logDebug('Loaded config with image tile settings')
               }
             }
 
@@ -203,7 +202,7 @@ export default function DesignInvitationPage() {
               setSelectedTileId(firstEnabled.id)
             }
           } catch (migrationError) {
-            console.error('Error during migration:', migrationError)
+            logError('Error during migration:', migrationError)
             // Fall through to initialize with default tiles
             finalConfig = null
           }
@@ -254,8 +253,8 @@ export default function DesignInvitationPage() {
         showToast('You do not have access to this event', 'error')
         router.push('/host/dashboard')
       } else {
-          console.error('Failed to load data:', error)
-        showToast('Failed to load event', 'error')
+        logError('Failed to load data:', error)
+        showToast(getErrorMessage(error), 'error')
       }
     } finally {
       setLoading(false)
@@ -374,8 +373,8 @@ export default function DesignInvitationPage() {
           if (t.type === 'image') {
             const imageSettings = t.settings as any
             // Log to help debug position saving
-            if (imageSettings.coverPosition && process.env.NODE_ENV === 'development') {
-              console.log('Saving image tile with coverPosition:', imageSettings.coverPosition)
+            if (imageSettings.coverPosition) {
+              logDebug('Saving image tile with coverPosition:', imageSettings.coverPosition)
             }
             return { ...t, settings: { ...imageSettings } }
           }
@@ -389,18 +388,16 @@ export default function DesignInvitationPage() {
       }
       
       // Debug: Log what we're saving
-      if (process.env.NODE_ENV === 'development') {
-        const imageTile = configToSave.tiles?.find(t => t.type === 'image')
-        if (imageTile) {
-          console.log('Saving config with image tile settings:', (imageTile.settings as any))
-        }
+      const imageTile = configToSave.tiles?.find(t => t.type === 'image')
+      if (imageTile) {
+        logDebug('Saving config with image tile settings')
       }
       
       await updateEventPageConfig(eventId, configToSave)
       showToast('Invitation saved successfully!', 'success')
     } catch (error: any) {
-      console.error('Failed to save:', error)
-      showToast(error.response?.data?.error || 'Failed to save invitation', 'error')
+      logError('Failed to save:', error)
+      showToast(getErrorMessage(error), 'error')
     } finally {
       setSaving(false)
     }

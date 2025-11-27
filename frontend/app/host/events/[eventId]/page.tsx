@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { generateWhatsAppShareLink, generateEventMessage, openWhatsApp } from '@/lib/whatsapp'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 const QRCode = dynamic(() => import('react-qr-code'), {
   ssr: false,
@@ -68,7 +69,7 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     if (!eventId || eventId === 'undefined') {
-      console.error('Invalid eventId:', eventId)
+      logError('Invalid eventId:', eventId)
       showToast('Invalid event ID', 'error')
       router.push('/host/dashboard')
       return
@@ -113,8 +114,8 @@ export default function EventDetailPage() {
         showToast('You do not have access to this event', 'error')
         router.push('/host/dashboard')
       } else {
-        console.error('Failed to fetch event:', error)
-        showToast('Failed to load event', 'error')
+        logError('Failed to fetch event:', error)
+        showToast(getErrorMessage(error), 'error')
       }
     } finally {
       setLoading(false)
@@ -129,7 +130,7 @@ export default function EventDetailPage() {
       const response = await api.get(`/api/events/${eventId}/orders/`)
       setOrders(response.data.results || response.data || [])
     } catch (error) {
-      console.error('Failed to fetch orders:', error)
+      logError('Failed to fetch orders:', error)
     }
   }
 
@@ -147,7 +148,7 @@ export default function EventDetailPage() {
       }
     } catch (error) {
       // Guest list might not exist yet, that's okay
-      console.log('No guest list found')
+      logDebug('No guest list found')
     }
   }
 
@@ -160,7 +161,7 @@ export default function EventDetailPage() {
       setRsvps(response.data || [])
     } catch (error) {
       // RSVPs might not exist yet, that's okay
-      console.log('No RSVPs found')
+      logDebug('No RSVPs found')
     }
   }
 
@@ -173,7 +174,7 @@ export default function EventDetailPage() {
       setImpact(response.data)
     } catch (error: any) {
       // Silently fail - impact is optional
-      console.error('Failed to fetch impact:', error)
+      logError('Failed to fetch impact:', error)
     }
   }
 
@@ -257,7 +258,7 @@ export default function EventDetailPage() {
       openWhatsApp(whatsappUrl)
       showToast('Opening WhatsApp...', 'success')
     } catch (error: any) {
-      console.error('Failed to share on WhatsApp:', error)
+      logError('Failed to share on WhatsApp:', error)
       showToast('Failed to open WhatsApp', 'error')
     } finally {
       setSharingWhatsApp(false)
@@ -321,7 +322,7 @@ export default function EventDetailPage() {
       const url = URL.createObjectURL(svgBlob)
       img.src = url
     } catch (error) {
-      console.error('Error downloading QR code:', error)
+      logError('Error downloading QR code:', error)
       showToast('Failed to download QR code', 'error')
     }
   }

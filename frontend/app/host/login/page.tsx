@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
+import { getErrorMessage, logDebug, logError } from '@/lib/error-handler'
 
 const emailSchema = z.object({
   email: z.string().email('Invalid email'),
@@ -61,27 +62,24 @@ function LoginForm() {
   })
 
   const onEmailSubmit = async (data: { email: string }) => {
-    console.log('onEmailSubmit called with:', data)
+    logDebug('onEmailSubmit called with:', data)
     setLoading(true)
     try {
-      console.log('Calling API...')
       const response = await api.post('/api/auth/otp/start', { email: data.email })
-      console.log('OTP response:', response.data)
+      logDebug('OTP response received')
       setEmail(data.email)
       setStep('code')
       
-      // Show OTP code if returned (development mode)
+      // In development, show OTP if returned (for testing without email)
       if (response.data.otp_code) {
-        showToast(`OTP Code: ${response.data.otp_code} (check console)`, 'info')
-        console.log('🔑 Your OTP Code:', response.data.otp_code)
+        logDebug('🔑 OTP Code (dev mode):', response.data.otp_code)
+        showToast(`OTP Code: ${response.data.otp_code} (check console for details)`, 'info')
       } else {
-        showToast('OTP sent to your email', 'success')
+        showToast('Verification code sent to your email', 'success')
       }
     } catch (error: any) {
-      console.error('OTP error:', error)
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to send OTP'
-      console.error('Error message:', errorMessage)
-      showToast(errorMessage, 'error')
+      logError('OTP error:', error)
+      showToast(getErrorMessage(error), 'error')
     } finally {
       setLoading(false)
     }
@@ -99,10 +97,8 @@ function LoginForm() {
       showToast('Login successful!', 'success')
       router.push('/host/dashboard')
     } catch (error: any) {
-      showToast(
-        error.response?.data?.error || 'Invalid code',
-        'error'
-      )
+      logError('OTP verification error:', error)
+      showToast(getErrorMessage(error), 'error')
     } finally {
       setLoading(false)
     }

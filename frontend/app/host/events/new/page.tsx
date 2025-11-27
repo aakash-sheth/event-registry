@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
 import { COUNTRY_CODES } from '@/lib/countryCodesFull'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 const eventSchema = z.object({
   slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
@@ -49,26 +50,22 @@ export default function NewEventPage() {
     setLoading(true)
     try {
       const response = await api.post('/api/events/', data)
-      console.log('Event creation response:', response.data)
       const eventId = response.data.id
       if (!eventId) {
-        console.error('Event ID not found in response:', response.data)
+        logError('Event ID not found in response:', response.data)
         showToast('Event created but ID not found. Please refresh the dashboard.', 'error')
         router.push('/host/dashboard')
         return
       }
-      console.log('Navigating to event:', eventId)
+      logDebug('Event created successfully, navigating to:', eventId)
       showToast('Event created successfully!', 'success')
       // Small delay to ensure state is updated
       setTimeout(() => {
         router.push(`/host/events/${eventId}`)
       }, 100)
     } catch (error: any) {
-      console.error('Event creation error:', error)
-      showToast(
-        error.response?.data?.error || error.response?.data?.detail || 'Failed to create event',
-        'error'
-      )
+      logError('Event creation error:', error)
+      showToast(getErrorMessage(error), 'error')
     } finally {
       setLoading(false)
     }

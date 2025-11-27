@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast'
 import { getCountryCode, formatPhoneWithCountryCode } from '@/lib/countryCodesFull'
 import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { generateWhatsAppLink, generateGuestMessage, openWhatsApp } from '@/lib/whatsapp'
+import { logError } from '@/lib/error-handler'
 
 const guestSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -127,7 +128,7 @@ export default function GuestsPage() {
         showToast('You do not have access to this event', 'error')
         router.push('/host/dashboard')
       } else {
-      console.error('Failed to fetch event:', error)
+        logError('Failed to fetch event:', error)
       }
     }
   }
@@ -355,7 +356,7 @@ export default function GuestsPage() {
       openWhatsApp(whatsappUrl)
       showToast(`Opening WhatsApp to ${guest.name}...`, 'success')
     } catch (error: any) {
-      console.error('Failed to share on WhatsApp:', error)
+      logError('Failed to share on WhatsApp:', error)
       showToast('Failed to open WhatsApp', 'error')
     } finally {
       setSharingWhatsApp(null)

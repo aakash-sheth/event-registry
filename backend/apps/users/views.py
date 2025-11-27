@@ -90,7 +90,9 @@ def _send_otp(user):
     If you didn't request this, please ignore this email.
     """
     
-    # Try to send email, but don't fail if email is not configured
+    # Send email via SES
+    # Log failures but don't expose to user for security
+    email_sent = False
     try:
         send_email(
             to_email=email,
@@ -99,17 +101,30 @@ def _send_otp(user):
         )
         email_sent = True
     except Exception as e:
-        # In development, log the error but still return the OTP
+        # Log email failure but don't expose to user
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f'Failed to send email: {str(e)}. Returning OTP in response for development.')
-        email_sent = False
+        logger.error(f'Failed to send OTP email to {email}: {str(e)}')
+        # Continue - user will need to request OTP again if email fails
     
+    # In development mode, log OTP to console for testing
+    # This helps developers test without email configuration
+    if settings.DEBUG:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f'[DEV MODE] OTP for {email}: {otp_code} (This only appears in development)')
+    
+    # Prepare response
     response_data = {
-        'message': 'Verification code sent to email' if email_sent else 'Verification code generated (email not configured)',
-        'token': token,  # For development only
-        'otp_code': otp_code,  # For development only - remove in production
+        'message': 'Verification code sent to your email',
+        'token': token,  # Token for login link functionality
     }
+    
+    # In development mode only, include OTP in response for easier testing
+    # NEVER include OTP in production for security
+    if settings.DEBUG:
+        response_data['otp_code'] = otp_code
+        response_data['_dev_note'] = 'OTP included only in development mode'
     
     return Response(response_data, status=status.HTTP_200_OK)
 

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
+import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -61,18 +62,16 @@ function SignupForm() {
       setName(data.name)
       setStep('verify')
       
-      // Show OTP code if returned (development mode)
+      // In development, show OTP if returned (for testing without email)
       if (response.data.otp_code) {
-        showToast(`OTP Code: ${response.data.otp_code} (check console)`, 'info')
-        console.log('🔑 Your OTP Code:', response.data.otp_code)
+        logDebug('🔑 OTP Code (dev mode):', response.data.otp_code)
+        showToast(`OTP Code: ${response.data.otp_code} (check console for details)`, 'info')
       } else {
         showToast('Verification code sent to your email', 'success')
       }
     } catch (error: any) {
-      console.error('Signup error:', error)
-      const errorMessage = error.response?.data?.error || 
-                          (error.response?.data ? JSON.stringify(error.response.data) : 'Failed to create account')
-      showToast(errorMessage, 'error')
+      logError('Signup error:', error)
+      showToast(getErrorMessage(error), 'error')
     } finally {
       setLoading(false)
     }
@@ -90,10 +89,8 @@ function SignupForm() {
       showToast('Account created successfully! Welcome! 🌿', 'success')
       router.push('/host/dashboard')
     } catch (error: any) {
-      showToast(
-        error.response?.data?.error || 'Invalid verification code',
-        'error'
-      )
+      logError('OTP verification error:', error)
+      showToast(getErrorMessage(error), 'error')
     } finally {
       setLoading(false)
     }

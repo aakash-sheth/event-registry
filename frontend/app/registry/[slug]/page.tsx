@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import CheckoutModal from '@/components/CheckoutModal'
+import { logError } from '@/lib/error-handler'
 
 interface Event {
   id: number
@@ -62,7 +63,7 @@ export default function RegistryPage() {
         setItems(response.data.items || [])
       }
     } catch (error: any) {
-      console.error('Failed to fetch registry:', error)
+      logError('Failed to fetch registry:', error)
       // If 403 error, registry is disabled - fetch event data separately
       if (error.response?.status === 403) {
         try {
@@ -71,7 +72,7 @@ export default function RegistryPage() {
           setEvent(eventResponse.data)
           setItems([])
         } catch (eventError) {
-          console.error('Failed to fetch event data:', eventError)
+          logError('Failed to fetch event data:', eventError)
         }
       }
     } finally {

@@ -5,6 +5,7 @@ import { X, Copy, Check, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { publishInvitePage } from '@/lib/invite/api'
+import { logError } from '@/lib/error-handler'
 
 interface PublishModalProps {
   isOpen: boolean
@@ -38,8 +39,8 @@ export default function PublishModal({
       onPublishChange(true)
       showToast('Invite page published successfully!', 'success')
     } catch (error: any) {
+      logError('Failed to publish invite page:', error)
       showToast('Failed to publish invite page', 'error')
-      console.error(error)
     } finally {
       setIsPublishing(false)
     }
