@@ -14,7 +14,13 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-change-me-in-p
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+# ALLOWED_HOSTS: Include ALB DNS and allow health checks from private IPs
+# ALB health checks send requests with private IP as Host header, which would fail ALLOWED_HOSTS validation
+# We allow the ALB DNS name and also allow health check endpoints to work with any host
+allowed_hosts_str = os.environ.get('ALLOWED_HOSTS', '*')
+ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_str.split(',') if h.strip()]
+# If ALLOWED_HOSTS is set to a specific value (not '*'), we still need to allow health checks
+# Health check endpoints will be handled by middleware to bypass this check
 
 # Application definition
 INSTALLED_APPS = [
@@ -37,6 +43,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'apps.common.middleware.HealthCheckMiddleware',  # Must be before CommonMiddleware to bypass ALLOWED_HOSTS
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
