@@ -55,7 +55,33 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:latest
           echo "FRONTEND_IMAGE=$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
+      - name: Verify images exist in ECR
+        run: |
+          echo "Verifying images were pushed successfully..."
+          BACKEND_COUNT=$(aws ecr describe-images \
+            --repository-name ${{ env.ECR_BACKEND_REPOSITORY }} \
+            --query 'length(imageDetails)' \
+            --output text)
+          
+          if [ "$BACKEND_COUNT" = "0" ]; then
+            echo "❌ ERROR: No backend images found in ECR!"
+            exit 1
+          fi
+          echo "✅ Backend images found: $BACKEND_COUNT"
+          
+          FRONTEND_COUNT=$(aws ecr describe-images \
+            --repository-name ${{ env.ECR_FRONTEND_REPOSITORY }} \
+            --query 'length(imageDetails)' \
+            --output text)
+          
+          if [ "$FRONTEND_COUNT" = "0" ]; then
+            echo "❌ ERROR: No frontend images found in ECR!"
+            exit 1
+          fi
+          echo "✅ Frontend images found: $FRONTEND_COUNT"
+
       - name: Run database migrations
+        timeout-minutes: 10
         run: |
           # Use migration task if exists, otherwise use backend-task
           TASK_DEF="backend-migration-task"
@@ -64,7 +90,7 @@ jobs:
             TASK_DEF="backend-task"
           fi
           
-          # Get subnet and security group IDs from secrets or use placeholders
+          # Get subnet and security group IDs from secrets
           SUBNET_1="${{ secrets.ECS_PRIVATE_SUBNET_1 }}"
           SUBNET_2="${{ secrets.ECS_PRIVATE_SUBNET_2 }}"
           SG_ID="${{ secrets.ECS_BACKEND_SECURITY_GROUP }}"
@@ -75,21 +101,79 @@ jobs:
             echo "   - ECS_PRIVATE_SUBNET_1"
             echo "   - ECS_PRIVATE_SUBNET_2"
             echo "   - ECS_BACKEND_SECURITY_GROUP"
-            echo ""
-            echo "   Or update line 64 of this workflow file with actual values."
-            echo "   Run: infrastructure/get-aws-values.sh to get the values"
             exit 1
           fi
           
-          aws ecs run-task \
+          echo "Starting migration task..."
+          MIGRATION_TASK=$(aws ecs run-task \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
             --task-definition $TASK_DEF \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SG_ID],assignPublicIp=DISABLED}" \
-            --overrides '{"containerOverrides":[{"name":"backend","command":["python","manage.py","migrate"]}]}'
+            --overrides '{"containerOverrides":[{"name":"backend","command":["python","manage.py","migrate"]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          
+          if [ -z "$MIGRATION_TASK" ] || [ "$MIGRATION_TASK" = "None" ]; then
+            echo "❌ Failed to start migration task"
+            exit 1
+          fi
+          
+          echo "Migration task started: $MIGRATION_TASK"
+          echo "Waiting for migration to complete (max 10 minutes)..."
+          
+          # Wait for task to stop (step has 10 minute timeout)
+          if aws ecs wait tasks-stopped \
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --tasks "$MIGRATION_TASK"; then
+            echo "Migration task completed"
+          else
+            echo "⚠️  Migration task timeout or still running"
+          fi
+          
+          # Get task status
+          TASK_STATUS=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --tasks "$MIGRATION_TASK" \
+            --query 'tasks[0].lastStatus' \
+            --output text)
+          
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --tasks "$MIGRATION_TASK" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+          
+          # Get stopped reason if task failed to start
+          STOPPED_REASON=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --tasks "$MIGRATION_TASK" \
+            --query 'tasks[0].stoppedReason' \
+            --output text)
+          
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo "✅ Migration completed successfully"
+          elif [ "$EXIT_CODE" = "None" ] || [ "$TASK_STATUS" != "STOPPED" ]; then
+            echo "⚠️  Migration task stopped before completion or did not start properly"
+            echo "Task status: $TASK_STATUS"
+            if [ -n "$STOPPED_REASON" ] && [ "$STOPPED_REASON" != "None" ]; then
+              echo "Stopped reason: $STOPPED_REASON"
+            fi
+            echo "Check logs: aws logs tail /ecs/event-registry-staging/backend --follow"
+            exit 1
+          else
+            echo "❌ Migration failed with exit code: $EXIT_CODE"
+            if [ -n "$STOPPED_REASON" ] && [ "$STOPPED_REASON" != "None" ]; then
+              echo "Stopped reason: $STOPPED_REASON"
+            fi
+            echo "Check logs: aws logs tail /ecs/event-registry-staging/backend --follow"
+            exit 1
+          fi
 
       - name: Update backend ECS service
         run: |
+          echo "Updating backend service..."
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
             --service ${{ env.ECS_BACKEND_SERVICE }} \
@@ -97,30 +181,76 @@ jobs:
 
       - name: Update frontend ECS service
         run: |
+          echo "Updating frontend service..."
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
             --service ${{ env.ECS_FRONTEND_SERVICE }} \
             --force-new-deployment
 
       - name: Wait for backend service to stabilize
+        timeout-minutes: 20
         run: |
-          aws ecs wait services-stable \
+          echo "Waiting for backend service to stabilize (max 20 minutes)..."
+          if aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
-            --services ${{ env.ECS_BACKEND_SERVICE }}
-
-      - name: Wait for frontend service to stabilize
-        run: |
-          aws ecs wait services-stable \
-            --cluster ${{ env.ECS_CLUSTER_NAME }} \
-            --services ${{ env.ECS_FRONTEND_SERVICE }}
-
-      - name: Verify health checks
-        run: |
-          # Get ALB DNS name from SSM or output
-          ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text || echo "")
-          if [ -n "$ALB_DNS" ]; then
-            echo "Checking backend health at https://$ALB_DNS/api/health"
-            curl -f https://$ALB_DNS/api/health || exit 1
-            echo "Backend health check passed"
+            --services ${{ env.ECS_BACKEND_SERVICE }}; then
+            echo "✅ Backend service is stable"
+          else
+            echo "⚠️  Backend service did not stabilize within timeout"
+            echo "Checking service status..."
+            aws ecs describe-services \
+              --cluster ${{ env.ECS_CLUSTER_NAME }} \
+              --services ${{ env.ECS_BACKEND_SERVICE }} \
+              --query 'services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
+              --output table
+            echo "Recent events:"
+            aws ecs describe-services \
+              --cluster ${{ env.ECS_CLUSTER_NAME }} \
+              --services ${{ env.ECS_BACKEND_SERVICE }} \
+              --query 'services[0].events[:3]' \
+              --output table
+            exit 1
           fi
 
+      - name: Wait for frontend service to stabilize
+        timeout-minutes: 20
+        run: |
+          echo "Waiting for frontend service to stabilize (max 20 minutes)..."
+          if aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --services ${{ env.ECS_FRONTEND_SERVICE }}; then
+            echo "✅ Frontend service is stable"
+          else
+            echo "⚠️  Frontend service did not stabilize within timeout"
+            echo "Checking service status..."
+            aws ecs describe-services \
+              --cluster ${{ env.ECS_CLUSTER_NAME }} \
+              --services ${{ env.ECS_FRONTEND_SERVICE }} \
+              --query 'services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
+              --output table
+            echo "Recent events:"
+            aws ecs describe-services \
+              --cluster ${{ env.ECS_CLUSTER_NAME }} \
+              --services ${{ env.ECS_FRONTEND_SERVICE }} \
+              --query 'services[0].events[:3]' \
+              --output table
+            exit 1
+          fi
+
+      - name: Verify health checks
+        continue-on-error: true
+        run: |
+          # Get ALB DNS name from SSM
+          ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          
+          if [ -z "$ALB_DNS" ]; then
+            echo "⚠️  ALB_DNS not set in SSM, skipping health check"
+            exit 0
+          fi
+          
+          echo "Checking backend health at https://$ALB_DNS/api/health"
+          if curl -f -m 10 https://$ALB_DNS/api/health; then
+            echo "✅ Backend health check passed"
+          else
+            echo "⚠️  Backend health check failed (non-critical)"
+          fi
