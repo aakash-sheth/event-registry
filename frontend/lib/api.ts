@@ -2,18 +2,24 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 
 // Get API base URL - use build-time env var or runtime detection
 // In production/staging, if we're on the staging domain, use the ALB URL
-let API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
-
-// Runtime override: If we're running in production and API_BASE is still localhost,
-// try to detect the correct URL from the current origin
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
-  const currentOrigin = window.location.origin
-  // If we're on staging ALB and API_BASE is localhost, use the ALB URL
-  if (API_BASE.includes('localhost') && currentOrigin.includes('staging-alb')) {
-    API_BASE = currentOrigin.replace(/^https?:\/\//, 'http://')
-    console.warn('[API] Overriding localhost API_BASE with:', API_BASE)
+function getApiBase(): string {
+  let apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
+  
+  // Runtime override: If we're running in production and API_BASE is still localhost,
+  // try to detect the correct URL from the current origin
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
+    const currentOrigin = window.location.origin
+    // If we're on staging ALB and API_BASE is localhost, use the ALB URL
+    if (apiBase.includes('localhost') && currentOrigin.includes('staging-alb')) {
+      apiBase = currentOrigin.replace(/^https?:\/\//, 'http://')
+      console.warn('[API] Overriding localhost API_BASE with:', apiBase)
+    }
   }
+  
+  return apiBase
 }
+
+const API_BASE = getApiBase()
 
 const api = axios.create({
   baseURL: API_BASE,
