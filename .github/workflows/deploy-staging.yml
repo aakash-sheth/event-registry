@@ -30,25 +30,26 @@ jobs:
           python3 -m venv /tmp/venv
           source /tmp/venv/bin/activate
           
-          echo "Installing minimal dependencies for migration check..."
-          # Install only dependencies needed for Django settings to load
-          # (INSTALLED_APPS requirements + database URL parser)
-          pip install -q \
-            Django==4.2.7 \
-            djangorestframework==3.14.0 \
-            djangorestframework-simplejwt==5.3.0 \
-            django-cors-headers==4.3.1 \
-            psycopg2-binary==2.9.9 \
-            dj-database-url==2.1.0 \
-            python-dotenv==1.0.0 \
-            2>&1 | tee /tmp/pip_install.log || {
+          echo "Installing dependencies for migration check..."
+          # Install setuptools first (required by djangorestframework-simplejwt)
+          pip install -q setuptools 2>&1 | tee /tmp/pip_install.log || {
+            echo "❌ ERROR: Failed to install setuptools"
+            exit 1
+          }
+          
+          # Install all requirements except psycopg2-binary (using SQLite instead)
+          # Create a temporary requirements file without psycopg2-binary
+          grep -v "psycopg2-binary" requirements.txt > /tmp/requirements_migration.txt
+          pip install -q -r /tmp/requirements_migration.txt 2>&1 | tee -a /tmp/pip_install.log || {
             echo "❌ ERROR: Failed to install dependencies"
             echo "Installation log:"
             cat /tmp/pip_install.log
             exit 1
           }
           
-          export DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+          # Use SQLite for migration check (no database connection needed)
+          # Set DATABASE_URL to SQLite to avoid psycopg2 requirement
+          export DATABASE_URL="sqlite:///tmp/migration_check.db"
           export DJANGO_SECRET_KEY="dummy-for-migration-check"
           export DEBUG="False"
           
