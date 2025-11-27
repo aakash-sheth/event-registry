@@ -3,6 +3,15 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Accept build argument for NEXT_PUBLIC_API_BASE
+# This must be provided at build time for Next.js to bake it into the bundle
+ARG NEXT_PUBLIC_API_BASE
+# Verify the build arg is set (fail build if not provided)
+RUN if [ -z "$NEXT_PUBLIC_API_BASE" ]; then echo "ERROR: NEXT_PUBLIC_API_BASE build arg is required!" && exit 1; fi
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+# Print the value for debugging (will show in build logs)
+RUN echo "Building with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
+
 # Copy package files
 COPY package*.json ./
 
