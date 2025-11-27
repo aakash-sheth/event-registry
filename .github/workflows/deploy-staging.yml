@@ -29,26 +29,44 @@ jobs:
           
           python3 -m venv /tmp/venv
           source /tmp/venv/bin/activate
-          # Install all dependencies to ensure Django settings load correctly
-          pip install -q -r requirements.txt > /dev/null 2>&1
+          
+          echo "Installing dependencies..."
+          if ! pip install -q -r requirements.txt 2>&1; then
+            echo "❌ ERROR: Failed to install dependencies"
+            echo "This might indicate an issue with requirements.txt"
+            exit 1
+          fi
           
           export DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
           export DJANGO_SECRET_KEY="dummy-for-migration-check"
           export DEBUG="False"
           
-          if python manage.py makemigrations --check --dry-run 2>&1 | grep -q "No changes detected"; then
+          echo "Running makemigrations --check --dry-run..."
+          MIGRATION_OUTPUT=$(python manage.py makemigrations --check --dry-run 2>&1)
+          MIGRATION_EXIT=$?
+          
+          if [ $MIGRATION_EXIT -eq 0 ] && echo "$MIGRATION_OUTPUT" | grep -q "No changes detected"; then
             echo "✅ All migrations are up to date"
           else
             echo "❌ ERROR: Missing migrations detected!"
+            echo ""
+            echo "=== Full Migration Check Output ==="
+            echo "$MIGRATION_OUTPUT"
+            echo "=================================="
             echo ""
             echo "Model changes were pushed without corresponding migration files."
             echo "This will cause deployment failures and runtime errors."
             echo ""
             echo "To fix:"
             echo "  1. cd backend && python manage.py makemigrations"
-            echo "  2. Review migration files"
+            echo "  2. Review the generated migration files"
             echo "  3. git add backend/apps/*/migrations/ && git commit -m 'Add missing migrations' && git push"
             echo "  4. Re-run this deployment"
+            echo ""
+            if [ $MIGRATION_EXIT -ne 0 ]; then
+              echo "⚠️  Note: makemigrations exited with code $MIGRATION_EXIT"
+              echo "   This might indicate a configuration or dependency issue."
+            fi
             exit 1
           fi
 
