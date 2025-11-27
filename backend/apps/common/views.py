@@ -3,16 +3,17 @@ Common views for the application.
 """
 from django.http import JsonResponse
 from django.db import connection
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
 
 
-@api_view(['GET'])
-@permission_classes([AllowAny])
+@csrf_exempt
+@require_http_methods(["GET", "HEAD"])
 def health_check(request):
     """
     Health check endpoint for load balancer and monitoring.
     Returns 200 if the service is healthy, 503 if database is unavailable.
+    Compatible with ALB health checks (no DRF decorators).
     """
     try:
         # Check database connectivity
