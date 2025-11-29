@@ -22,6 +22,17 @@ export default function FeatureButtonsTile({
   const buttonColor = settings.buttonColor || '#0D6EFD'
   const buttons: Array<{ label: string; href: string }> = []
 
+  // Debug: Log settings to help diagnose custom label issues
+  if (preview && (settings.rsvpLabel || settings.registryLabel)) {
+    console.log('[FeatureButtonsTile] Custom labels:', {
+      rsvpLabel: settings.rsvpLabel,
+      registryLabel: settings.registryLabel,
+      hasRsvp,
+      hasRegistry,
+      allSettings: settings
+    })
+  }
+
   if (hasRsvp) {
     buttons.push({ 
       label: settings.rsvpLabel || 'RSVP', // Use custom label or default

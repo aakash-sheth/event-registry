@@ -8,14 +8,20 @@
         "s3:PutObject",
         "s3:DeleteObject"
       ],
-      "Resource": "arn:aws:s3:::event-registry-staging-uploads/*"
+      "Resource": [
+        "arn:aws:s3:::event-registry-staging-uploads/*",
+        "arn:aws:s3:::event-registry-staging-uploads-1764200910/*"
+      ]
     },
     {
       "Effect": "Allow",
       "Action": [
         "s3:ListBucket"
       ],
-      "Resource": "arn:aws:s3:::event-registry-staging-uploads"
+      "Resource": [
+        "arn:aws:s3:::event-registry-staging-uploads",
+        "arn:aws:s3:::event-registry-staging-uploads-1764200910"
+      ]
     },
     {
       "Effect": "Allow",
