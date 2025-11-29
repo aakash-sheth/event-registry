@@ -62,21 +62,25 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
       // Upload file to S3 (or local storage in development)
       const imageUrl = await uploadImage(file, eventId)
       
-      // Extract dominant color for background from the uploaded URL
-      try {
-        const colors = await extractDominantColors(imageUrl, 3)
-        const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
-        
-        onChange({
-          ...settings,
-          src: imageUrl,
-          backgroundColor: primaryColor,
+      // Update UI immediately with uploaded image (don't wait for color extraction)
+      onChange({ ...settings, src: imageUrl })
+      
+      // Extract dominant color for background asynchronously (non-blocking)
+      // This happens in the background and updates the background color when ready
+      extractDominantColors(imageUrl, 3)
+        .then((colors) => {
+          const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
+          onChange({
+            ...settings,
+            src: imageUrl,
+            backgroundColor: primaryColor,
+          })
         })
-      } catch (error) {
-        console.error('Error extracting dominant colors:', error)
-        // Fallback to basic upload without color extraction
-        onChange({ ...settings, src: imageUrl })
-      }
+        .catch((error) => {
+          console.error('Error extracting dominant colors (non-critical):', error)
+          // Color extraction failed, but image is already uploaded and displayed
+          // User can manually set background color if needed
+        })
     } catch (error) {
       console.error('Error uploading image:', error)
       alert('Failed to upload image. Please try again.')

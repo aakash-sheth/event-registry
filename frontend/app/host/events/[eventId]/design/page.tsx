@@ -480,13 +480,6 @@ export default function DesignInvitationPage() {
           // For feature-buttons tiles, explicitly preserve all settings including custom labels
           if (t.type === 'feature-buttons') {
             const featureButtonsSettings = t.settings as any
-            // Log to help debug custom label saving
-            if (featureButtonsSettings.rsvpLabel || featureButtonsSettings.registryLabel) {
-              logDebug('Saving feature-buttons tile with custom labels:', {
-                rsvpLabel: featureButtonsSettings.rsvpLabel,
-                registryLabel: featureButtonsSettings.registryLabel
-              })
-            }
             return { ...t, settings: { ...featureButtonsSettings } }
           }
           return t

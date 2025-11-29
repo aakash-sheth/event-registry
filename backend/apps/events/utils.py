@@ -224,18 +224,10 @@ def upload_to_s3(file, event_id, folder='events'):
     if not event_id or not isinstance(event_id, int):
         raise ValueError('event_id must be a valid integer')
     
-    # Read file content and calculate hash
-    file.seek(0)  # Reset file pointer
-    file_content = file.read()
-    file_hash = hashlib.sha256(file_content).hexdigest()
-    
-    # Get file extension
+    # Get file extension first
     file_extension = os.path.splitext(file.name)[1] if hasattr(file, 'name') else '.jpg'
     if not file_extension:
         file_extension = '.jpg'
-    
-    # Generate filename: events/{event_id}/{hash}.jpg
-    filename = f"{folder}/{event_id}/{file_hash}{file_extension}"
     
     # Check if we should use local storage (DEBUG mode and S3 credentials missing)
     debug_mode = getattr(settings, 'DEBUG', False)
@@ -246,6 +238,27 @@ def upload_to_s3(file, event_id, folder='events'):
     
     use_local_storage = debug_mode and (not bucket_name or (not access_key or not secret_key))
     
+    # Calculate hash using streaming (more memory efficient for large files)
+    file.seek(0)  # Reset file pointer
+    hash_obj = hashlib.sha256()
+    chunk_size = 8192  # 8KB chunks
+    file_chunks = []  # Store chunks for local storage if needed
+    
+    # Read file in chunks to calculate hash
+    while True:
+        chunk = file.read(chunk_size)
+        if not chunk:
+            break
+        hash_obj.update(chunk)
+        # Store chunks for local storage (only if needed)
+        if use_local_storage:
+            file_chunks.append(chunk)
+    
+    file_hash = hash_obj.hexdigest()
+    
+    # Generate filename: events/{event_id}/{hash}.jpg
+    filename = f"{folder}/{event_id}/{file_hash}{file_extension}"
+    
     if use_local_storage:
         # Local file storage for development
         media_root = getattr(settings, 'MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'media'))
@@ -254,10 +267,11 @@ def upload_to_s3(file, event_id, folder='events'):
         # Create directory if it doesn't exist
         os.makedirs(upload_dir, exist_ok=True)
         
-        # Save file locally
+        # Save file locally using stored chunks
         file_path = os.path.join(upload_dir, f"{file_hash}{file_extension}")
         with open(file_path, 'wb') as f:
-            f.write(file_content)
+            for chunk in file_chunks:
+                f.write(chunk)
         
         # Return local URL
         media_url = getattr(settings, 'MEDIA_URL', '/media/')
@@ -295,12 +309,17 @@ def upload_to_s3(file, event_id, folder='events'):
             }
             content_type = content_type_map.get(file_extension.lower(), 'image/jpeg')
             
+            # Reset file pointer to beginning for S3 upload
+            # (We read through it for hash calculation, so need to reset)
+            file.seek(0)
+            
             # Upload to S3 (bucket policy handles public read access, no ACL needed)
             # If file with same hash exists, it will be overwritten (automatic deduplication)
+            # Use file object directly for streaming upload (more memory efficient)
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key=filename,
-                Body=file_content,
+                Body=file,  # Use file object directly (boto3 handles streaming)
                 ContentType=content_type,
             )
             
