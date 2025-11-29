@@ -54,6 +54,8 @@ services:
       - NEXT_PUBLIC_API_BASE=http://localhost:8000  # For client-side (browser)
       - BACKEND_API_BASE=http://backend:8000  # For server-side (Docker)
       - NEXT_PUBLIC_RAZORPAY_KEY_ID=${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
+      - NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-Celebrate Mindfully}
+      - NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE:-${NEXT_PUBLIC_API_BASE:-https://eventregistry.com}}
     depends_on:
       - backend
     restart: unless-stopped

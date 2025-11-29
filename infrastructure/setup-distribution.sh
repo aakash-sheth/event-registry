@@ -103,6 +103,14 @@ create_param "${PARAM_PREFIX}/CORS_ALLOWED_ORIGINS" "String" "$FRONTEND_URL" "CO
 # Set FRONTEND_ORIGIN (full URL)
 create_param "${PARAM_PREFIX}/FRONTEND_ORIGIN" "String" "$FRONTEND_URL" "Frontend origin URL (derived from FRONTEND_URL)"
 
+# Prompt for brand name
+echo ""
+read -p "Enter BRAND_NAME (default: Celebrate Mindfully): " BRAND_NAME
+BRAND_NAME=${BRAND_NAME:-Celebrate Mindfully}
+create_param "${PARAM_PREFIX}/NEXT_PUBLIC_BRAND_NAME" "String" "$BRAND_NAME" "Brand name for frontend (baked at build time)"
+
+# Note: COMPANY_HOMEPAGE will be automatically derived from FRONTEND_URL during build (no separate SSM parameter needed)
+
 # Set ALB_DNS (for reference, if provided)
 if [ -n "$ALB_DNS" ]; then
   create_param "${PARAM_PREFIX}/ALB_DNS" "String" "$ALB_DNS" "Application Load Balancer DNS name (for reference)"
@@ -118,6 +126,7 @@ echo "  NEXT_PUBLIC_API_BASE: $NEXT_PUBLIC_API_BASE"
 echo "  ALLOWED_HOSTS: $DOMAIN"
 echo "  CORS_ALLOWED_ORIGINS: $FRONTEND_URL"
 echo "  FRONTEND_ORIGIN: $FRONTEND_URL"
+echo "  NEXT_PUBLIC_BRAND_NAME: $BRAND_NAME"
 if [ -n "$ALB_DNS" ]; then
   echo "  ALB_DNS: $ALB_DNS"
 fi

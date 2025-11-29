@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import CheckoutModal from '@/components/CheckoutModal'
 import { logError } from '@/lib/error-handler'
+import { getEventDetailsFromConfig } from '@/lib/event/utils'
 
 interface Event {
   id: number
@@ -22,6 +23,13 @@ interface Event {
   additional_photos?: string[]
   has_rsvp?: boolean
   has_registry?: boolean
+  page_config?: {
+    tiles?: Array<{
+      type: string
+      enabled?: boolean
+      settings?: any
+    }>
+  }
 }
 
 interface Item {
@@ -139,21 +147,28 @@ export default function RegistryPage() {
                 <h1 className="text-4xl md:text-6xl font-bold mb-4 drop-shadow-lg">
                   {event.title}
                 </h1>
-                {event.date && (
-                  <p className="text-xl md:text-2xl mb-2 drop-shadow-md font-light">
-                  {new Date(event.date).toLocaleDateString('en-IN', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
-                </p>
-                )}
-                {event.city && (
-                  <p className="text-lg md:text-xl drop-shadow-md font-light">
-                    {event.city}
-                  </p>
-                )}
+                {(() => {
+                  const { date, location } = getEventDetailsFromConfig(event)
+                  return (
+                    <>
+                      {date && (
+                        <p className="text-xl md:text-2xl mb-2 drop-shadow-md font-light">
+                          {new Date(date).toLocaleDateString('en-IN', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                      )}
+                      {location && (
+                        <p className="text-lg md:text-xl drop-shadow-md font-light">
+                          {location}
+                        </p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>
@@ -164,21 +179,28 @@ export default function RegistryPage() {
               <h1 className="text-4xl md:text-6xl font-bold text-white mb-4">
                 {event.title}
               </h1>
-              {event.date && (
-                <p className="text-xl md:text-2xl text-white/90 mb-2 font-light">
-                  {new Date(event.date).toLocaleDateString('en-IN', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
-                </p>
-              )}
-              {event.city && (
-                <p className="text-lg md:text-xl text-white/80 font-light">
-                  {event.city}
-                </p>
-              )}
+              {(() => {
+                const { date, location } = getEventDetailsFromConfig(event)
+                return (
+                  <>
+                    {date && (
+                      <p className="text-xl md:text-2xl text-white/90 mb-2 font-light">
+                        {new Date(date).toLocaleDateString('en-IN', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })}
+                      </p>
+                    )}
+                    {location && (
+                      <p className="text-lg md:text-xl text-white/80 font-light">
+                        {location}
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           </div>
         )}

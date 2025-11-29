@@ -137,10 +137,23 @@ jobs:
             fi
           fi
           
+          # Fetch brand name from SSM (default: Celebrate Mindfully)
+          NEXT_PUBLIC_BRAND_NAME=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_BRAND_NAME" --query "Parameter.Value" --output text 2>/dev/null || echo "Celebrate Mindfully")
+          
+          # Company homepage is the same as FRONTEND_URL (base URL)
+          NEXT_PUBLIC_COMPANY_HOMEPAGE="$FRONTEND_URL"
+          if [ -z "$NEXT_PUBLIC_COMPANY_HOMEPAGE" ]; then
+            NEXT_PUBLIC_COMPANY_HOMEPAGE="$NEXT_PUBLIC_API_BASE"
+          fi
+          
           echo "Building frontend with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
+          echo "Building frontend with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}"
+          echo "Building frontend with NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE}"
           
           docker build -f frontend/Dockerfile.prod \
             --build-arg NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE}" \
+            --build-arg NEXT_PUBLIC_BRAND_NAME="${NEXT_PUBLIC_BRAND_NAME}" \
+            --build-arg NEXT_PUBLIC_COMPANY_HOMEPAGE="${NEXT_PUBLIC_COMPANY_HOMEPAGE}" \
             -t $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
           docker push $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG
           docker tag $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:latest

@@ -14,6 +14,8 @@ import { useToast } from '@/components/ui/toast'
 import { formatPhoneWithCountryCode } from '@/lib/countryCodesFull'
 import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
+import { getEventDetailsFromConfig } from '@/lib/event/utils'
+import { BRAND_NAME, COMPANY_HOMEPAGE } from '@/lib/brand_utility'
 
 const rsvpSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -38,7 +40,15 @@ interface Event {
   description?: string
   additional_photos?: string[]
   has_rsvp?: boolean
+  has_registry?: boolean
   slug?: string
+  page_config?: {
+    tiles?: Array<{
+      type: string
+      enabled?: boolean
+      settings?: any
+    }>
+  }
 }
 
 interface ExistingRSVP {
@@ -66,6 +76,7 @@ export default function RSVPPage() {
   const [submitting, setSubmitting] = useState(false)
   const [existingRSVP, setExistingRSVP] = useState<ExistingRSVP | null>(null)
   const [checkingRSVP, setCheckingRSVP] = useState(false)
+  const [showThankYou, setShowThankYou] = useState(false)
   
   // Detect QR code source from URL parameter
   const sourceChannel = searchParams.get('source') === 'qr' ? 'qr' : 'link'
@@ -75,6 +86,7 @@ export default function RSVPPage() {
     handleSubmit,
     watch,
     setValue,
+    reset,
     formState: { errors },
   } = useForm<RSVPForm>({
     resolver: zodResolver(rsvpSchema),
@@ -276,15 +288,24 @@ export default function RSVPPage() {
       // Update existing RSVP state (now it will be an RSVP, not guest list)
       setExistingRSVP({ ...response.data, found_in: 'rsvp' })
       
-      // Redirect to registry after a moment (longer for updates so user can see the change)
-      setTimeout(() => {
-        window.location.href = `/registry/${slug}`
-      }, isUpdate ? 3000 : 2000)
+      // If registry is disabled, show thank you message instead of redirecting
+      if (!event?.has_registry) {
+        setShowThankYou(true)
+        // Reset form after showing thank you
+        reset()
+      } else {
+        // Redirect to registry after a moment (longer for updates so user can see the change)
+        setTimeout(() => {
+          window.location.href = `/registry/${slug}`
+        }, isUpdate ? 3000 : 2000)
+      }
     } catch (error: any) {
       logError('RSVP error:', error)
       const errorMsg = error.response?.data?.error || 
                       (error.response?.data ? JSON.stringify(error.response.data) : 'Failed to submit RSVP')
       showToast(errorMsg, 'error')
+      // Don't reset form on error - preserve user input
+      // Form values will remain intact for user to correct and resubmit
     } finally {
       setSubmitting(false)
     }
@@ -315,16 +336,23 @@ export default function RSVPPage() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-2 text-eco-green">{event.title}</h1>
-          {event.date && (
-            <p className="text-lg text-gray-700">
-              {new Date(event.date).toLocaleDateString('en-IN', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </p>
-          )}
-          {event.city && <p className="text-gray-600">{event.city}</p>}
+          {(() => {
+            const { date, location } = getEventDetailsFromConfig(event)
+            return (
+              <>
+                {date && (
+                  <p className="text-lg text-gray-700">
+                    {new Date(date).toLocaleDateString('en-IN', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                  </p>
+                )}
+                {location && <p className="text-gray-600">{location}</p>}
+              </>
+            )
+          })()}
         </div>
 
         {/* Description */}
@@ -357,8 +385,68 @@ export default function RSVPPage() {
           </Card>
         )}
 
-        {/* RSVP Form */}
-        <Card className="bg-white border-eco-green-light">
+        {/* Thank You Message (shown when registry is disabled) */}
+        {showThankYou ? (
+          <Card className="bg-white border-eco-green-light">
+            <CardHeader>
+              <CardTitle className="text-eco-green text-2xl text-center">
+                Thank You! 🌿
+              </CardTitle>
+              <CardDescription className="text-center">
+                Your RSVP has been confirmed. We're excited to celebrate with you!
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="space-y-6 text-center">
+                <div className="bg-eco-green-light p-6 rounded-lg">
+                  <p className="text-gray-700 text-lg mb-4">
+                    <strong>Your response helps us plan better and celebrate sustainably.</strong>
+                  </p>
+                  <p className="text-gray-600">
+                    We'll send you updates via SMS or WhatsApp as the event approaches.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Button
+                    onClick={() => {
+                      setShowThankYou(false)
+                      reset()
+                    }}
+                    className="bg-eco-green hover:bg-green-600 text-white px-8 py-3"
+                  >
+                    Submit Another RSVP
+                  </Button>
+                  <Link href={`/invite/${slug}`}>
+                    <Button
+                      variant="outline"
+                      className="border-eco-green text-eco-green px-8 py-3"
+                    >
+                      View Invitation
+                    </Button>
+                  </Link>
+                </div>
+
+                {/* Company Branding */}
+                <div className="pt-6 mt-6 border-t border-gray-200">
+                  <p className="text-xs text-gray-400">
+                    Created using{' '}
+                    <a
+                      href={COMPANY_HOMEPAGE}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-eco-green hover:underline"
+                    >
+                      {BRAND_NAME}
+                    </a>
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          /* RSVP Form */
+          <Card className="bg-white border-eco-green-light">
           <CardHeader>
             <CardTitle className="text-eco-green text-2xl">
               {existingRSVP 
@@ -530,15 +618,18 @@ export default function RSVPPage() {
             </form>
           </CardContent>
         </Card>
+        )}
 
-        {/* Link to Registry */}
-        <div className="text-center mt-8">
-          <Link href={`/registry/${slug}`}>
-            <Button variant="outline" className="border-eco-green text-eco-green">
-              View Gift Registry →
-            </Button>
-          </Link>
-        </div>
+        {/* Link to Registry - Only show if registry is enabled */}
+        {event.has_registry && !showThankYou && (
+          <div className="text-center mt-8">
+            <Link href={`/registry/${slug}`}>
+              <Button variant="outline" className="border-eco-green text-eco-green">
+                View Gift Registry →
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   )
