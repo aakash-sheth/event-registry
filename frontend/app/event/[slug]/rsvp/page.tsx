@@ -210,14 +210,15 @@ export default function RSVPPage() {
 
   const fetchEvent = async () => {
     try {
-      const response = await api.get(`/api/registry/${slug}/items/`)
-      const eventData = response.data.event
+      // Use the public event endpoint (doesn't require registry to be enabled)
+      const response = await api.get(`/api/registry/${slug}/`)
+      const eventData = response.data
       
       // Check if RSVP is enabled
       if (!eventData.has_rsvp) {
         showToast('RSVP is not available for this event', 'info')
         // Redirect to invitation page
-        router.push(`/registry/${slug}`)
+        router.push(`/invite/${slug}`)
         return
       }
       
@@ -228,10 +229,12 @@ export default function RSVPPage() {
       }
     } catch (error: any) {
       logError('Failed to fetch event:', error)
-      // If 403 error, RSVP is disabled
+      // If 403 error, RSVP is disabled or event is private
       if (error.response?.status === 403) {
         showToast('RSVP is not available for this event', 'info')
-        router.push(`/registry/${slug}`)
+        router.push(`/invite/${slug}`)
+      } else if (error.response?.status === 404) {
+        showToast('Event not found', 'error')
       }
     } finally {
       setLoading(false)

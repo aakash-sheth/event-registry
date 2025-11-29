@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateICS } from '@/lib/calendar'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
+// Get API base URL for server-side fetching
+// In Docker, use BACKEND_API_BASE (service name), otherwise use NEXT_PUBLIC_API_BASE
+const API_BASE = process.env.BACKEND_API_BASE || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
