@@ -57,6 +57,8 @@ export interface DescriptionTileSettings {
 
 export interface FeatureButtonsTileSettings {
   buttonColor?: string // Hex color for buttons
+  rsvpLabel?: string // Custom label for RSVP button (default: "RSVP")
+  registryLabel?: string // Custom label for Registry button (default: "Registry")
 }
 
 export interface FooterTileSettings {

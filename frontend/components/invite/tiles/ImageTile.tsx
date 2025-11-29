@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { ImageTileSettings } from '@/lib/invite/schema'
 import { cn } from '@/lib/utils'
 
@@ -11,6 +11,30 @@ interface ImageTileProps {
 }
 
 export default function ImageTile({ settings, preview = false, hasTitleOverlay = false }: ImageTileProps) {
+  const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null)
+
+  // Load image to get dimensions and aspect ratio
+  useEffect(() => {
+    if (!settings.src) {
+      setImageAspectRatio(null)
+      setImageDimensions(null)
+      return
+    }
+
+    const img = new Image()
+    img.onload = () => {
+      const aspectRatio = img.width / img.height
+      setImageAspectRatio(aspectRatio)
+      setImageDimensions({ width: img.width, height: img.height })
+    }
+    img.onerror = () => {
+      setImageAspectRatio(null)
+      setImageDimensions(null)
+    }
+    img.src = settings.src
+  }, [settings.src])
+
   if (!settings.src) {
     if (preview) return null
     return (
@@ -107,26 +131,41 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
 
   if (preview) {
     if (settings.fitMode === 'fit-to-screen') {
-      // For fit-to-screen, make container fill viewport and center the image
+      // Fit-to-screen mode logic based on image aspect ratio
+      // Landscape or Square (aspectRatio >= 1.0): Fill width, container 100vh, background top/bottom
+      // Portrait (aspectRatio < 1.0): Fill width, container 100vh, scale down if needed, background left/right
+      // Uses adaptive viewport height: 100dvh for modern mobile browsers, 100vh fallback for others
+      
       return (
         <div
-          className="w-full relative overflow-hidden flex items-center justify-center max-h-screen"
+          className="w-full relative overflow-hidden"
           style={{ 
             backgroundColor,
-            minHeight: '100vh',
-            maxHeight: '100vh',
-            height: '100vh',
+            width: '100%',
+            // Adaptive: 100dvh for modern mobile browsers (dynamic), 100vh fallback for older browsers
+            height: '100dvh', // Modern browsers will use this
+            maxHeight: '100vh', // Fallback for browsers that don't support dvh
+            minHeight: '100vh', // Ensure minimum height
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: 0, // Explicitly remove margins to prevent overflow
+            padding: 0, // Explicitly remove padding to prevent overflow
           }}
         >
           <img 
             src={settings.src} 
             alt="Event" 
             style={{
-              ...getImageStyle(),
+              filter: blurValue > 0 ? `blur(${blurValue}px)` : 'none',
               width: '100%',
               height: '100%',
-              maxWidth: '100%',
-              maxHeight: '100%',
+              maxWidth: '100%', // Ensure image doesn't exceed container width
+              maxHeight: '100%', // Ensure image doesn't exceed container height
+              objectFit: 'contain',
+              objectPosition: 'center center',
+              display: 'block',
             }}
           />
         </div>

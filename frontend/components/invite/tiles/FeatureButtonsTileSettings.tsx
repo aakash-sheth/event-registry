@@ -7,9 +7,16 @@ import { Input } from '@/components/ui/input'
 interface FeatureButtonsTileSettingsProps {
   settings: FeatureButtonsTileSettings
   onChange: (settings: FeatureButtonsTileSettings) => void
+  hasRsvp?: boolean
+  hasRegistry?: boolean
 }
 
-export default function FeatureButtonsTileSettings({ settings, onChange }: FeatureButtonsTileSettingsProps) {
+export default function FeatureButtonsTileSettings({ 
+  settings, 
+  onChange, 
+  hasRsvp = false, 
+  hasRegistry = false 
+}: FeatureButtonsTileSettingsProps) {
   return (
     <div className="space-y-4">
       <div>
@@ -33,6 +40,40 @@ export default function FeatureButtonsTileSettings({ settings, onChange }: Featu
           Buttons are automatically generated based on enabled features (RSVP/Registry)
         </p>
       </div>
+
+      {/* RSVP Button Label */}
+      {hasRsvp && (
+        <div>
+          <label className="block text-sm font-medium mb-2">RSVP Button Label</label>
+          <Input
+            type="text"
+            value={settings.rsvpLabel || 'RSVP'}
+            onChange={(e) => onChange({ ...settings, rsvpLabel: e.target.value })}
+            placeholder="RSVP"
+            className="w-full"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Custom display name for the RSVP button
+          </p>
+        </div>
+      )}
+
+      {/* Registry Button Label */}
+      {hasRegistry && (
+        <div>
+          <label className="block text-sm font-medium mb-2">Registry Button Label</label>
+          <Input
+            type="text"
+            value={settings.registryLabel || 'Registry'}
+            onChange={(e) => onChange({ ...settings, registryLabel: e.target.value })}
+            placeholder="Registry"
+            className="w-full"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Custom display name for the Registry button
+          </p>
+        </div>
+      )}
     </div>
   )
 }

@@ -239,11 +239,12 @@ def upload_to_s3(file, event_id, folder='events'):
     
     # Check if we should use local storage (DEBUG mode and S3 credentials missing)
     debug_mode = getattr(settings, 'DEBUG', False)
-    bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', '')
-    access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', '')
-    secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', '')
+    # Check both AWS_STORAGE_BUCKET_NAME and AWS_S3_BUCKET for compatibility
+    bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', '') or os.environ.get('AWS_S3_BUCKET', '')
+    access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', '') or os.environ.get('AWS_ACCESS_KEY_ID', '')
+    secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', '') or os.environ.get('AWS_SECRET_ACCESS_KEY', '')
     
-    use_local_storage = debug_mode and (not bucket_name or not access_key or not secret_key)
+    use_local_storage = debug_mode and (not bucket_name or (not access_key or not secret_key))
     
     if use_local_storage:
         # Local file storage for development
@@ -263,18 +264,25 @@ def upload_to_s3(file, event_id, folder='events'):
         return f"{media_url}uploads/{filename}"
     else:
         # S3 upload for production
-        if not bucket_name or not access_key or not secret_key:
-            raise Exception('S3 configuration is missing. Please set AWS_STORAGE_BUCKET_NAME, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY in settings.')
+        if not bucket_name:
+            raise Exception('S3 bucket name is missing. Please set AWS_STORAGE_BUCKET_NAME or AWS_S3_BUCKET in settings.')
         
         region = getattr(settings, 'AWS_S3_REGION_NAME', 'us-east-1')
         
         # Initialize S3 client
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region
-        )
+        # If credentials are provided, use them; otherwise use IAM role (ECS best practice)
+        s3_kwargs = {
+            'service_name': 's3',
+            'region_name': region
+        }
+        
+        # Only add credentials if explicitly provided (for local dev or if using access keys)
+        # In ECS, boto3 will automatically use the task role credentials if credentials are not provided
+        if access_key and secret_key:
+            s3_kwargs['aws_access_key_id'] = access_key
+            s3_kwargs['aws_secret_access_key'] = secret_key
+        
+        s3_client = boto3.client(**s3_kwargs)
         
         try:
             # Set content type based on file extension
@@ -307,7 +315,9 @@ def upload_to_s3(file, event_id, folder='events'):
             return url
             
         except ClientError as e:
-            raise Exception(f'Failed to upload file to S3: {str(e)}')
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
+            raise Exception(f'Failed to upload file to S3 (Error: {error_code}): {error_message}')
         except Exception as e:
             raise Exception(f'Error uploading file: {str(e)}')
 

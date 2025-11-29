@@ -18,6 +18,8 @@ interface TileSettingsProps {
   allTiles?: Tile[]
   onOverlayToggle?: (tileId: string, targetTileId: string | undefined) => void
   eventId: number
+  hasRsvp?: boolean
+  hasRegistry?: boolean
 }
 
 const TILE_LABELS: Record<TileType, string> = {
@@ -30,7 +32,7 @@ const TILE_LABELS: Record<TileType, string> = {
   'footer': 'Footer',
 }
 
-export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId }: TileSettingsProps) {
+export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId, hasRsvp = false, hasRegistry = false }: TileSettingsProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   const handleSettingsChange = (settings: any) => {
@@ -85,7 +87,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
       case 'description':
         return <DescriptionTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
       case 'feature-buttons':
-        return <FeatureButtonsTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
+        return <FeatureButtonsTileSettings settings={tile.settings as any} onChange={handleSettingsChange} hasRsvp={hasRsvp} hasRegistry={hasRegistry} />
       case 'footer':
         return <FooterTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
       default:

@@ -690,6 +690,8 @@ export default function DesignInvitationPage() {
                       allTiles={sortedTiles}
                       onOverlayToggle={handleOverlayToggle}
                       eventId={eventId}
+                      hasRsvp={event?.has_rsvp}
+                      hasRegistry={event?.has_registry}
                     />
                   ))
                 ) : (

@@ -344,8 +344,13 @@ class EventViewSet(viewsets.ModelViewSet):
             page_config = request.data.get('page_config')
             if isinstance(page_config, dict):
                 event.page_config = page_config
-                event.save()
-                return Response(EventSerializer(event).data, status=status.HTTP_200_OK)
+                # Only update page_config and updated_at fields (faster than full save)
+                event.save(update_fields=['page_config', 'updated_at'])
+                # Return minimal response instead of full event object (much faster)
+                return Response({
+                    'status': 'success',
+                    'message': 'Design saved successfully'
+                }, status=status.HTTP_200_OK)
         
         # Legacy form-based fields (for backward compatibility)
         banner_image = request.data.get('banner_image', '')
@@ -359,16 +364,28 @@ class EventViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Update event
+        # Update event - track which fields need updating
+        update_fields = []
         if banner_image is not None:
             event.banner_image = banner_image
+            update_fields.append('banner_image')
         if description is not None:
             event.description = description
+            update_fields.append('description')
         if additional_photos is not None:
             event.additional_photos = additional_photos if isinstance(additional_photos, list) else []
+            update_fields.append('additional_photos')
         
-        event.save()
-        return Response(EventSerializer(event).data, status=status.HTTP_200_OK)
+        # Only save if there are fields to update
+        if update_fields:
+            update_fields.append('updated_at')
+            event.save(update_fields=update_fields)
+        
+        # Return minimal response instead of full event object (much faster)
+        return Response({
+            'status': 'success',
+            'message': 'Design saved successfully'
+        }, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['put', 'patch'], url_path='guests/(?P<guest_id>[^/.]+)')
     def update_guest(self, request, id=None, guest_id=None):
@@ -1191,6 +1208,11 @@ def upload_image(request, event_id):
             status=status.HTTP_200_OK
         )
     except Exception as e:
+        # Log the actual error for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f'Image upload failed for event {event_id}: {str(e)}', exc_info=True)
+        
         return Response(
             {'error': f'Failed to upload image: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

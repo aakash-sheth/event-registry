@@ -52,6 +52,9 @@ def log_to_cloudwatch_endpoint(request):
     """
     Endpoint to receive logs from frontend and forward to CloudWatch
     This allows frontend to send debug/error logs to CloudWatch via backend
+    
+    Note: This endpoint always returns 200 OK, even if CloudWatch logging fails.
+    Logging failures should not break the application. Errors are logged internally.
     """
     try:
         data = request.data
@@ -64,7 +67,8 @@ def log_to_cloudwatch_endpoint(request):
         extra_data['user_agent'] = request.META.get('HTTP_USER_AGENT', '')
         extra_data['path'] = request.META.get('PATH_INFO', '')
         
-        # Send to CloudWatch
+        # Send to CloudWatch (failures are handled internally by log_to_cloudwatch)
+        # The function has fallback to Python logging if CloudWatch fails
         log_to_cloudwatch(
             message=message,
             level=level,
@@ -75,5 +79,11 @@ def log_to_cloudwatch_endpoint(request):
         
         return JsonResponse({'status': 'ok'}, status=status.HTTP_200_OK)
     except Exception as e:
-        # Don't fail if logging fails
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Logging failures should not break the app - return 200 anyway
+        # The error is already logged by log_to_cloudwatch's fallback mechanism
+        # or will be logged here if log_to_cloudwatch itself fails
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f'CloudWatch logging endpoint error (non-critical): {str(e)}')
+        # Always return 200 - logging is non-critical
+        return JsonResponse({'status': 'ok', 'note': 'logging may have failed'}, status=status.HTTP_200_OK)

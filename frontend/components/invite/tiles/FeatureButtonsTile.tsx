@@ -23,10 +23,16 @@ export default function FeatureButtonsTile({
   const buttons: Array<{ label: string; href: string }> = []
 
   if (hasRsvp) {
-    buttons.push({ label: 'RSVP', href: `/event/${eventSlug}/rsvp` })
+    buttons.push({ 
+      label: settings.rsvpLabel || 'RSVP', // Use custom label or default
+      href: `/event/${eventSlug}/rsvp` 
+    })
   }
   if (hasRegistry) {
-    buttons.push({ label: 'Registry', href: `/registry/${eventSlug}` })
+    buttons.push({ 
+      label: settings.registryLabel || 'Registry', // Use custom label or default
+      href: `/registry/${eventSlug}` 
+    })
   }
 
   if (buttons.length === 0) {
