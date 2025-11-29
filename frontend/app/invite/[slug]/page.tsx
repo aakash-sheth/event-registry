@@ -65,7 +65,7 @@ export async function generateMetadata({
     // Find first enabled image tile with a source
     const imageTile = event.page_config.tiles.find(
       (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
-    )
+    ) as any
     if (imageTile?.settings?.src) {
       bannerImage = imageTile.settings.src
     }
@@ -76,7 +76,7 @@ export async function generateMetadata({
   if (event.page_config?.tiles) {
     const titleTile = event.page_config.tiles.find(
       (tile: any) => tile.type === 'title' && tile.settings?.text
-    )
+    ) as any
     if (titleTile?.settings?.text) {
       title = titleTile.settings.text
     }
@@ -87,7 +87,7 @@ export async function generateMetadata({
   if (event.page_config?.tiles) {
     const descTile = event.page_config.tiles.find(
       (tile: any) => tile.type === 'description' && tile.settings?.content
-    )
+    ) as any
     if (descTile?.settings?.content) {
       // Strip HTML tags for description
       description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
