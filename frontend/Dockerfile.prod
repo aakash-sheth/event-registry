@@ -8,6 +8,8 @@ WORKDIR /app
 ARG NEXT_PUBLIC_API_BASE
 ARG NEXT_PUBLIC_BRAND_NAME
 ARG NEXT_PUBLIC_COMPANY_HOMEPAGE
+# Commit SHA for cache invalidation - changes with each code change
+ARG COMMIT_SHA
 # Verify the build arg is set (fail build if not provided)
 RUN if [ -z "$NEXT_PUBLIC_API_BASE" ]; then echo "ERROR: NEXT_PUBLIC_API_BASE build arg is required!" && exit 1; fi
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
@@ -17,17 +19,24 @@ ENV NEXT_PUBLIC_COMPANY_HOMEPAGE="${NEXT_PUBLIC_COMPANY_HOMEPAGE:-https://eventr
 RUN echo "Building with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
 RUN echo "Building with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-Celebrate Mindfully}"
 RUN echo "Building with NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE:-https://eventregistry.com}"
+RUN echo "Building with COMMIT_SHA=${COMMIT_SHA}"
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (use cache mount for faster builds)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 # Ensure public directory exists (Next.js requires it)
 RUN mkdir -p public
 
+# Create a cache-busting file based on commit SHA
+# This ensures the COPY . . layer is invalidated when code changes
+RUN echo "${COMMIT_SHA:-$(date +%s)}" > /tmp/.build-cache-key
+
 # Copy project files (including config files needed for build)
+# Cache will be invalidated when COMMIT_SHA changes
 COPY . .
 
 # Build Next.js app
