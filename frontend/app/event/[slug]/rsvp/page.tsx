@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
@@ -78,6 +78,10 @@ export default function RSVPPage() {
   const [checkingRSVP, setCheckingRSVP] = useState(false)
   const [showThankYou, setShowThankYou] = useState(false)
   
+  // Refs to track phone check cancellation
+  const phoneCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const isPhoneCheckCancelledRef = useRef(false)
+  
   // Detect QR code source from URL parameter
   const sourceChannel = searchParams.get('source') === 'qr' ? 'qr' : 'link'
 
@@ -110,13 +114,27 @@ export default function RSVPPage() {
   useEffect(() => {
     if (!event || !phoneValue || phoneValue.length < 10) {
       setExistingRSVP(null)
+      // Clear any pending check
+      if (phoneCheckTimeoutRef.current) {
+        clearTimeout(phoneCheckTimeoutRef.current)
+        phoneCheckTimeoutRef.current = null
+      }
+      isPhoneCheckCancelledRef.current = false
       return
     }
 
+    // Cancel previous check if it exists
+    if (phoneCheckTimeoutRef.current) {
+      clearTimeout(phoneCheckTimeoutRef.current)
+      phoneCheckTimeoutRef.current = null
+    }
+    isPhoneCheckCancelledRef.current = false
+
     // Debounce the check
-    const timeoutId = setTimeout(async () => {
+    phoneCheckTimeoutRef.current = setTimeout(async () => {
       try {
         setCheckingRSVP(true)
+        isPhoneCheckCancelledRef.current = false
         const countryCode = countryCodeValue || event?.country_code || '+91'
         
         logDebug('Checking RSVP for phone:', { phone: phoneValue, country_code: countryCode })
@@ -127,6 +145,12 @@ export default function RSVPPage() {
             country_code: countryCode,
           },
         })
+        
+        // Check if this check was cancelled (user changed phone number)
+        if (isPhoneCheckCancelledRef.current) {
+          logDebug('Phone check was cancelled, ignoring result')
+          return
+        }
         
         const foundIn = response.data.found_in || 'rsvp'
         logDebug('RSVP check result:', { found_in: foundIn, phone: response.data.phone })
@@ -190,14 +214,22 @@ export default function RSVPPage() {
         // This avoids race conditions with network latency (watch() can return stale values)
         const currentName = getValues('name')
         const currentEmail = getValues('email')
+        const currentPhone = getValues('phone')
         
         // Only pre-fill if the field is empty or just whitespace
         if (!currentName || currentName.trim() === '') {
           setValue('name', response.data.name, { shouldValidate: false, shouldDirty: true })
         }
-        // Phone is already set by user, so we update it with the parsed local phone
-        setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
-        setValue('country_code', storedCountryCode, { shouldValidate: false, shouldDirty: true })
+        // Only update phone if we found a valid localPhone AND it's different from what user typed
+        // This prevents clearing the phone field when check returns 404 or invalid data
+        if (localPhone && localPhone.trim() !== '' && localPhone !== currentPhone) {
+          setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
+        }
+        // Only update country code if it's different from current
+        const currentCountryCode = getValues('country_code')
+        if (storedCountryCode !== currentCountryCode) {
+          setValue('country_code', storedCountryCode, { shouldValidate: false, shouldDirty: true })
+        }
         // Only pre-fill email if empty
         if (!currentEmail || currentEmail.trim() === '') {
           setValue('email', response.data.email || '', { shouldValidate: false, shouldDirty: true })
@@ -217,20 +249,36 @@ export default function RSVPPage() {
         
         logDebug('Form values pre-filled from existing RSVP')
       } catch (error: any) {
+        // Check if this check was cancelled before updating state
+        if (isPhoneCheckCancelledRef.current) {
+          logDebug('Phone check was cancelled, ignoring error')
+          return
+        }
+        
         // No existing RSVP found - that's okay
         if (error.response?.status === 404) {
           logDebug('No existing RSVP found for this phone number')
+          // Don't modify form at all on 404 - user's input should remain intact
         } else {
           logError('Error checking RSVP:', error)
           showToast('Error checking for existing RSVP', 'error')
         }
         setExistingRSVP(null)
       } finally {
-        setCheckingRSVP(false)
+        // Only update checking state if check wasn't cancelled
+        if (!isPhoneCheckCancelledRef.current) {
+          setCheckingRSVP(false)
+        }
       }
     }, 1000) // Wait 1 second after user stops typing
 
-    return () => clearTimeout(timeoutId)
+    return () => {
+      if (phoneCheckTimeoutRef.current) {
+        clearTimeout(phoneCheckTimeoutRef.current)
+        phoneCheckTimeoutRef.current = null
+      }
+      isPhoneCheckCancelledRef.current = true // Mark as cancelled when effect cleans up
+    }
   }, [phoneValue, countryCodeValue, event, setValue, getValues, showToast])
 
   const fetchEvent = async () => {

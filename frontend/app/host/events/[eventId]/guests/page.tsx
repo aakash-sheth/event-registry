@@ -288,7 +288,7 @@ export default function GuestsPage() {
       fetchGuests()
     } catch (error: any) {
       showToast(
-        error.response?.data?.error || 'Failed to import CSV',
+        error.response?.data?.error || 'Failed to import file',
         'error'
       )
     } finally {
@@ -431,7 +431,7 @@ export default function GuestsPage() {
                       className="w-full text-left px-4 py-3 hover:bg-eco-green-light flex items-center gap-3 text-sm border-b border-gray-200 transition-colors"
                     >
                       <span className="text-xl">⬆️</span>
-                      <span>Import CSV</span>
+                      <span>Import CSV/Excel</span>
                     </button>
                     <button
                       onClick={() => {
@@ -451,7 +451,7 @@ export default function GuestsPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 onChange={handleFileUpload}
                 disabled={uploading}
                 className="hidden"
@@ -550,7 +550,7 @@ export default function GuestsPage() {
           <Card className="mb-8 bg-white border-2 border-gray-300 shadow-lg">
             <CardHeader className="bg-gray-50 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-gray-800 text-xl">Import Guests from CSV</CardTitle>
+                <CardTitle className="text-gray-800 text-xl">Import Guests from CSV/Excel</CardTitle>
                 <button
                   onClick={() => setShowImportInstructions(false)}
                   className="text-gray-500 hover:text-gray-700 hover:bg-gray-200 text-2xl font-light w-8 h-8 flex items-center justify-center rounded transition-colors"
@@ -563,9 +563,9 @@ export default function GuestsPage() {
             <CardContent className="space-y-6 py-6">
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-base font-semibold text-gray-800 mb-3">CSV Format Requirements</h3>
+                  <h3 className="text-base font-semibold text-gray-800 mb-3">File Format Requirements</h3>
                   <p className="text-sm text-gray-700 mb-3">
-                    Your CSV file should include the following columns:
+                    Your CSV or Excel file should include the following columns:
                   </p>
                   <div className="flex flex-wrap gap-2 mb-4">
                     <span className="inline-flex items-center px-3 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium">name</span>
@@ -596,7 +596,7 @@ export default function GuestsPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   onChange={(e) => {
                     handleFileUpload(e)
                     setShowImportInstructions(false)
@@ -617,7 +617,7 @@ export default function GuestsPage() {
                   ) : (
                     <span className="flex items-center gap-2">
                       <span>⬆️</span>
-                      Choose CSV File to Upload
+                      Choose CSV/Excel File to Upload
                     </span>
                   )}
                 </Button>
@@ -688,7 +688,7 @@ export default function GuestsPage() {
                 <div className="text-5xl mb-4">👥</div>
                 <p className="text-gray-600 mb-4">No guests added yet</p>
                 <p className="text-sm text-gray-500 mb-6">
-                  Add guests manually or import from CSV to track RSVPs and gifts
+                  Add guests manually or import from CSV/Excel to track RSVPs and gifts
                 </p>
                 <Button
                   onClick={() => {

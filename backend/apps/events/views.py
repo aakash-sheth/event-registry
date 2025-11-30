@@ -259,7 +259,7 @@ class EventViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='guests/import')
     def import_guests_csv(self, request, id=None):
-        """Import guests from CSV file - host only, privacy protected"""
+        """Import guests from CSV or Excel file - host only, privacy protected"""
         event = self.get_object()
         self._verify_event_ownership(event)  # Explicit ownership check
         
@@ -268,18 +268,65 @@ class EventViewSet(viewsets.ModelViewSet):
         
         import csv
         import io
+        import os
         
         file = request.FILES['file']
-        decoded_file = file.read().decode('utf-8')
-        io_string = io.StringIO(decoded_file)
-        reader = csv.DictReader(io_string)
+        file_name = file.name.lower()
+        file_extension = os.path.splitext(file_name)[1].lower()
+        
+        # Determine file type and read accordingly
+        rows = []
+        if file_extension in ['.xlsx', '.xls']:
+            # Excel file
+            try:
+                from openpyxl import load_workbook
+                
+                # Read Excel file
+                file.seek(0)  # Reset file pointer
+                workbook = load_workbook(file, read_only=True, data_only=True)
+                sheet = workbook.active
+                
+                # Get headers from first row
+                headers = []
+                for cell in sheet[1]:
+                    headers.append(str(cell.value).strip() if cell.value else '')
+                
+                # Read data rows
+                for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                    row_dict = {}
+                    for idx, header in enumerate(headers):
+                        if header:  # Only add non-empty headers
+                            value = row[idx] if idx < len(row) else None
+                            row_dict[header] = str(value).strip() if value is not None else ''
+                    if any(row_dict.values()):  # Only add non-empty rows
+                        rows.append((row_num, row_dict))
+                
+                workbook.close()
+            except ImportError:
+                return Response({'error': 'Excel support requires openpyxl library. Please install it.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            except Exception as e:
+                return Response({'error': f'Failed to read Excel file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        elif file_extension == '.csv':
+            # CSV file
+            try:
+                file.seek(0)  # Reset file pointer
+                decoded_file = file.read().decode('utf-8')
+                io_string = io.StringIO(decoded_file)
+                reader = csv.DictReader(io_string)
+                
+                for row_num, row in enumerate(reader, start=2):  # Start at 2 (1 is header)
+                    rows.append((row_num, row))
+            except Exception as e:
+                return Response({'error': f'Failed to read CSV file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({'error': f'Unsupported file format: {file_extension}. Please use CSV (.csv) or Excel (.xlsx, .xls) files.'}, status=status.HTTP_400_BAD_REQUEST)
         
         created_count = 0
         errors = []
         
         event_country_code = get_country_code(event.country)
         
-        for row_num, row in enumerate(reader, start=2):  # Start at 2 (1 is header)
+        for row_num, row in rows:
             try:
                 name = row.get('name') or row.get('Name') or row.get('NAME')
                 phone = row.get('phone') or row.get('Phone') or row.get('PHONE')
