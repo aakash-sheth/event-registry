@@ -85,6 +85,7 @@ export default function RSVPPage() {
     register,
     handleSubmit,
     watch,
+    getValues,
     setValue,
     reset,
     formState: { errors },
@@ -183,12 +184,24 @@ export default function RSVPPage() {
           }
         }
         
-        // Pre-fill form with data
-        // Use shouldValidate: false to avoid validation errors during auto-fill
-        setValue('name', response.data.name, { shouldValidate: false, shouldDirty: true })
+        // Pre-fill form with data ONLY if fields are empty
+        // This prevents overwriting user input when they're actively filling the form
+        // Use getValues() instead of watch() to get current values synchronously
+        // This avoids race conditions with network latency (watch() can return stale values)
+        const currentName = getValues('name')
+        const currentEmail = getValues('email')
+        
+        // Only pre-fill if the field is empty or just whitespace
+        if (!currentName || currentName.trim() === '') {
+          setValue('name', response.data.name, { shouldValidate: false, shouldDirty: true })
+        }
+        // Phone is already set by user, so we update it with the parsed local phone
         setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
         setValue('country_code', storedCountryCode, { shouldValidate: false, shouldDirty: true })
-        setValue('email', response.data.email || '', { shouldValidate: false, shouldDirty: true })
+        // Only pre-fill email if empty
+        if (!currentEmail || currentEmail.trim() === '') {
+          setValue('email', response.data.email || '', { shouldValidate: false, shouldDirty: true })
+        }
         
         // Only pre-fill RSVP-specific fields if it's an existing RSVP
         if (foundIn === 'rsvp' && response.data.will_attend) {
@@ -218,7 +231,7 @@ export default function RSVPPage() {
     }, 1000) // Wait 1 second after user stops typing
 
     return () => clearTimeout(timeoutId)
-  }, [phoneValue, countryCodeValue, event, setValue])
+  }, [phoneValue, countryCodeValue, event, setValue, getValues, showToast])
 
   const fetchEvent = async () => {
     try {
@@ -342,11 +355,24 @@ export default function RSVPPage() {
               <>
                 {date && (
                   <p className="text-lg text-gray-700">
-                    {new Date(date).toLocaleDateString('en-IN', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
+                    {(() => {
+                      // Parse date string and create date in local timezone to avoid UTC conversion issues
+                      // If date is in format "YYYY-MM-DD", parse it as local date
+                      let dateObj: Date
+                      if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        // Date is in YYYY-MM-DD format, parse as local date
+                        const [year, month, day] = date.split('-').map(Number)
+                        dateObj = new Date(year, month - 1, day) // month is 0-indexed
+                      } else {
+                        // Try parsing as-is
+                        dateObj = new Date(date)
+                      }
+                      return dateObj.toLocaleDateString('en-IN', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })
+                    })()}
                   </p>
                 )}
                 {location && <p className="text-gray-600">{location}</p>}
@@ -491,9 +517,6 @@ export default function RSVPPage() {
                 </p>
               </div>
             )}
-            {checkingRSVP && (
-              <p className="text-sm text-gray-500 mt-2">Checking for existing RSVP or guest list...</p>
-            )}
           </CardHeader>
         <CardContent className="pt-4">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -515,20 +538,37 @@ export default function RSVPPage() {
                       setValue('country_code', value, { shouldValidate: true })
                     }}
                     className="w-48"
+                    disabled={checkingRSVP}
                   />
-                  <Input
-                    type="tel"
-                    {...register('phone')}
-                    placeholder="10-digit phone number"
-                    className="flex-1"
-                  />
+                  <div className="flex-1 relative">
+                    <Input
+                      type="tel"
+                      {...register('phone')}
+                      placeholder="10-digit phone number"
+                      className="flex-1"
+                      disabled={checkingRSVP}
+                    />
+                    {checkingRSVP && (
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-eco-green"></div>
+                      </div>
+                    )}
+                  </div>
                 </div>
+                {checkingRSVP && (
+                  <p className="text-sm text-blue-600 mt-1 flex items-center gap-2">
+                    <span className="animate-spin">⏳</span>
+                    Checking for existing RSVP... Please wait
+                  </p>
+                )}
                 {errors.phone && (
                   <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>
                 )}
-                <p className="text-xs text-gray-500 mt-1">
-                  We'll send updates via SMS or WhatsApp
-                </p>
+                {!checkingRSVP && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    We'll send updates via SMS or WhatsApp
+                  </p>
+                )}
               </div>
 
               <div>
