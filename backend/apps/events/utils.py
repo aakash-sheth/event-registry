@@ -365,23 +365,25 @@ def calculate_event_impact(event):
     if not expiry or expiry >= date.today():
         return None  # Event not expired
     
-    # 1. Food Saved: Guests from list who didn't RSVP
-    total_guests = event.guest_list.count()
+    # 1. Food Saved: Guests from list who didn't RSVP (exclude removed guests and RSVPs)
+    total_guests = event.guest_list.filter(is_removed=False).count()
     guests_with_rsvp_ids = event.rsvps.filter(
-        guest__isnull=False
+        guest__isnull=False,
+        guest__is_removed=False,
+        is_removed=False
     ).values_list('guest_id', flat=True).distinct()
     guests_without_rsvp = total_guests - len(guests_with_rsvp_ids)
     
     # Calculate plates saved using guests_count from RSVPs
     # For guests who RSVP'd 'no', we still saved plates (they didn't come)
-    rsvps_no = event.rsvps.filter(will_attend='no', guest__isnull=False)
+    rsvps_no = event.rsvps.filter(will_attend='no', guest__isnull=False, guest__is_removed=False, is_removed=False)
     plates_saved_from_no = sum(rsvp.guests_count for rsvp in rsvps_no)
     # For guests who didn't RSVP, assume 1 plate per guest
     plates_saved_from_no_rsvp = guests_without_rsvp
     total_plates_saved = plates_saved_from_no + plates_saved_from_no_rsvp
     
-    # 2. Paper Saved: Web RSVPs (source_channel='link', not 'qr')
-    web_rsvps = event.rsvps.filter(source_channel='link').count()
+    # 2. Paper Saved: Web RSVPs (source_channel='link', not 'qr', exclude removed)
+    web_rsvps = event.rsvps.filter(source_channel='link', is_removed=False).count()
     
     # 3. Gifts Received: Paid orders with physical items
     # Check if item_type field exists (migration might not be run yet)

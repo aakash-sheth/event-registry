@@ -348,33 +348,37 @@ export default function EventDetailPage() {
     .reduce((sum, o) => sum + o.amount_inr, 0)
   
   // Calculate comprehensive guest list stats
-  const totalGuests = guests.length
-  const totalRSVPs = rsvps.length
+  // Filter out removed guests and RSVPs for stats
+  const activeGuests = guests.filter(g => !g.is_removed)
+  const activeRSVPs = rsvps.filter(r => !r.is_removed)
   
-  // RSVP breakdown by status
-  const rsvpsYes = rsvps.filter(r => r.will_attend === 'yes')
-  const rsvpsNo = rsvps.filter(r => r.will_attend === 'no')
-  const rsvpsMaybe = rsvps.filter(r => r.will_attend === 'maybe')
+  const totalGuests = activeGuests.length
+  const totalRSVPs = activeRSVPs.length
+  
+  // RSVP breakdown by status (exclude removed)
+  const rsvpsYes = activeRSVPs.filter(r => r.will_attend === 'yes')
+  const rsvpsNo = activeRSVPs.filter(r => r.will_attend === 'no')
+  const rsvpsMaybe = activeRSVPs.filter(r => r.will_attend === 'maybe')
   
   // Attendance estimates (using guests_count from RSVPs)
   const confirmedAttendees = rsvpsYes.reduce((sum, r) => sum + (r.guests_count || 1), 0)
   const maybeAttendees = rsvpsMaybe.reduce((sum, r) => sum + (r.guests_count || 1), 0)
   const totalExpectedAttendees = confirmedAttendees + maybeAttendees
   
-  // Guest list coverage
-  const coreGuestsWithRSVP = rsvps.filter(r => r.is_core_guest || r.guest_id).length
+  // Guest list coverage (exclude removed)
+  const coreGuestsWithRSVP = activeRSVPs.filter(r => r.is_core_guest || r.guest_id).length
   const coreGuestsPending = totalGuests - coreGuestsWithRSVP
-  const otherGuestsRSVP = rsvps.filter(r => !r.is_core_guest && !r.guest_id).length
+  const otherGuestsRSVP = activeRSVPs.filter(r => !r.is_core_guest && !r.guest_id).length
   
-  // Confirmed count from invited guests (core guests who said yes)
-  const coreGuestsConfirmed = rsvps.filter(r => (r.is_core_guest || r.guest_id) && r.will_attend === 'yes').length
+  // Confirmed count from invited guests (core guests who said yes, exclude removed)
+  const coreGuestsConfirmed = activeRSVPs.filter(r => (r.is_core_guest || r.guest_id) && r.will_attend === 'yes').length
   
   // Response rate
   const responseRate = totalGuests > 0 ? Math.round((coreGuestsWithRSVP / totalGuests) * 100) : 0
   
-  // Gift stats
+  // Gift stats (exclude removed guests)
   const coreGuestsWithGifts = orders.filter(o => o.status === 'paid' && 
-    guests.some(g => 
+    activeGuests.some(g => 
       (o.buyer_phone && g.phone && o.buyer_phone === g.phone) ||
       (o.buyer_email && g.email && o.buyer_email === g.email)
     )

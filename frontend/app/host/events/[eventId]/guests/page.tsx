@@ -40,6 +40,8 @@ interface Guest {
   notes: string
   rsvp_status: string | null
   rsvp_will_attend: string | null
+  is_removed?: boolean
+  created_at?: string
 }
 
 interface OtherGuest {
@@ -55,6 +57,7 @@ interface OtherGuest {
   source_channel: string
   created_at: string
   updated_at: string
+  is_removed?: boolean
 }
 
 interface Event {
@@ -75,6 +78,8 @@ export default function GuestsPage() {
   const { showToast } = useToast()
   const [guests, setGuests] = useState<Guest[]>([])
   const [otherGuests, setOtherGuests] = useState<OtherGuest[]>([])
+  const [removedGuestsList, setRemovedGuestsList] = useState<Guest[]>([])
+  const [removedGuests, setRemovedGuests] = useState<OtherGuest[]>([])
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -138,11 +143,15 @@ export default function GuestsPage() {
       const response = await api.get(`/api/events/${eventId}/guests/`)
       // Handle both old format (array) and new format (object with guests and other_guests)
       if (Array.isArray(response.data)) {
-      setGuests(response.data)
+        setGuests(response.data.filter((g: Guest) => !g.is_removed))
+        setRemovedGuestsList(response.data.filter((g: Guest) => g.is_removed))
         setOtherGuests([])
+        setRemovedGuests([])
       } else {
         setGuests(response.data.guests || [])
         setOtherGuests(response.data.other_guests || [])
+        setRemovedGuestsList(response.data.removed_guests_list || [])
+        setRemovedGuests(response.data.removed_guests || [])
       }
     } catch (error: any) {
       if (error.response?.status === 401) {
@@ -317,17 +326,70 @@ export default function GuestsPage() {
   }
 
   const handleDelete = async (guestId: number) => {
-    if (!confirm('Are you sure you want to remove this guest from the list?')) {
+    const guest = guests.find(g => g.id === guestId)
+    const hasRSVP = guest?.rsvp_status !== null
+    
+    const message = hasRSVP
+      ? 'Are you sure you want to remove this guest? They will not be able to update their RSVP, but the record will be preserved.'
+      : 'Are you sure you want to delete this guest from the list?'
+    
+    if (!confirm(message)) {
       return
     }
 
     try {
-      await api.delete(`/api/events/${eventId}/guests/${guestId}/`)
-      showToast('Guest removed', 'success')
+      const response = await api.delete(`/api/events/${eventId}/guests/${guestId}/`)
+      const message = response.data.soft_delete
+        ? 'Guest removed (soft delete). Record preserved.'
+        : 'Guest deleted successfully'
+      showToast(message, 'success')
       fetchGuests()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to remove guest',
+        'error'
+      )
+    }
+  }
+
+  const handleReinstateGuest = async (guestId: number) => {
+    try {
+      await api.post(`/api/events/${eventId}/guests/${guestId}/reinstate/`)
+      showToast('Guest reinstated successfully', 'success')
+      fetchGuests()
+    } catch (error: any) {
+      showToast(
+        error.response?.data?.error || 'Failed to reinstate guest',
+        'error'
+      )
+    }
+  }
+
+  const handleRemoveRSVP = async (rsvpId: number) => {
+    if (!confirm('Are you sure you want to remove this RSVP? The record will be preserved but will not appear in active lists.')) {
+      return
+    }
+
+    try {
+      await api.delete(`/api/events/${eventId}/rsvps/${rsvpId}/`)
+      showToast('RSVP removed successfully', 'success')
+      fetchGuests()
+    } catch (error: any) {
+      showToast(
+        error.response?.data?.error || 'Failed to remove RSVP',
+        'error'
+      )
+    }
+  }
+
+  const handleReinstateRSVP = async (rsvpId: number) => {
+    try {
+      await api.post(`/api/events/${eventId}/rsvps/${rsvpId}/reinstate/`)
+      showToast('RSVP reinstated successfully', 'success')
+      fetchGuests()
+    } catch (error: any) {
+      showToast(
+        error.response?.data?.error || 'Failed to reinstate RSVP',
         'error'
       )
     }
@@ -648,7 +710,7 @@ export default function GuestsPage() {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                All ({guests.length})
+                All ({guests.filter(g => !g.is_removed).length})
               </button>
               <button
                 onClick={() => setRsvpFilter('unconfirmed')}
@@ -658,7 +720,7 @@ export default function GuestsPage() {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                Unconfirmed ({guests.filter(g => !g.rsvp_status && !g.rsvp_will_attend).length})
+                Unconfirmed ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
               </button>
               <button
                 onClick={() => setRsvpFilter('confirmed')}
@@ -668,7 +730,7 @@ export default function GuestsPage() {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                Confirmed ({guests.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes').length})
+                Confirmed ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
               </button>
               <button
                 onClick={() => setRsvpFilter('no')}
@@ -678,7 +740,7 @@ export default function GuestsPage() {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                Declined ({guests.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no').length})
+                Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
               </button>
             </div>
           </CardHeader>
@@ -718,15 +780,15 @@ export default function GuestsPage() {
                   </thead>
                   <tbody>
                     {(() => {
-                      // Filter guests based on RSVP status
-                      let filteredGuests = guests
+                      // Filter guests based on RSVP status (exclude removed guests)
+                      let filteredGuests = guests.filter(g => !g.is_removed)
                       
                       if (rsvpFilter === 'unconfirmed') {
-                        filteredGuests = guests.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
+                        filteredGuests = filteredGuests.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
                       } else if (rsvpFilter === 'confirmed') {
-                        filteredGuests = guests.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
+                        filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
                       } else if (rsvpFilter === 'no') {
-                        filteredGuests = guests.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
+                        filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
                       }
                       
                       if (filteredGuests.length === 0) {
@@ -804,7 +866,7 @@ export default function GuestsPage() {
                                 onClick={() => handleDelete(guest.id)}
                                 className="border-red-300 text-red-600 hover:bg-red-50 text-xs"
                               >
-                                Remove
+                                {guest.rsvp_status || guest.rsvp_will_attend ? 'Remove' : 'Delete'}
                               </Button>
                             </div>
                           </td>
@@ -812,6 +874,39 @@ export default function GuestsPage() {
                       )
                     })
                     })()}
+                    {/* Removed Guests at Bottom */}
+                    {removedGuestsList.length > 0 && (
+                      <>
+                        {removedGuestsList.map((guest) => (
+                          <tr key={guest.id} className="border-b bg-gray-50 opacity-60">
+                            <td className="p-2 font-medium text-gray-500">{guest.name} <span className="text-xs text-gray-400">(Removed)</span></td>
+                            <td className="p-2 text-sm text-gray-500 font-mono">{guest.country_code || '-'}</td>
+                            <td className="p-2 text-sm text-gray-500 font-mono">{guest.local_number || guest.phone || '-'}</td>
+                            <td className="p-2 text-sm text-gray-500">{guest.email || '-'}</td>
+                            <td className="p-2 text-sm text-gray-500">{guest.relationship || '-'}</td>
+                            <td className="p-2">
+                              {guest.rsvp_status || guest.rsvp_will_attend ? (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600">
+                                  {guest.rsvp_status || guest.rsvp_will_attend}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-sm text-gray-500">{guest.notes || '-'}</td>
+                            <td className="p-2">
+                              <Button
+                                variant="outline"
+                                onClick={() => handleReinstateGuest(guest.id)}
+                                className="border-green-300 text-green-600 hover:bg-green-50 text-xs"
+                              >
+                                Include
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -820,11 +915,16 @@ export default function GuestsPage() {
         </Card>
 
         {/* Other Guests Table - RSVPs from people not in guest list */}
-        {otherGuests.length > 0 && (
+        {(otherGuests.length > 0 || removedGuests.length > 0) && (
           <Card className="bg-white border-2 border-eco-green-light mt-8">
             <CardHeader>
               <CardTitle className="text-eco-green">
-                Other Guests ({otherGuests.length})
+                Other Guests ({otherGuests.filter(g => !g.is_removed).length})
+                {removedGuests.length > 0 && (
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    ({removedGuests.length} removed)
+                  </span>
+                )}
               </CardTitle>
               <CardDescription>
                 People who RSVP'd but weren't in your original guest list
@@ -844,10 +944,11 @@ export default function GuestsPage() {
                       <th className="text-left p-2">Source</th>
                       <th className="text-left p-2">Notes</th>
                       <th className="text-left p-2">RSVP Date</th>
+                      <th className="text-left p-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {otherGuests.map((guest) => {
+                    {otherGuests.filter(g => !g.is_removed).map((guest) => {
                       const getRsvpStatusBadge = (status: string) => {
                         const statusConfig = {
                           yes: { label: 'Yes', className: 'bg-green-100 text-green-700' },
@@ -901,9 +1002,55 @@ export default function GuestsPage() {
                               day: 'numeric',
                             })}
                           </td>
+                          <td className="p-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => handleRemoveRSVP(guest.id)}
+                              className="border-red-300 text-red-600 hover:bg-red-50 text-xs"
+                            >
+                              Remove
+                            </Button>
+                          </td>
                         </tr>
                       )
                     })}
+                    {/* Removed Other Guests at Bottom */}
+                    {removedGuests.map((guest) => (
+                      <tr key={guest.id} className="border-b bg-gray-50 opacity-60">
+                        <td className="p-2 font-medium text-gray-500">{guest.name} <span className="text-xs text-gray-400">(Removed)</span></td>
+                        <td className="p-2 text-sm text-gray-500 font-mono">{guest.country_code || '-'}</td>
+                        <td className="p-2 text-sm text-gray-500 font-mono">{guest.local_number || guest.phone || '-'}</td>
+                        <td className="p-2 text-sm text-gray-500">{guest.email || '-'}</td>
+                        <td className="p-2">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600">
+                            {guest.will_attend}
+                          </span>
+                        </td>
+                        <td className="p-2 text-sm text-gray-500">{guest.guests_count || 1}</td>
+                        <td className="p-2">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600">
+                            {guest.source_channel}
+                          </span>
+                        </td>
+                        <td className="p-2 text-sm text-gray-500">{guest.notes || '-'}</td>
+                        <td className="p-2 text-sm text-gray-500">
+                          {new Date(guest.created_at).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </td>
+                        <td className="p-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => handleReinstateRSVP(guest.id)}
+                            className="border-green-300 text-green-600 hover:bg-green-50 text-xs"
+                          >
+                            Include
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

@@ -29,22 +29,6 @@ class Event(models.Model):
     additional_photos = models.JSONField(default=list, blank=True, help_text="Array of up to 5 photo URLs or data URLs (deprecated - use page_config)")
     page_config = models.JSONField(default=dict, blank=True, help_text="Living Poster invitation page configuration with theme, hero, description")
     
-    # WhatsApp message template
-    whatsapp_message_template = models.TextField(
-        blank=True,
-        default='',
-        help_text="WhatsApp message template with variables like [name], [event_title], [event_date], [event_location], [event_url], [host_name]. Leave empty to use default template."
-    )
-    
-    # Event expiry - Note: This field requires migration 0014_add_expiry_date
-    # If migrations haven't been run, this field won't exist in the database
-    # The code handles this gracefully by checking if the field exists before accessing it
-    expiry_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Event expiry date. If not set, defaults to event date. Host can extend this to reactivate expired events."
-    )
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -54,32 +38,6 @@ class Event(models.Model):
     
     def __str__(self):
         return f"{self.title} ({self.slug})"
-    
-    @property
-    def is_expired(self):
-        """Check if event is expired"""
-        from datetime import date
-        
-        # Handle case where expiry_date field might not exist yet (migration not run)
-        # Check if field exists in model's _meta before trying to access it
-        try:
-            field_names = [f.name for f in self._meta.get_fields()]
-            if 'expiry_date' in field_names:
-                try:
-                    expiry = self.expiry_date or self.date
-                except Exception:
-                    # Field exists in model but might not be in DB yet
-                    expiry = self.date
-            else:
-                # Field doesn't exist in model definition yet
-                expiry = self.date
-        except Exception:
-            # Fallback: use event.date
-            expiry = self.date
-            
-        if not expiry:
-            return False  # Events without dates never expire
-        return expiry < date.today()
 
 
 class InvitePage(models.Model):
@@ -115,6 +73,7 @@ class Guest(models.Model):
     email = models.EmailField(blank=True, null=True)
     relationship = models.CharField(max_length=100, blank=True, help_text="e.g., Family, Friends, Colleagues")
     notes = models.TextField(blank=True)
+    is_removed = models.BooleanField(default=False, help_text="Soft delete flag - guest is removed but record preserved")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -152,6 +111,8 @@ class RSVP(models.Model):
         choices=[('qr', 'QR Code'), ('link', 'Web Link'), ('manual', 'Manual')],
         default='link'
     )
+    
+    is_removed = models.BooleanField(default=False, help_text="Soft delete flag - RSVP is removed but record preserved")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

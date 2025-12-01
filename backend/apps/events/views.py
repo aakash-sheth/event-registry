@@ -163,10 +163,29 @@ class EventViewSet(viewsets.ModelViewSet):
         event = self.get_object()
         self._verify_event_ownership(event)  # Explicit ownership check
         
-        # Only get RSVPs for this specific event (already verified ownership)
-        rsvps = RSVP.objects.filter(event=event).order_by('-created_at')
+        # Only get active RSVPs for this specific event (exclude removed)
+        rsvps = RSVP.objects.filter(event=event, is_removed=False).order_by('-created_at')
         serializer = RSVPSerializer(rsvps, many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['delete'], url_path='rsvps/(?P<rsvp_id>[^/.]+)')
+    def delete_rsvp(self, request, id=None, rsvp_id=None):
+        """Remove an RSVP (soft delete) - host only, privacy protected"""
+        event = self.get_object()
+        self._verify_event_ownership(event)  # Explicit ownership check
+        
+        try:
+            rsvp = RSVP.objects.get(id=rsvp_id, event=event)
+        except RSVP.DoesNotExist:
+            return Response({'error': 'RSVP not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Soft delete RSVP (preserve historical data)
+        rsvp.is_removed = True
+        rsvp.save()
+        return Response({
+            'message': 'RSVP removed. The record is preserved but will not appear in active lists.',
+            'soft_delete': True
+        }, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['get', 'post'])
     def guests(self, request, id=None):
@@ -175,21 +194,66 @@ class EventViewSet(viewsets.ModelViewSet):
         self._verify_event_ownership(event)  # Explicit ownership check
         
         if request.method == 'GET':
-            # Get invited guests
-            guests = Guest.objects.filter(event=event).order_by('name')
-            guests_serializer = GuestSerializer(guests, many=True)
+            # Get all invited guests (we'll separate active/removed and sort in Python)
+            all_guests = Guest.objects.filter(event=event).prefetch_related('rsvps')
+            
+            # Get all RSVPs for this event to help with sorting
+            all_event_rsvps = RSVP.objects.filter(event=event).select_related('guest')
+            
+            # Create a mapping of guest_id -> RSVP for sorting
+            guest_rsvp_map = {}
+            for rsvp in all_event_rsvps:
+                if rsvp.guest_id:
+                    guest_rsvp_map[rsvp.guest_id] = rsvp
+            
+            # Separate active and removed guests
+            active_guests = []
+            removed_guests = []
+            
+            for guest in all_guests:
+                # Get RSVP for this guest (if exists) for sorting
+                rsvp = guest_rsvp_map.get(guest.id)
+                
+                # Determine sort key: For guests with RSVP use RSVP.created_at, otherwise guest.created_at
+                sort_date = rsvp.created_at if rsvp else guest.created_at
+                
+                guest_data = {
+                    'guest': guest,
+                    'rsvp': rsvp,
+                    'sort_date': sort_date
+                }
+                
+                if guest.is_removed:
+                    removed_guests.append(guest_data)
+                else:
+                    active_guests.append(guest_data)
+            
+            # Sort: Primary by is_removed (False first), Secondary by sort_date (recent first)
+            # Active guests: sort by sort_date descending (recent first)
+            active_guests.sort(key=lambda x: x['sort_date'], reverse=True)
+            # Removed guests: sort by sort_date descending (recent first)
+            removed_guests.sort(key=lambda x: x['sort_date'], reverse=True)
+            
+            # Extract guest objects in sorted order
+            sorted_active_guests = [g['guest'] for g in active_guests]
+            sorted_removed_guests = [g['guest'] for g in removed_guests]
+            
+            guests_serializer = GuestSerializer(sorted_active_guests, many=True)
+            removed_guests_serializer = GuestSerializer(sorted_removed_guests, many=True)
             
             # Get RSVPs that don't have a corresponding guest (other guests)
             # These are people who RSVP'd but weren't in the original guest list
             rsvps_without_guests = RSVP.objects.filter(
                 event=event,
                 guest__isnull=True
-            ).order_by('-created_at')
+            )
             
             # Also check for RSVPs where guest exists but phone doesn't match (edge case)
             # This handles cases where phone format differences prevent matching
-            guest_phones = set(guests.values_list('phone', flat=True))
+            guest_phones = set(all_guests.values_list('phone', flat=True))
             other_rsvps = []
+            removed_other_rsvps = []
+            
             for rsvp in rsvps_without_guests:
                 # Check if phone matches any guest (with various formats)
                 rsvp_phone_digits = re.sub(r'\D', '', rsvp.phone)
@@ -199,14 +263,27 @@ class EventViewSet(viewsets.ModelViewSet):
                     if rsvp_phone_digits == guest_phone_digits:
                         matches_guest = True
                         break
+                
                 if not matches_guest:
-                    other_rsvps.append(rsvp)
+                    if rsvp.is_removed:
+                        removed_other_rsvps.append(rsvp)
+                    else:
+                        other_rsvps.append(rsvp)
+            
+            # Sort other RSVPs: Primary by is_removed (False first), Secondary by created_at (recent first)
+            # Active other RSVPs: sort by created_at descending
+            other_rsvps.sort(key=lambda x: x.created_at, reverse=True)
+            # Removed other RSVPs: sort by created_at descending
+            removed_other_rsvps.sort(key=lambda x: x.created_at, reverse=True)
             
             other_guests_serializer = RSVPSerializer(other_rsvps, many=True)
+            removed_other_guests_serializer = RSVPSerializer(removed_other_rsvps, many=True)
             
             return Response({
                 'guests': guests_serializer.data,
-                'other_guests': other_guests_serializer.data
+                'removed_guests_list': removed_guests_serializer.data,  # Removed invited guests
+                'other_guests': other_guests_serializer.data,
+                'removed_guests': removed_other_guests_serializer.data  # Removed other guests (RSVPs)
             })
         
         elif request.method == 'POST':
@@ -469,7 +546,7 @@ class EventViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['delete'], url_path='guests/(?P<guest_id>[^/.]+)')
     def delete_guest(self, request, id=None, guest_id=None):
-        """Delete a guest from the list - host only, privacy protected"""
+        """Delete or remove a guest from the list - host only, privacy protected"""
         event = self.get_object()
         self._verify_event_ownership(event)  # Explicit ownership check
         
@@ -478,9 +555,74 @@ class EventViewSet(viewsets.ModelViewSet):
         except Guest.DoesNotExist:
             return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Delete the guest (RSVPs linked to this guest will have guest set to NULL due to SET_NULL)
-        guest.delete()
-        return Response({'message': 'Guest deleted successfully'}, status=status.HTTP_200_OK)
+        # Check if guest has RSVP'd
+        rsvp_exists = RSVP.objects.filter(
+            event=event,
+            guest=guest
+        ).exists()
+        
+        # Also check by phone number (in case guest wasn't linked during RSVP creation)
+        if not rsvp_exists:
+            rsvp_exists = RSVP.objects.filter(
+                event=event,
+                phone=guest.phone
+            ).exists()
+        
+        if rsvp_exists:
+            # Guest has RSVP'd - soft delete only
+            guest.is_removed = True
+            guest.save()
+            return Response({
+                'message': 'Guest removed (soft delete). They can no longer update their RSVP.',
+                'guest_id': guest.id,
+                'is_removed': True,
+                'soft_delete': True
+            }, status=status.HTTP_200_OK)
+        else:
+            # Guest hasn't RSVP'd - hard delete
+            guest.delete()
+            return Response({
+                'message': 'Guest deleted successfully',
+                'soft_delete': False
+            }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='guests/(?P<guest_id>[^/.]+)/reinstate')
+    def reinstate_guest(self, request, id=None, guest_id=None):
+        """Reinstate a removed guest - host only, privacy protected"""
+        event = self.get_object()
+        self._verify_event_ownership(event)  # Explicit ownership check
+        
+        try:
+            guest = Guest.objects.get(id=guest_id, event=event)
+        except Guest.DoesNotExist:
+            return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Reinstate guest
+        guest.is_removed = False
+        guest.save()
+        return Response({
+            'message': 'Guest reinstated successfully.',
+            'guest': GuestSerializer(guest).data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='rsvps/(?P<rsvp_id>[^/.]+)/reinstate')
+    def reinstate_rsvp(self, request, id=None, rsvp_id=None):
+        """Reinstate a removed RSVP - host only, privacy protected"""
+        event = self.get_object()
+        self._verify_event_ownership(event)  # Explicit ownership check
+        
+        try:
+            rsvp = RSVP.objects.get(id=rsvp_id, event=event)
+        except RSVP.DoesNotExist:
+            return Response({'error': 'RSVP not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Reinstate RSVP
+        rsvp.is_removed = False
+        rsvp.save()
+        return Response({
+            'message': 'RSVP reinstated successfully.',
+            'rsvp': RSVPSerializer(rsvp).data
+        }, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['post'], url_path='share/whatsapp')
     def share_whatsapp(self, request, id=None):
@@ -601,7 +743,7 @@ class EventViewSet(viewsets.ModelViewSet):
             events = Event.objects.filter(host=request.user).only(
                 'id', 'host_id', 'slug', 'title', 'event_type', 'date', 'city', 'country',
                 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description',
-                'additional_photos', 'page_config', 'whatsapp_message_template',
+                'additional_photos', 'page_config',
                 'created_at', 'updated_at'
             )
         except Exception:
@@ -949,40 +1091,6 @@ def get_rsvp(request, event_id):
         country_code = request.query_params.get('country_code', event_country_code)
         phone = format_phone_with_country_code(phone, country_code)
     
-    # For private events, verify user is in guest list
-    if not event.is_public:
-        phone_digits_only = re.sub(r'\D', '', phone)
-        provided_country_code = request.query_params.get('country_code', event_country_code)
-        
-        # Try to find in guest list
-        guest = None
-        # First try exact phone match
-        guest = Guest.objects.filter(event=event, phone=phone).first()
-        
-        # If not found, try matching by digits only
-        if not guest:
-            all_guests = Guest.objects.filter(event=event)
-            for g in all_guests:
-                guest_phone_digits = re.sub(r'\D', '', g.phone)
-                if guest_phone_digits == phone_digits_only:
-                    guest = g
-                    break
-                
-                # Try matching last 10 digits with country code verification
-                if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
-                    local_number = phone_digits_only[-10:]
-                    if guest_phone_digits.endswith(local_number):
-                        stored_country_code, _ = parse_phone_number(g.phone)
-                        if stored_country_code == provided_country_code:
-                            guest = g
-                            break
-        
-        if not guest:
-            return Response(
-                {'error': 'This is a private event. Only invited guests can RSVP.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-    
     # Debug logging
     import logging
     logger = logging.getLogger(__name__)
@@ -992,22 +1100,22 @@ def get_rsvp(request, event_id):
     all_rsvps_debug = RSVP.objects.filter(event=event).values_list('phone', flat=True)
     logger.info(f"All RSVP phones in DB for event {event.id}: {list(all_rsvps_debug)}")
     
-    # Find existing RSVP - try multiple formats
-    existing_rsvp = RSVP.objects.filter(event=event, phone=phone).first()
+    # Find existing RSVP - try multiple formats (grandfather clause: check RSVP first)
+    existing_rsvp = RSVP.objects.filter(event=event, phone=phone, is_removed=False).first()
     
     # If not found with formatted phone, try variations
     if not existing_rsvp:
         # Try without + prefix
         phone_without_plus = phone.lstrip('+')
-        existing_rsvp = RSVP.objects.filter(event=event, phone=phone_without_plus).first()
+        existing_rsvp = RSVP.objects.filter(event=event, phone=phone_without_plus, is_removed=False).first()
         
         # Try with different country code formats (if provided country code doesn't match)
         if not existing_rsvp:
             provided_country_code = request.query_params.get('country_code', event_country_code)
             phone_digits_only = re.sub(r'\D', '', phone)
             
-            # Try all RSVPs and check if the phone digits match (ignoring formatting)
-            all_rsvps = RSVP.objects.filter(event=event)
+            # Try all RSVPs and check if the phone digits match (ignoring formatting, exclude removed)
+            all_rsvps = RSVP.objects.filter(event=event, is_removed=False)
             for rsvp in all_rsvps:
                 rsvp_phone_digits = re.sub(r'\D', '', rsvp.phone)
                 
@@ -1030,23 +1138,31 @@ def get_rsvp(request, event_id):
                             break
     
     if existing_rsvp:
-        # Return RSVP data
+        # Check if linked guest is removed (block access)
+        if existing_rsvp.guest and existing_rsvp.guest.is_removed:
+            return Response(
+                {'error': 'This guest has been removed. You cannot access your RSVP.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Return RSVP data (grandfather clause: existing RSVP allows access)
         rsvp_data = RSVPSerializer(existing_rsvp).data
         rsvp_data['found_in'] = 'rsvp'
         return Response(rsvp_data, status=status.HTTP_200_OK)
     else:
-        # Check guest list if RSVP not found
-        phone_digits_only = re.sub(r'\D', '', phone)
-        provided_country_code = request.query_params.get('country_code', event_country_code)
-        
-        # Try to find in guest list
-        guest = None
-        # First try exact phone match
-        guest = Guest.objects.filter(event=event, phone=phone).first()
-        
-        # If not found, try matching by digits only
-        if not guest:
-            all_guests = Guest.objects.filter(event=event)
+        # For private events, check guest list if RSVP not found (exclude removed guests)
+        if not event.is_public:
+            phone_digits_only = re.sub(r'\D', '', phone)
+            provided_country_code = request.query_params.get('country_code', event_country_code)
+            
+            # Try to find in guest list (exclude removed guests)
+            guest = None
+            # First try exact phone match
+            guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
+            
+            # If not found, try matching by digits only
+            if not guest:
+                all_guests = Guest.objects.filter(event=event, is_removed=False)
             for g in all_guests:
                 guest_phone_digits = re.sub(r'\D', '', g.phone)
                 if guest_phone_digits == phone_digits_only:
@@ -1089,6 +1205,121 @@ def get_rsvp(request, event_id):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+def check_phone_for_rsvp(request, event_id):
+    """Stage 0: Check if phone number exists in guest list for private events"""
+    try:
+        event = get_object_or_404(Event, id=event_id)
+    except Event.DoesNotExist:
+        return Response({'error': 'Event not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    # Check if RSVP is enabled for this event
+    if not event.has_rsvp:
+        return Response({'error': 'RSVP is not enabled for this event'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Only required for private events
+    if event.is_public:
+        return Response({'error': 'This endpoint is only for private events'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    phone = request.data.get('phone', '').strip()
+    country_code = request.data.get('country_code', '')
+    
+    if not phone:
+        return Response({'error': 'Phone number is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Format phone with country code
+    from .utils import format_phone_with_country_code, get_country_code, parse_phone_number
+    event_country_code = get_country_code(event.country)
+    original_phone = phone
+    
+    if phone and not phone.startswith('+'):
+        if country_code:
+            phone = format_phone_with_country_code(phone, country_code)
+        else:
+            phone = format_phone_with_country_code(phone, event_country_code)
+    
+    phone_digits_only = re.sub(r'\D', '', phone)
+    provided_country_code = country_code or event_country_code
+    
+    # GRANDFATHER CLAUSE: First check if there's an existing RSVP (even if not in guest list)
+    # This handles people who RSVP'd when event was public but later became private
+    existing_rsvp = None
+    # Try exact phone match first
+    existing_rsvp = RSVP.objects.filter(event=event, phone=phone, is_removed=False).first()
+    
+    # If not found, try matching by digits only
+    if not existing_rsvp:
+        all_rsvps = RSVP.objects.filter(event=event, is_removed=False)
+        for rsvp in all_rsvps:
+            rsvp_phone_digits = re.sub(r'\D', '', rsvp.phone)
+            if rsvp_phone_digits == phone_digits_only:
+                existing_rsvp = rsvp
+                break
+            
+            # Try matching last 10 digits with country code verification
+            if len(phone_digits_only) >= 10 and len(rsvp_phone_digits) >= 10:
+                local_number = phone_digits_only[-10:]
+                if rsvp_phone_digits.endswith(local_number):
+                    stored_country_code, _ = parse_phone_number(rsvp.phone)
+                    if stored_country_code == provided_country_code:
+                        existing_rsvp = rsvp
+                        break
+    
+    # If existing RSVP found (grandfather clause), return RSVP data
+    if existing_rsvp:
+        # Check if linked guest is removed (block access)
+        if existing_rsvp.guest and existing_rsvp.guest.is_removed:
+            return Response(
+                {'error': 'This guest has been removed. You cannot access your RSVP.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Return RSVP data for pre-filling form
+        from .serializers import RSVPSerializer
+        rsvp_data = RSVPSerializer(existing_rsvp).data
+        rsvp_data['found_in'] = 'rsvp'
+        rsvp_data['phone_verified'] = True
+        return Response(rsvp_data, status=status.HTTP_200_OK)
+    
+    # If no existing RSVP, check guest list (exclude removed guests)
+    guest = None
+    # First try exact phone match
+    guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
+    
+    # If not found, try matching by digits only
+    if not guest:
+        all_guests = Guest.objects.filter(event=event, is_removed=False)
+        for g in all_guests:
+            guest_phone_digits = re.sub(r'\D', '', g.phone)
+            if guest_phone_digits == phone_digits_only:
+                guest = g
+                break
+            
+            # Try matching last 10 digits with country code verification
+            if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                local_number = phone_digits_only[-10:]
+                if guest_phone_digits.endswith(local_number):
+                    stored_country_code, _ = parse_phone_number(g.phone)
+                    if stored_country_code == provided_country_code:
+                        guest = g
+                        break
+    
+    if not guest:
+        return Response(
+            {'error': 'Phone number not found. Please try a different number or contact the host.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Return guest data for pre-filling form
+    from .serializers import GuestSerializer
+    guest_data = GuestSerializer(guest).data
+    guest_data['found_in'] = 'guest_list'
+    guest_data['phone_verified'] = True
+    
+    return Response(guest_data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def create_rsvp(request, event_id):
     """Create or update RSVP for an event (public endpoint)"""
     try:
@@ -1114,56 +1345,85 @@ def create_rsvp(request, event_id):
             country_code = request.data.get('country_code') or event_country_code
             phone = format_phone_with_country_code(phone, country_code)
         
-        # For private events, verify user is in guest list
-        if not event.is_public:
-            phone_digits_only = re.sub(r'\D', '', phone)
-            provided_country_code = request.data.get('country_code') or event_country_code
-            
-            # Try to find in guest list
-            guest = None
-            # First try exact phone match
-            guest = Guest.objects.filter(event=event, phone=phone).first()
-            
-            # If not found, try matching by digits only
-            if not guest:
-                all_guests = Guest.objects.filter(event=event)
-                for g in all_guests:
-                    guest_phone_digits = re.sub(r'\D', '', g.phone)
-                    if guest_phone_digits == phone_digits_only:
-                        guest = g
-                        break
-                    
-                    # Try matching last 10 digits with country code verification
-                    if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
-                        local_number = phone_digits_only[-10:]
-                        if guest_phone_digits.endswith(local_number):
-                            stored_country_code, _ = parse_phone_number(g.phone)
-                            if stored_country_code == provided_country_code:
-                                guest = g
-                                break
-            
-            if not guest:
-                return Response(
-                    {'error': 'This is a private event. Only invited guests can RSVP.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        else:
-            # For public events, try to match guest (optional linking)
-            guest = None
-            if event.guest_list.exists():
-                # Try to match by phone first, then by name
-                guest = Guest.objects.filter(event=event, phone=phone).first()
-                if not guest:
-                    guest = Guest.objects.filter(event=event, name__iexact=name).first()
+        # Check if RSVP already exists for this phone FIRST (grandfather clause)
+        existing_rsvp = RSVP.objects.filter(event=event, phone=phone, is_removed=False).first()
         
-        # Check if RSVP already exists for this phone
-        existing_rsvp = RSVP.objects.filter(event=event, phone=phone).first()
+        # For private events, check existing RSVP first (grandfather clause)
+        if not event.is_public:
+            if existing_rsvp:
+                # Existing RSVP found - check if linked guest is removed
+                if existing_rsvp.guest and existing_rsvp.guest.is_removed:
+                    return Response(
+                        {'error': 'This guest has been removed. You cannot update your RSVP.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                # If not removed, proceed to update existing RSVP (grandfather clause allows access)
+                guest = existing_rsvp.guest  # Use existing guest link
+            else:
+                # No existing RSVP, check guest list (exclude removed guests)
+                phone_digits_only = re.sub(r'\D', '', phone)
+                provided_country_code = request.data.get('country_code') or event_country_code
+                
+                # Try to find in guest list (exclude removed guests)
+                guest = None
+                # First try exact phone match
+                guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
+                
+                # If not found, try matching by digits only
+                if not guest:
+                    all_guests = Guest.objects.filter(event=event, is_removed=False)
+                    for g in all_guests:
+                        guest_phone_digits = re.sub(r'\D', '', g.phone)
+                        if guest_phone_digits == phone_digits_only:
+                            guest = g
+                            break
+                        
+                        # Try matching last 10 digits with country code verification
+                        if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                            local_number = phone_digits_only[-10:]
+                            if guest_phone_digits.endswith(local_number):
+                                stored_country_code, _ = parse_phone_number(g.phone)
+                                if stored_country_code == provided_country_code:
+                                    guest = g
+                                    break
+                
+                if not guest:
+                    return Response(
+                        {'error': 'This is a private event. Only invited guests can RSVP.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+        else:
+            # For public events, check existing RSVP first (grandfather clause)
+            if existing_rsvp:
+                # Existing RSVP found - check if linked guest is removed
+                if existing_rsvp.guest and existing_rsvp.guest.is_removed:
+                    return Response(
+                        {'error': 'This guest has been removed. You cannot update your RSVP.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                # If not removed, proceed to update existing RSVP
+                guest = existing_rsvp.guest  # Use existing guest link
+            else:
+                # For public events, try to match guest (optional linking, exclude removed)
+                guest = None
+                if event.guest_list.exists():
+                    # Try to match by phone first, then by name (exclude removed)
+                    guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
+                    if not guest:
+                        guest = Guest.objects.filter(event=event, name__iexact=name, is_removed=False).first()
         
         # Update phone in validated_data and remove country_code (not a model field)
         serializer.validated_data['phone'] = phone
         rsvp_data = {k: v for k, v in serializer.validated_data.items() if k != 'country_code'}
         
         if existing_rsvp:
+            # Check if RSVP itself is removed (shouldn't happen due to filter, but double-check)
+            if existing_rsvp.is_removed:
+                return Response(
+                    {'error': 'This RSVP has been removed. You cannot update it.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
             # Update existing RSVP
             for key, value in rsvp_data.items():
                 setattr(existing_rsvp, key, value)

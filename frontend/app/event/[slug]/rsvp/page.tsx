@@ -41,6 +41,7 @@ interface Event {
   additional_photos?: string[]
   has_rsvp?: boolean
   has_registry?: boolean
+  is_public?: boolean
   slug?: string
   page_config?: {
     tiles?: Array<{
@@ -77,6 +78,13 @@ export default function RSVPPage() {
   const [existingRSVP, setExistingRSVP] = useState<ExistingRSVP | null>(null)
   const [checkingRSVP, setCheckingRSVP] = useState(false)
   const [showThankYou, setShowThankYou] = useState(false)
+  
+  // Stage 0 phone verification for private events
+  const [phoneVerified, setPhoneVerified] = useState(false)
+  const [phoneNotInList, setPhoneNotInList] = useState(false)
+  const [verifyingPhone, setVerifyingPhone] = useState(false)
+  const [verifiedPhoneNumber, setVerifiedPhoneNumber] = useState<string>('')
+  const [verifiedCountryCode, setVerifiedCountryCode] = useState<string>('')
   
   // Refs to track phone check cancellation
   const phoneCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -255,6 +263,16 @@ export default function RSVPPage() {
           return
         }
         
+        // Check for 403 error (removed guest/RSVP)
+        if (error.response?.status === 403) {
+          const errorMessage = error.response?.data?.error || 'Access denied'
+          logDebug('Access denied for RSVP:', errorMessage)
+          showToast(errorMessage, 'error')
+          setExistingRSVP(null)
+          // Don't allow form submission
+          return
+        }
+        
         // No existing RSVP found - that's okay
         if (error.response?.status === 404) {
           logDebug('No existing RSVP found for this phone number')
@@ -300,6 +318,12 @@ export default function RSVPPage() {
       if (eventData?.country_code) {
         setValue('country_code', eventData.country_code)
       }
+      
+      // Reset Stage 0 state when event changes
+      setPhoneVerified(false)
+      setPhoneNotInList(false)
+      setVerifiedPhoneNumber('')
+      setVerifiedCountryCode('')
     } catch (error: any) {
       logError('Failed to fetch event:', error)
       // If 403 error, RSVP is disabled or event is private
@@ -311,6 +335,103 @@ export default function RSVPPage() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePhoneVerification = async () => {
+    if (!event) return
+    
+    const phone = getValues('phone')
+    const countryCode = getValues('country_code') || event.country_code || '+91'
+    
+    if (!phone || phone.length < 10) {
+      showToast('Please enter a valid phone number', 'error')
+      return
+    }
+    
+    setVerifyingPhone(true)
+    setPhoneNotInList(false)
+    
+    try {
+      const response = await api.post(`/api/events/${event.id}/rsvp/check/phone/`, {
+        phone,
+        country_code: countryCode,
+      })
+      
+      // Phone verified - check if it's an existing RSVP (grandfather clause) or guest list
+      const data = response.data
+      setPhoneVerified(true)
+      setVerifiedPhoneNumber(phone)
+      setVerifiedCountryCode(countryCode)
+      
+      // If existing RSVP found (grandfather clause), set existingRSVP state
+      if (data.found_in === 'rsvp') {
+        setExistingRSVP({
+          id: data.id,
+          name: data.name,
+          phone: data.phone,
+          email: data.email || '',
+          will_attend: data.will_attend,
+          guests_count: data.guests_count || 1,
+          notes: data.notes || '',
+          found_in: 'rsvp',
+          has_rsvp: true,
+        })
+      } else {
+        // Guest list entry found
+        setExistingRSVP({
+          name: data.name,
+          phone: data.phone,
+          email: data.email || '',
+          found_in: 'guest_list',
+          has_rsvp: false,
+        })
+      }
+      
+      // Pre-fill form fields
+      if (data.name) {
+        setValue('name', data.name, { shouldValidate: false, shouldDirty: true })
+      }
+      if (data.email) {
+        setValue('email', data.email, { shouldValidate: false, shouldDirty: true })
+      }
+      
+      // If existing RSVP, pre-fill RSVP fields
+      if (data.found_in === 'rsvp') {
+        if (data.will_attend) {
+          setValue('will_attend', data.will_attend, { shouldValidate: false, shouldDirty: false })
+        }
+        if (data.guests_count) {
+          setValue('guests_count', data.guests_count, { shouldValidate: false, shouldDirty: false })
+        }
+        if (data.notes) {
+          setValue('notes', data.notes, { shouldValidate: false, shouldDirty: false })
+        }
+      }
+      
+      // Set phone and country code (read-only after verification)
+      setValue('phone', phone, { shouldValidate: false, shouldDirty: true })
+      setValue('country_code', countryCode, { shouldValidate: false, shouldDirty: true })
+      
+      const message = data.found_in === 'rsvp' 
+        ? 'Found your existing RSVP! You can update it below.' 
+        : 'Phone verified! Please complete your RSVP below.'
+      showToast(message, 'success')
+    } catch (error: any) {
+      // Check for 403 error (removed guest/RSVP)
+      if (error.response?.status === 403) {
+        const errorMessage = error.response?.data?.error || 'Access denied. This guest or RSVP has been removed.'
+        setPhoneNotInList(true)
+        showToast(errorMessage, 'error')
+      } else if (error.response?.status === 404) {
+        setPhoneNotInList(true)
+        showToast('Phone number not found. Please try a different number or contact the host.', 'error')
+      } else {
+        logError('Error verifying phone:', error)
+        showToast('Error verifying phone number. Please try again.', 'error')
+      }
+    } finally {
+      setVerifyingPhone(false)
     }
   }
 
@@ -349,8 +470,8 @@ export default function RSVPPage() {
       // Update existing RSVP state (now it will be an RSVP, not guest list)
       setExistingRSVP({ ...response.data, found_in: 'rsvp' })
       
-      // If registry is disabled, show thank you message instead of redirecting
-      if (!event?.has_registry) {
+      // Show thank you message if registry is disabled OR if it's a private event
+      if (!event?.has_registry || !event?.is_public) {
         setShowThankYou(true)
         // Reset form after showing thank you
         reset()
@@ -362,6 +483,18 @@ export default function RSVPPage() {
       }
     } catch (error: any) {
       logError('RSVP error:', error)
+      
+      // Check for 403 error (removed guest/RSVP)
+      if (error.response?.status === 403) {
+        const errorMessage = error.response?.data?.error || 'Access denied. This guest or RSVP has been removed.'
+        showToast(errorMessage, 'error')
+        // Clear existing RSVP state to prevent further attempts
+        setExistingRSVP(null)
+        // Reset form to prevent submission
+        reset()
+        return
+      }
+      
       const errorMsg = error.response?.data?.error || 
                       (error.response?.data ? JSON.stringify(error.response.data) : 'Failed to submit RSVP')
       showToast(errorMsg, 'error')
@@ -519,16 +652,83 @@ export default function RSVPPage() {
             </CardContent>
           </Card>
         ) : (
-          /* RSVP Form */
-          <Card className="bg-white border-eco-green-light">
-          <CardHeader>
-            <CardTitle className="text-eco-green text-2xl">
-              {existingRSVP 
-                ? (existingRSVP.found_in === 'guest_list' 
-                    ? 'You\'re Invited! 🌿' 
-                    : 'Update your RSVP 🌿')
-                : 'Confirm your attendance 🌿'}
-            </CardTitle>
+          <>
+            {/* Stage 0: Phone Verification for Private Events */}
+            {!event.is_public && !phoneVerified && (
+              <Card className="bg-white border-eco-green-light mb-6">
+                <CardHeader>
+                  <CardTitle className="text-eco-green text-2xl text-center">
+                    Private Event
+                  </CardTitle>
+                  <CardDescription className="text-center">
+                    Please verify your phone number to continue
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Phone Number *</label>
+                      <div className="flex gap-2">
+                        <CountryCodeSelector
+                          name="country_code"
+                          defaultValue={event?.country_code || '+91'}
+                          onChange={(value) => {
+                            setValue('country_code', value, { shouldValidate: true })
+                          }}
+                          className="w-48"
+                          disabled={verifyingPhone}
+                        />
+                        <Input
+                          type="tel"
+                          {...register('phone')}
+                          placeholder="10-digit phone number"
+                          className="flex-1"
+                          disabled={verifyingPhone}
+                        />
+                      </div>
+                      {errors.phone && (
+                        <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>
+                      )}
+                    </div>
+                    
+                    {phoneNotInList && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <p className="text-sm text-red-800">
+                          Phone number not found. Please try a different number or contact the host.
+                        </p>
+                      </div>
+                    )}
+                    
+                    <Button
+                      onClick={handlePhoneVerification}
+                      disabled={verifyingPhone || !phoneValue || phoneValue.length < 10}
+                      className="w-full bg-eco-green hover:bg-green-600 text-white"
+                    >
+                      {verifyingPhone ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span>
+                          Verifying...
+                        </>
+                      ) : (
+                        'Verify Phone Number'
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* RSVP Form */}
+            {((!event.is_public && phoneVerified) || event.is_public) ? (
+              <Card className="bg-white border-eco-green-light">
+              <CardHeader>
+                <CardTitle className="text-eco-green text-2xl">
+                  {existingRSVP 
+                    ? (existingRSVP.found_in === 'guest_list' 
+                        ? 'You\'re Invited! 🌿' 
+                        : 'Update your RSVP 🌿')
+                    : 'Confirm your attendance 🌿'}
+                </CardTitle>
             <CardDescription>
               {existingRSVP 
                 ? (existingRSVP.found_in === 'guest_list'
@@ -566,8 +766,8 @@ export default function RSVPPage() {
               </div>
             )}
           </CardHeader>
-        <CardContent className="pt-4">
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          <CardContent className="pt-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium mb-1">Full Name *</label>
                 <Input {...register('name')} placeholder="Your name" />
@@ -586,7 +786,7 @@ export default function RSVPPage() {
                       setValue('country_code', value, { shouldValidate: true })
                     }}
                     className="w-48"
-                    disabled={checkingRSVP}
+                    disabled={checkingRSVP || (!event.is_public && phoneVerified)}
                   />
                   <div className="flex-1 relative">
                     <Input
@@ -594,7 +794,8 @@ export default function RSVPPage() {
                       {...register('phone')}
                       placeholder="10-digit phone number"
                       className="flex-1"
-                      disabled={checkingRSVP}
+                      disabled={checkingRSVP || (!event.is_public && phoneVerified)}
+                      readOnly={!event.is_public && phoneVerified}
                     />
                     {checkingRSVP && (
                       <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -609,10 +810,15 @@ export default function RSVPPage() {
                     Checking for existing RSVP... Please wait
                   </p>
                 )}
+                {!event.is_public && phoneVerified && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Phone number verified (read-only)
+                  </p>
+                )}
                 {errors.phone && (
                   <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>
                 )}
-                {!checkingRSVP && (
+                {!checkingRSVP && event.is_public && (
                   <p className="text-xs text-gray-500 mt-1">
                     We'll send updates via SMS or WhatsApp
                   </p>
@@ -706,6 +912,8 @@ export default function RSVPPage() {
             </form>
           </CardContent>
         </Card>
+            ) : null}
+          </>
         )}
 
         {/* Link to Registry - Only show if registry is enabled */}

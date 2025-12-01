@@ -8,82 +8,15 @@ class EventSerializer(serializers.ModelSerializer):
     # Only include minimal host info for privacy (name only, no email)
     host_name = serializers.CharField(source='host.name', read_only=True, allow_null=True)
     country_code = serializers.SerializerMethodField()
-    is_expired = serializers.SerializerMethodField()
-    # Make expiry_date a regular field so it can be written (not read-only)
-    expiry_date = serializers.DateField(required=False, allow_null=True)
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'expiry_date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'whatsapp_message_template', 'is_expired', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
-    
-    def to_representation(self, instance):
-        """Override to safely handle missing fields"""
-        try:
-            data = super().to_representation(instance)
-            # Ensure expiry_date and is_expired are always present
-            # Handle case where expiry_date field might not exist in database
-            if 'expiry_date' not in data:
-                try:
-                    # Try to get it from the instance
-                    if hasattr(instance, 'expiry_date'):
-                        data['expiry_date'] = instance.expiry_date
-                    else:
-                        data['expiry_date'] = None
-                except Exception:
-                    data['expiry_date'] = None
-            if 'is_expired' not in data:
-                data['is_expired'] = False
-            return data
-        except Exception as e:
-            # If there's an error (likely missing field), build data manually
-            data = {}
-            for field_name in self.Meta.fields:
-                if field_name == 'expiry_date':
-                    try:
-                        if hasattr(instance, 'expiry_date'):
-                            data[field_name] = instance.expiry_date
-                        else:
-                            data[field_name] = None
-                    except Exception:
-                        data[field_name] = None
-                elif field_name == 'is_expired':
-                    data[field_name] = False
-                elif field_name in ['id', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'whatsapp_message_template', 'created_at', 'updated_at']:
-                    try:
-                        data[field_name] = getattr(instance, field_name, None)
-                    except Exception:
-                        data[field_name] = None
-                elif field_name == 'host_name':
-                    try:
-                        data[field_name] = instance.host.name if instance.host else None
-                    except Exception:
-                        data[field_name] = None
-                elif field_name == 'country_code':
-                    data[field_name] = get_country_code(instance.country or 'IN')
-                else:
-                    # For SerializerMethodFields
-                    try:
-                        method = getattr(self, f'get_{field_name}', None)
-                        if method:
-                            data[field_name] = method(instance)
-                        else:
-                            data[field_name] = None
-                    except Exception:
-                        data[field_name] = None
-            return data
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'host_name', 'country_code', 'created_at', 'updated_at')
     
     def get_country_code(self, obj):
         """Return phone country code for the event's country"""
         return get_country_code(obj.country or 'IN')
-    
-    def get_is_expired(self, obj):
-        """Check if event is expired"""
-        try:
-            return obj.is_expired
-        except Exception:
-            # If there's an error (e.g., expiry_date field doesn't exist), return False
-            return False
 
 
 class InvitePageSerializer(serializers.ModelSerializer):
@@ -153,13 +86,6 @@ class EventCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("This slug is already taken.")
         return value
     
-    def validate_date(self, value):
-        """Handle empty date strings from frontend"""
-        # If value is an empty string, return None
-        if value == '' or value is None:
-            return None
-        return value
-    
     def to_representation(self, instance):
         """Return full event data including id after creation"""
         return EventSerializer(instance).data
@@ -173,7 +99,7 @@ class RSVPSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = RSVP
-        fields = ('id', 'event', 'name', 'phone', 'email', 'will_attend', 'guests_count', 'notes', 'source_channel', 'guest_id', 'is_core_guest', 'country_code', 'local_number', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'name', 'phone', 'email', 'will_attend', 'guests_count', 'notes', 'source_channel', 'guest_id', 'is_core_guest', 'is_removed', 'country_code', 'local_number', 'created_at', 'updated_at')
         read_only_fields = ('id', 'created_at', 'updated_at', 'country_code', 'local_number')
     
     def get_is_core_guest(self, obj):
@@ -228,7 +154,7 @@ class GuestSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Guest
-        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'rsvp_status', 'rsvp_will_attend', 'created_at')
+        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'created_at')
         read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'country_code', 'local_number')
     
     def get_rsvp_status(self, obj):

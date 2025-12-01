@@ -437,14 +437,14 @@ export default function DashboardPage() {
                           Extend Expiry
                         </Button>
                       )}
-                      {!isExpired && event.is_public && (
+                      {!isExpired && (
                         <Link
-                          href={`/registry/${event.slug}`}
+                          href={`/invite/${event.slug}`}
                           target="_blank"
                           className="flex-1"
                         >
                           <Button className="w-full bg-eco-green hover:bg-green-600 text-white">
-                            View Public
+                            View Invitation
                           </Button>
                         </Link>
                       )}
