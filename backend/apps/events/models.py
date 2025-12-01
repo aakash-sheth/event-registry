@@ -29,12 +29,25 @@ class Event(models.Model):
     additional_photos = models.JSONField(default=list, blank=True, help_text="Array of up to 5 photo URLs or data URLs (deprecated - use page_config)")
     page_config = models.JSONField(default=dict, blank=True, help_text="Living Poster invitation page configuration with theme, hero, description")
     
+    # Event expiry and messaging
+    expiry_date = models.DateField(null=True, blank=True, help_text="Date when event expires (for impact calculation)")
+    whatsapp_message_template = models.TextField(blank=True, help_text="Custom WhatsApp message template for sharing")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'events'
         ordering = ['-created_at']
+    
+    @property
+    def is_expired(self):
+        """Check if event is expired based on expiry_date or date"""
+        from datetime import date
+        expiry = self.expiry_date or self.date
+        if not expiry:
+            return False
+        return expiry < date.today()
     
     def __str__(self):
         return f"{self.title} ({self.slug})"

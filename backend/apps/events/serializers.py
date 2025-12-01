@@ -8,11 +8,12 @@ class EventSerializer(serializers.ModelSerializer):
     # Only include minimal host info for privacy (name only, no email)
     host_name = serializers.CharField(source='host.name', read_only=True, allow_null=True)
     country_code = serializers.SerializerMethodField()
+    is_expired = serializers.BooleanField(read_only=True)
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'host_name', 'country_code', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'is_expired', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
     
     def get_country_code(self, obj):
         """Return phone country code for the event's country"""
@@ -160,12 +161,12 @@ class GuestSerializer(serializers.ModelSerializer):
     def get_rsvp_status(self, obj):
         """Check if this guest has RSVP'd by matching phone number (with country code)"""
         # First check if there's an RSVP linked via the guest foreign key (most direct)
-        rsvp = RSVP.objects.filter(event=obj.event, guest=obj).first()
+        rsvp = RSVP.objects.filter(event=obj.event, guest=obj, is_removed=False).first()
         if rsvp:
             return rsvp.will_attend  # 'yes', 'no', or 'maybe'
         
         # If no direct link, match by phone number (handles cases where guest wasn't linked during RSVP creation)
-        rsvp = RSVP.objects.filter(event=obj.event, phone=obj.phone).first()
+        rsvp = RSVP.objects.filter(event=obj.event, phone=obj.phone, is_removed=False).first()
         if rsvp:
             return rsvp.will_attend  # 'yes', 'no', or 'maybe'
         

@@ -197,8 +197,8 @@ class EventViewSet(viewsets.ModelViewSet):
             # Get all invited guests (we'll separate active/removed and sort in Python)
             all_guests = Guest.objects.filter(event=event).prefetch_related('rsvps')
             
-            # Get all RSVPs for this event to help with sorting
-            all_event_rsvps = RSVP.objects.filter(event=event).select_related('guest')
+            # Get all RSVPs for this event to help with sorting (exclude removed RSVPs)
+            all_event_rsvps = RSVP.objects.filter(event=event, is_removed=False).select_related('guest')
             
             # Create a mapping of guest_id -> RSVP for sorting
             guest_rsvp_map = {}
@@ -245,7 +245,8 @@ class EventViewSet(viewsets.ModelViewSet):
             # These are people who RSVP'd but weren't in the original guest list
             rsvps_without_guests = RSVP.objects.filter(
                 event=event,
-                guest__isnull=True
+                guest__isnull=True,
+                is_removed=False
             )
             
             # Also check for RSVPs where guest exists but phone doesn't match (edge case)
@@ -432,8 +433,14 @@ class EventViewSet(viewsets.ModelViewSet):
                     errors.append(f"Row {row_num}: Invalid phone number format: {phone}")
                     continue
                 
-                # Check if guest with this phone already exists for this event
-                existing_guest = Guest.objects.filter(event=event, phone=phone).first()
+                # Parse is_removed column (if present)
+                is_removed = False
+                is_removed_str = (row.get('is_removed') or row.get('Is Removed') or row.get('IS_REMOVED') or row.get('is removed') or '').strip().lower()
+                if is_removed_str in ['true', '1', 'yes', 'y', 'removed']:
+                    is_removed = True
+                
+                # Check if guest with this phone already exists for this event (exclude removed guests from duplicate check)
+                existing_guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
                 if existing_guest:
                     # Guest with this phone already exists - skip and report
                     errors.append(f"Row {row_num}: Guest with phone {phone} already exists (Name: {existing_guest.name})")
@@ -447,6 +454,7 @@ class EventViewSet(viewsets.ModelViewSet):
                     email=(row.get('email') or row.get('Email') or row.get('EMAIL') or '').strip() or None,
                     relationship=(row.get('relationship') or row.get('Relationship') or '').strip() or '',
                     notes=(row.get('notes') or row.get('Notes') or '').strip() or '',
+                    is_removed=is_removed,
                 )
                 created_count += 1
             except Exception as e:
@@ -555,31 +563,35 @@ class EventViewSet(viewsets.ModelViewSet):
         except Guest.DoesNotExist:
             return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Check if guest has RSVP'd
-        rsvp_exists = RSVP.objects.filter(
+        # Check if guest has any valid RSVP (will_attend in 'yes', 'no', 'maybe')
+        rsvp = RSVP.objects.filter(
             event=event,
-            guest=guest
-        ).exists()
+            guest=guest,
+            will_attend__in=['yes', 'no', 'maybe'],
+            is_removed=False
+        ).first()
         
         # Also check by phone number (in case guest wasn't linked during RSVP creation)
-        if not rsvp_exists:
-            rsvp_exists = RSVP.objects.filter(
+        if not rsvp:
+            rsvp = RSVP.objects.filter(
                 event=event,
-                phone=guest.phone
-            ).exists()
+                phone=guest.phone,
+                will_attend__in=['yes', 'no', 'maybe'],
+                is_removed=False
+            ).first()
         
-        if rsvp_exists:
-            # Guest has RSVP'd - soft delete only
+        if rsvp:
+            # Guest has a valid RSVP - soft delete only (cannot hard delete)
             guest.is_removed = True
             guest.save()
             return Response({
-                'message': 'Guest removed (soft delete). They can no longer update their RSVP.',
+                'message': 'Guest removed (soft delete). They have an RSVP and cannot be permanently deleted.',
                 'guest_id': guest.id,
                 'is_removed': True,
                 'soft_delete': True
             }, status=status.HTTP_200_OK)
         else:
-            # Guest hasn't RSVP'd - hard delete
+            # Guest has no valid RSVP - hard delete allowed
             guest.delete()
             return Response({
                 'message': 'Guest deleted successfully',
@@ -950,7 +962,8 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             'Guests Count', 
             'Source Channel', 
             'Notes', 
-            'RSVP Date'
+            'RSVP Date',
+            'Is Removed'
         ])
         
         for rsvp in rsvps:
@@ -963,6 +976,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 rsvp.get_source_channel_display(),
                 rsvp.notes or '',
                 rsvp.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'Yes' if rsvp.is_removed else 'No',
             ])
         
         return response
