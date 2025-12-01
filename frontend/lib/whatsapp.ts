@@ -137,7 +137,7 @@ export function generateEventMessage(
   
   const hostSignature = hostName ? `\n\n- ${hostName}` : ''
   
-  return `Hey! 💛\n\nJust reminding you about ${eventTitle} on ${dateStr}!\n\nPlease confirm here: ${eventUrl}${hostSignature}`
+  return `Hey! 💛\n\nJust wanted to share ${eventTitle} on ${dateStr}!\n\nPlease confirm here: ${eventUrl}${hostSignature}`
 }
 
 /**
@@ -179,6 +179,6 @@ export function generateGuestMessage(
   
   const hostSignature = hostName ? `\n\n- ${hostName}` : ''
   
-  return `Hey ${guestName}! 💛\n\nJust reminding you about ${eventTitle} on ${dateStr}!\n\nPlease confirm here: ${eventUrl}${hostSignature}`
+  return `Hey ${guestName}! 💛\n\nJust wanted to share ${eventTitle} on ${dateStr}!\n\nPlease confirm here: ${eventUrl}${hostSignature}`
 }
 

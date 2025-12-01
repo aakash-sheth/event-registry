@@ -724,7 +724,7 @@ export default function EventDetailPage() {
               <CardHeader>
                 <CardTitle className="text-eco-green">WhatsApp Message Template</CardTitle>
                 <p className="text-sm text-gray-600 mt-1">
-                  Customize your WhatsApp reminder messages. Use variables like [name], [event_title], [event_date], [event_location], [event_url], [host_name]
+                  Customize your WhatsApp messages. Use variables like [name], [event_title], [event_date], [event_location], [event_url], [host_name]
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -732,7 +732,7 @@ export default function EventDetailPage() {
                   <>
                     <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                       <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                        {event.whatsapp_message_template || 'Hey [name]! 💛\n\nJust reminding you about [event_title] on [event_date]!\n\nPlease confirm here: [event_url]\n\n- [host_name]'}
+                        {event.whatsapp_message_template || 'Hey [name]! 💛\n\nJust wanted to share [event_title] on [event_date]!\n\nPlease confirm here: [event_url]\n\n- [host_name]'}
                       </p>
                     </div>
                     <div className="flex gap-2">

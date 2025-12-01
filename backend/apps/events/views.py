@@ -648,12 +648,12 @@ class EventViewSet(viewsets.ModelViewSet):
         custom_message = request.data.get('message', '')
         
         frontend_origin = settings.FRONTEND_ORIGIN
-        event_url = f"{frontend_origin}/event/{event.slug}"
+        event_url = f"{frontend_origin}/invite/{event.slug}"
         
         # Default message template
         if not custom_message:
             date_str = event.date.strftime('%B %d, %Y') if event.date else 'TBD'
-            custom_message = f"Hey! 💛\n\nJust reminding you about {event.title} on {date_str}!\n\nPlease confirm here: {event_url}\n\n- {event.host.name or 'Your Host'}"
+            custom_message = f"Hey! 💛\n\nJust wanted to share {event.title} on {date_str}!\n\nPlease confirm here: {event_url}\n\n- {event.host.name or 'Your Host'}"
         
         if share_type == 'public':
             # Generate public share link

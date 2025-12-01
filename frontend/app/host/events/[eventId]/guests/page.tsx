@@ -401,7 +401,7 @@ export default function GuestsPage() {
     setSharingWhatsApp(guest.id)
     try {
       const eventUrl = typeof window !== 'undefined' 
-        ? `${window.location.origin}/event/${event.slug || eventId}` 
+        ? `${window.location.origin}/invite/${event.slug || eventId}` 
         : ''
       
       const message = generateGuestMessage(
