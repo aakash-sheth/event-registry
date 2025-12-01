@@ -130,8 +130,6 @@ export default function DesignInvitationPage() {
         fullPageConfig: eventData?.page_config, // Log full config to see what's actually there
       }
       logDebug('Event data loaded:', debugInfo)
-      // Also log to console for immediate debugging (works even if CloudWatch fails)
-      console.log('[DESIGNER DEBUG] Event data loaded:', JSON.stringify(debugInfo, null, 2))
       
         // Helper function to create default tiles
         const createDefaultTiles = (data: typeof eventData): Tile[] => [
@@ -197,7 +195,6 @@ export default function DesignInvitationPage() {
           tileTypes: pageConfig?.page_config?.tiles?.map((t: any) => t.type) || [],
         }
         logDebug('Page config loaded:', pageConfigDebug)
-        console.log('[DESIGNER DEBUG] Page config loaded:', JSON.stringify(pageConfigDebug, null, 2))
         let finalConfig: InviteConfig | null = null
         
         if (pageConfig?.page_config) {
@@ -313,7 +310,6 @@ export default function DesignInvitationPage() {
                   allTiles: finalConfig.tiles,
                 }
                 logDebug('Final config before setting:', finalConfigDebug)
-                console.log('[DESIGNER DEBUG] Final config before setting:', JSON.stringify(finalConfigDebug, null, 2))
           // Ensure title tile always exists and is enabled
           if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
             // Add title tile if missing

@@ -1000,7 +1000,8 @@ class PublicEventViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         """Return all events - privacy is enforced per-endpoint"""
-        return Event.objects.all()
+        # Use select_related to avoid N+1 queries when accessing host.name
+        return Event.objects.select_related('host').all()
     
     @action(detail=True, methods=['get'])
     def items(self, request, slug=None):

@@ -52,16 +52,8 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
   const getObjectPosition = (): string => {
     const position = settings.coverPosition
     
-    // Debug logging to help diagnose position issues
-    if (settings.fitMode === 'full-image') {
-      console.log('[ImageTile] coverPosition:', position, 'fitMode:', settings.fitMode, 'Settings:', settings)
-    }
-    
     // Handle undefined or null - default to center
     if (!position) {
-      if (settings.fitMode === 'full-image') {
-        console.warn('[ImageTile] No coverPosition found for full-image mode, defaulting to center center')
-      }
       return 'center center'
     }
     
@@ -69,7 +61,6 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
     if (typeof position === 'object' && position !== null && 'x' in position && 'y' in position) {
       // Custom position: x and y are percentages (0-100)
       const result = `${position.x}% ${position.y}%`
-      console.log('[ImageTile] Using custom position:', result, 'from:', position)
       return result
     }
     
@@ -92,7 +83,6 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
       }
       
       const result = positionMap[position] || 'center center'
-      console.log('[ImageTile] Using named position:', position, '->', result)
       return result
     }
     
@@ -178,15 +168,6 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
       ? (imageStyle.objectPosition || getObjectPosition())
       : undefined
     
-    // Debug logging
-    if (settings.fitMode === 'full-image') {
-      console.log('[ImageTile Preview] Final objectPosition:', objectPosition, 'Settings:', {
-        fitMode: settings.fitMode,
-        coverPosition: settings.coverPosition,
-        imageStyleObjectPosition: imageStyle.objectPosition,
-        fullSettings: settings
-      })
-    }
     
     return (
       <div

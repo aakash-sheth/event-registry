@@ -24,21 +24,30 @@ function getApiBase(): string {
 async function fetchEventData(slug: string): Promise<Event | null> {
   try {
     const apiBase = getApiBase()
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+    
     const response = await fetch(`${apiBase}/api/registry/${slug}/`, {
       headers: {
         'Content-Type': 'application/json',
       },
-      // Cache for 1 minute to reduce API calls
-      next: { revalidate: 60 },
+      signal: controller.signal,
+      // Cache for 5 minutes to reduce API calls
+      next: { revalidate: 300 },
     })
+    
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       return null
     }
 
     return await response.json()
-  } catch (error) {
-    console.error('Failed to fetch event data for metadata:', error)
+  } catch (error: any) {
+    // Only log non-timeout errors (timeouts are expected in slow network conditions)
+    if (error.name !== 'AbortError') {
+      console.error('Failed to fetch event data for metadata:', error)
+    }
     return null
   }
 }
