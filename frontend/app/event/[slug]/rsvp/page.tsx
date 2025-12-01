@@ -53,7 +53,7 @@ interface Event {
 }
 
 interface ExistingRSVP {
-  id: number
+  id?: number  // Optional - only present for existing RSVPs, not for guest list entries
   name: string
   phone: string
   email: string
