@@ -27,8 +27,10 @@ This guide documents the CloudFront console verification steps to ensure optimal
 
    **Option A: Legacy Cache Settings (Recommended)**
    - Select **"Legacy cache settings"**
-   - **Query strings**: None (or Forward if needed for dynamic content)
+   - **Query strings**: Forward all (or at minimum forward `_rsc` parameter)
    - **Headers**: Forward "Host" header (required for Next.js)
+   - **Headers**: Forward "Accept" header (CRITICAL - helps differentiate HTML from RSC payloads)
+   - **Headers**: Do NOT forward "Rsc" header (prevents caching RSC payloads)
    - **Cookies**: None (for public invitation pages)
    
    **Why Legacy?** Managed cache policies like "CachingOptimizedForUncompressedObjects" have:
@@ -42,7 +44,9 @@ This guide documents the CloudFront console verification steps to ensure optimal
      - Maximum TTL: 86400 (24 hours)
      - Default TTL: 3600 (1 hour)
      - Origin cache control: Enabled
-     - Headers: Forward "Host"
+     - Headers: Forward "Host" and "Accept" (CRITICAL for Next.js RSC)
+     - Headers: Do NOT forward "Rsc" header (prevents caching RSC payloads)
+     - Query strings: Forward all (or at minimum forward `_rsc`)
      - Cookies: None
 
 #### TTL Settings
@@ -115,11 +119,28 @@ After configuration, test that caching works:
 | Minimum TTL | 0 | Respect origin Cache-Control headers |
 | Maximum TTL | 86400 (24h) | Match stale-while-revalidate duration |
 | Default TTL | 3600 (1h) | Match s-maxage from Next.js headers |
-| Query Strings | Forward if needed | For dynamic content (if any) |
+| Query Strings | Forward all (or `_rsc`) | Differentiate RSC requests from HTML |
 | Cookies | None | Public pages don't need cookies |
 | Headers | Forward Host | Required for Next.js routing |
+| Headers | Forward Accept | **CRITICAL** - Differentiate HTML from RSC payloads |
+| Headers | Do NOT forward Rsc | Prevents caching RSC payloads |
 
 ## Troubleshooting
+
+### Pages showing RSC payload instead of HTML
+
+**Symptom**: You see raw RSC data like `0:["_gNTverda_xj7Jk3vnEIQ",[...]]` instead of rendered HTML.
+
+**Cause**: CloudFront is caching React Server Components (RSC) payloads (`Content-Type: text/x-component`) instead of HTML responses.
+
+**Solution**:
+1. **Invalidate cache** for affected paths: `/invite/*` and `/host/*`
+2. **Configure CloudFront to forward "Accept" header** in cache key settings
+   - This helps CloudFront differentiate between HTML requests and RSC requests
+   - HTML requests have `Accept: text/html`
+   - RSC requests have `Accept: text/x-component`
+3. **Verify Content-Type handling**: CloudFront should only cache `text/html` responses, not `text/x-component`
+4. **Check response headers**: Ensure origin is sending proper `Content-Type: text/html` for full page loads
 
 ### Pages not caching
 
@@ -157,10 +178,14 @@ To minimize impact:
 - [ ] Minimum TTL set to 0
 - [ ] Maximum TTL set to 86400 (24 hours)
 - [ ] Host header forwarded to origin
+- [ ] **Accept header forwarded to origin (CRITICAL for RSC)**
+- [ ] **Rsc header NOT forwarded (prevents caching RSC payloads)**
+- [ ] Query strings forwarded (or at minimum `_rsc` parameter)
 - [ ] Cookies not forwarded (for public pages)
 - [ ] Cache-Control header visible in response
 - [ ] Cache hit ratio > 80% after warm-up
 - [ ] Pages load instantly on second visit
+- [ ] **No RSC payloads visible in browser (should see HTML, not raw data)**
 
 ## Additional Resources
 
