@@ -2,6 +2,9 @@ import { Metadata } from 'next'
 import InvitePageClient from './InvitePageClient'
 import { InviteConfig } from '@/lib/invite/schema'
 
+// ISR: Revalidate every hour (3600 seconds)
+export const revalidate = 3600
+
 interface Event {
   id: number
   title: string
@@ -20,20 +23,26 @@ function getApiBase(): string {
   return process.env.BACKEND_API_BASE || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
 }
 
+// Get frontend URL for absolute URL conversion (for meta tags, images, etc.)
+// Uses NEXT_PUBLIC_COMPANY_HOMEPAGE or NEXT_PUBLIC_API_BASE (which should be the frontend URL)
+function getFrontendUrl(): string {
+  return process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || process.env.NEXT_PUBLIC_API_BASE || 'https://eventregistry.com'
+}
+
 // Fetch event data on the server
 async function fetchEventData(slug: string): Promise<Event | null> {
   try {
     const apiBase = getApiBase()
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
     
     const response = await fetch(`${apiBase}/api/registry/${slug}/`, {
       headers: {
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
-      // Cache for 5 minutes to reduce API calls
-      next: { revalidate: 300 },
+      // Cache for 1 hour to reduce API calls (matches page revalidation)
+      next: { revalidate: 3600 },
     })
     
     clearTimeout(timeoutId)
@@ -103,17 +112,23 @@ export async function generateMetadata({
     }
   }
 
+  // Get frontend URL for absolute URL conversion and Open Graph url property
+  const frontendUrl = getFrontendUrl()
+  const baseUrl = frontendUrl.replace('/api', '')
+  const pageUrl = `${baseUrl}/invite/${params.slug}`
+
   // Ensure banner image URL is absolute for Open Graph
   let absoluteBannerImage: string | undefined = bannerImage
   if (bannerImage && !bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
-    // If relative URL, make it absolute using API base (which should be the frontend URL)
-    const apiBase = getApiBase()
-    // Remove /api suffix if present
-    const baseUrl = apiBase.replace('/api', '')
+    // If relative URL, make it absolute using frontend URL
     absoluteBannerImage = bannerImage.startsWith('/') 
       ? `${baseUrl}${bannerImage}`
       : `${baseUrl}/${bannerImage}`
   }
+
+  // Use fallback image if no banner image found (for better WhatsApp preview)
+  // You can replace this with a default invitation image URL if you have one
+  const ogImage = absoluteBannerImage || undefined
 
   const metadata: Metadata = {
     title,
@@ -122,13 +137,14 @@ export async function generateMetadata({
       title,
       description,
       type: 'website',
-      ...(absoluteBannerImage && { images: [{ url: absoluteBannerImage, alt: title }] }),
+      url: pageUrl, // WhatsApp requires url property
+      ...(ogImage && { images: [{ url: ogImage, alt: title }] }),
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
+      ...(ogImage && { images: [ogImage] }),
     },
   }
 
