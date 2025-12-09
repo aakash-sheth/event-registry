@@ -5,6 +5,7 @@ import { MapPin, ChevronDown, Calendar, Download } from 'lucide-react'
 import { EventDetailsTileSettings } from '@/lib/invite/schema'
 import { getTimezoneFromLocation, formatTimeInTimezone } from '@/lib/invite/timezone'
 import { getGoogleCalendarHref } from '@/lib/calendar'
+import { getAutomaticLabelColor } from '@/lib/invite/colorUtils'
 
 interface EventDetailsTileProps {
   settings: EventDetailsTileSettings
@@ -113,61 +114,67 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
             <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
           </div>
 
-          <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
-            {settings.date && (
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
-                  Date
+          {(() => {
+            const labelColor = getAutomaticLabelColor(settings.fontColor)
+            return (
+              <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                {settings.date && (
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
+                      Date
+                    </div>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
+                      {formatDate(settings.date)}
+                    </div>
                 </div>
-                <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
-                  {formatDate(settings.date)}
-                </div>
-            </div>
-          )}
+              )}
 
-            {settings.time && (
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
-                  Time
+                {settings.time && (
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
+                      Time
+                    </div>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
+                      {formatTime(settings.time)}
+                    </div>
                 </div>
-                <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
-                  {formatTime(settings.time)}
-                </div>
-            </div>
-          )}
+              )}
 
-            {settings.location && (
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
-                  Location
+                {settings.location && (
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
+                      Location
+                    </div>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
+                      <span>{settings.location}</span>
+                      {settings.mapUrl && (
+                        <a
+                          href={settings.mapUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
+                          aria-label="Open location in maps"
+                        >
+                          <MapPin className="w-4 h-4 text-gray-600" />
+                        </a>
+                      )}
+                    </div>
                 </div>
-                <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
-                  <span>{settings.location}</span>
-                  {settings.mapUrl && (
-                    <a
-                      href={settings.mapUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
-                      aria-label="Open location in maps"
-                    >
-                      <MapPin className="w-4 h-4 text-gray-600" />
-                    </a>
-                  )}
-                </div>
-            </div>
-          )}
+              )}
 
-          {settings.dressCode && (
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
-                  Dress Code
+              {settings.dressCode && (
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
+                      Dress Code
+                    </div>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed italic" style={{ color: settings.fontColor || '#1F2937' }}>
+                      {settings.dressCode}
+                    </div>
                 </div>
-                <div className="text-xl md:text-2xl font-normal leading-relaxed italic" style={{ color: settings.fontColor || '#1F2937' }}>
-                  {settings.dressCode}
-                </div>
-            </div>
-          )}
+              )}
+              </div>
+            )
+          })()}
           </div>
 
           {/* Decorative bottom border */}
@@ -231,30 +238,31 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
   }
 
   const fontColor = settings.fontColor || '#374151' // Default to gray-700 equivalent
+  const labelColor = getAutomaticLabelColor(settings.fontColor)
   return (
     <div className="w-full py-6 px-4 border border-gray-200 rounded-sm bg-gray-50">
       <div className="space-y-3 text-sm" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
         {settings.date && (
           <p>
-            <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Date:</span>
+            <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Date:</span>
             <span className="font-normal" style={{ color: fontColor }}>{formatDate(settings.date)}</span>
           </p>
         )}
         {settings.time && (
           <p>
-            <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Time:</span>
+            <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Time:</span>
             <span className="font-normal" style={{ color: fontColor }}>{formatTime(settings.time)}</span>
           </p>
         )}
         {settings.location && (
           <p>
-            <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Location:</span>
+            <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Location:</span>
             <span className="font-normal" style={{ color: fontColor }}>{settings.location}</span>
           </p>
         )}
         {settings.dressCode && (
           <p>
-            <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Dress Code:</span>
+            <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Dress Code:</span>
             <span className="font-normal italic" style={{ color: fontColor }}>{settings.dressCode}</span>
           </p>
         )}
