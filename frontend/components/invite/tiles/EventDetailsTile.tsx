@@ -119,7 +119,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
                   Date
                 </div>
-                <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed">
+                <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
                   {formatDate(settings.date)}
                 </div>
             </div>
@@ -130,7 +130,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
                   Time
                 </div>
-                <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed">
+                <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
                   {formatTime(settings.time)}
                 </div>
             </div>
@@ -141,7 +141,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
                   Location
                 </div>
-                <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed flex items-center justify-center gap-2">
+                <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
                   <span>{settings.location}</span>
                   {settings.mapUrl && (
                     <a
@@ -163,7 +163,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                 <div className="text-xs uppercase tracking-widest text-gray-500 font-light italic mb-3">
                   Dress Code
                 </div>
-                <div className="text-xl md:text-2xl font-normal text-gray-800 leading-relaxed italic">
+                <div className="text-xl md:text-2xl font-normal leading-relaxed italic" style={{ color: settings.fontColor || '#1F2937' }}>
                   {settings.dressCode}
                 </div>
             </div>
@@ -230,31 +230,32 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
     )
   }
 
+  const fontColor = settings.fontColor || '#374151' // Default to gray-700 equivalent
   return (
     <div className="w-full py-6 px-4 border border-gray-200 rounded-sm bg-gray-50">
       <div className="space-y-3 text-sm" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
         {settings.date && (
-          <p className="text-gray-700">
+          <p>
             <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Date:</span>
-            <span className="font-normal">{formatDate(settings.date)}</span>
+            <span className="font-normal" style={{ color: fontColor }}>{formatDate(settings.date)}</span>
           </p>
         )}
         {settings.time && (
-          <p className="text-gray-700">
+          <p>
             <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Time:</span>
-            <span className="font-normal">{formatTime(settings.time)}</span>
+            <span className="font-normal" style={{ color: fontColor }}>{formatTime(settings.time)}</span>
           </p>
         )}
         {settings.location && (
-          <p className="text-gray-700">
+          <p>
             <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Location:</span>
-            <span className="font-normal">{settings.location}</span>
+            <span className="font-normal" style={{ color: fontColor }}>{settings.location}</span>
           </p>
         )}
         {settings.dressCode && (
-          <p className="text-gray-700">
+          <p>
             <span className="text-xs uppercase tracking-widest text-gray-500 font-light italic mr-2">Dress Code:</span>
-            <span className="font-normal italic">{settings.dressCode}</span>
+            <span className="font-normal italic" style={{ color: fontColor }}>{settings.dressCode}</span>
           </p>
         )}
       </div>

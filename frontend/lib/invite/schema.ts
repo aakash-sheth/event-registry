@@ -49,6 +49,7 @@ export interface EventDetailsTileSettings {
   time?: string // Time string (e.g., "18:00")
   dressCode?: string
   mapUrl?: string // Map URL for location (Google Maps, Apple Maps, etc.)
+  fontColor?: string // Font color for event details text (hex color, e.g., "#000000")
 }
 
 export interface DescriptionTileSettings {

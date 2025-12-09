@@ -63,6 +63,28 @@ export default function EventDetailsTileSettings({ settings, onChange }: EventDe
           Add a map link (Google Maps, Apple Maps, etc.) to show a map icon next to the location. Leave empty to hide the icon.
         </p>
       </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-2">Font Color</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={settings.fontColor || '#1F2937'}
+            onChange={(e) => onChange({ ...settings, fontColor: e.target.value })}
+            className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
+          />
+          <Input
+            type="text"
+            value={settings.fontColor || '#1F2937'}
+            onChange={(e) => onChange({ ...settings, fontColor: e.target.value })}
+            placeholder="#1F2937"
+            className="flex-1"
+          />
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Color for the event details text (date, time, location, dress code)
+        </p>
+      </div>
     </div>
   )
 }
