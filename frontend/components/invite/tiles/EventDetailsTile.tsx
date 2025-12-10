@@ -175,7 +175,6 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
               </div>
             )
           })()}
-          </div>
 
           {/* Decorative bottom border */}
           <div className="flex items-center justify-center mt-10 mb-8">
