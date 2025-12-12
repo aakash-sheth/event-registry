@@ -13,11 +13,11 @@ ARG COMMIT_SHA
 # Verify the build arg is set (fail build if not provided)
 RUN if [ -z "$NEXT_PUBLIC_API_BASE" ]; then echo "ERROR: NEXT_PUBLIC_API_BASE build arg is required!" && exit 1; fi
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
-ENV NEXT_PUBLIC_BRAND_NAME="${NEXT_PUBLIC_BRAND_NAME:-Celebrate Mindfully}"
+ENV NEXT_PUBLIC_BRAND_NAME="${NEXT_PUBLIC_BRAND_NAME:-EkFern}"
 ENV NEXT_PUBLIC_COMPANY_HOMEPAGE="${NEXT_PUBLIC_COMPANY_HOMEPAGE:-https://eventregistry.com}"
 # Print the values for debugging (will show in build logs)
 RUN echo "Building with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
-RUN echo "Building with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-Celebrate Mindfully}"
+RUN echo "Building with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-EkFern}"
 RUN echo "Building with NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE:-https://eventregistry.com}"
 RUN echo "Building with COMMIT_SHA=${COMMIT_SHA}"
 

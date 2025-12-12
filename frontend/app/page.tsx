@@ -55,8 +55,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <Leaf className="w-6 h-6 text-bright-teal" />
             <div>
-              <div className="text-xl font-bold text-bright-teal">Celebrate Mindfully</div>
-              <div className="text-xs text-gray-500">by Sustain &amp; Slay</div>
+              <div className="text-xl font-bold text-bright-teal">EkFern</div>
             </div>
           </div>
           <div className="flex gap-4">
@@ -79,7 +78,7 @@ export default function LandingPage() {
           
           <div className="text-center z-10 max-w-5xl mx-auto">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-bright-teal mb-4">
-              🌿 Celebrate Mindfully
+              🌿 EkFern
             </h1>
             <p className="text-xl md:text-2xl text-forest-green mb-4">
               Plan Smarter. Celebrate Sustainably.
@@ -107,7 +106,7 @@ export default function LandingPage() {
         </section>
 
         {/* Moving Impact Banner */}
-        <section className="bg-gradient-to-r from-bright-teal via-forest-green to-bright-teal bg-[length:200%_100%] py-12 overflow-hidden animate-gradient-shift">
+        {/* <section className="bg-gradient-to-r from-bright-teal via-forest-green to-bright-teal bg-[length:200%_100%] py-12 overflow-hidden animate-gradient-shift">
           <div className="flex animate-scroll whitespace-nowrap">
             {[
               { number: '500+', text: 'Hosts Choosing Intention' },
@@ -130,7 +129,7 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-        </section>
+        </section> */}
 
         {/* Problem Section */}
         <section className="py-20 px-4 bg-pastel-cream text-center">
@@ -282,7 +281,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="bg-forest-green text-white py-8 px-4 text-center">
-        <p className="text-lg font-bold mb-2">🌿 <strong>Celebrate Mindfully</strong></p>
+        <p className="text-lg font-bold mb-2">🌿 <strong>EkFern</strong></p>
         <p className="text-sm opacity-80">Making celebrations smarter, more sustainable, and more meaningful.</p>
       </footer>
 
