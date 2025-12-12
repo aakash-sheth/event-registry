@@ -46,8 +46,8 @@ if [ -z "$SKIP_MIGRATIONS" ]; then
     echo "Collecting static files..."
     python manage.py collectstatic --noinput || echo "Warning: Static file collection failed"
 
-echo "Running migrations..."
-python manage.py migrate
+    echo "Running migrations..."
+    python manage.py migrate
 else
     echo "Skipping migrations and collectstatic (SKIP_MIGRATIONS is set)"
 fi
