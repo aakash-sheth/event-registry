@@ -1165,19 +1165,18 @@ def get_rsvp(request, event_id):
         rsvp_data['found_in'] = 'rsvp'
         return Response(rsvp_data, status=status.HTTP_200_OK)
     else:
-        # For private events, check guest list if RSVP not found (exclude removed guests)
-        if not event.is_public:
-            phone_digits_only = re.sub(r'\D', '', phone)
-            provided_country_code = request.query_params.get('country_code', event_country_code)
-            
-            # Try to find in guest list (exclude removed guests)
-            guest = None
-            # First try exact phone match
-            guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
-            
-            # If not found, try matching by digits only
-            if not guest:
-                all_guests = Guest.objects.filter(event=event, is_removed=False)
+        # For both public and private events, check guest list if RSVP not found (exclude removed guests)
+        phone_digits_only = re.sub(r'\D', '', phone)
+        provided_country_code = request.query_params.get('country_code', event_country_code)
+        
+        # Try to find in guest list (exclude removed guests)
+        guest = None
+        # First try exact phone match
+        guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
+        
+        # If not found, try matching by digits only
+        if not guest:
+            all_guests = Guest.objects.filter(event=event, is_removed=False)
             for g in all_guests:
                 guest_phone_digits = re.sub(r'\D', '', g.phone)
                 if guest_phone_digits == phone_digits_only:
@@ -1387,26 +1386,26 @@ def create_rsvp(request, event_id):
                 # If not found, try matching by digits only
                 if not guest:
                     all_guests = Guest.objects.filter(event=event, is_removed=False)
-                    for g in all_guests:
-                        guest_phone_digits = re.sub(r'\D', '', g.phone)
-                        if guest_phone_digits == phone_digits_only:
-                            guest = g
-                            break
-                        
-                        # Try matching last 10 digits with country code verification
-                        if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
-                            local_number = phone_digits_only[-10:]
-                            if guest_phone_digits.endswith(local_number):
-                                stored_country_code, _ = parse_phone_number(g.phone)
-                                if stored_country_code == provided_country_code:
-                                    guest = g
-                                    break
-                
-                if not guest:
-                    return Response(
-                        {'error': 'This is a private event. Only invited guests can RSVP.'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+                for g in all_guests:
+                    guest_phone_digits = re.sub(r'\D', '', g.phone)
+                    if guest_phone_digits == phone_digits_only:
+                        guest = g
+                        break
+                    
+                    # Try matching last 10 digits with country code verification
+                    if len(phone_digits_only) >= 10 and len(guest_phone_digits) >= 10:
+                        local_number = phone_digits_only[-10:]
+                        if guest_phone_digits.endswith(local_number):
+                            stored_country_code, _ = parse_phone_number(g.phone)
+                            if stored_country_code == provided_country_code:
+                                guest = g
+                                break
+            
+            if not guest:
+                return Response(
+                    {'error': 'This is a private event. Only invited guests can RSVP.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         else:
             # For public events, check existing RSVP first (grandfather clause)
             if existing_rsvp:
