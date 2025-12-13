@@ -56,12 +56,18 @@ class User(AbstractBaseUser):
         self.save(update_fields=['otp_code', 'otp_expires_at'])
     
     def verify_otp(self, code):
-        """Verify OTP code and check expiry"""
+        """Verify OTP code and check expiry
+        
+        Returns:
+            tuple: (is_valid: bool, error_message: str or None)
+        """
         if not self.otp_code or not self.otp_expires_at:
-            return False
+            return False, 'No verification code found. Please request a new code.'
         if timezone.now() > self.otp_expires_at:
-            return False
-        return check_password(code, self.otp_code)
+            return False, 'Verification code has expired. Please request a new code.'
+        if not check_password(code, self.otp_code):
+            return False, 'Invalid verification code. Please check and try again.'
+        return True, None
     
     def clear_otp(self):
         """Clear OTP after successful verification"""

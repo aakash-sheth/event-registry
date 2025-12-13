@@ -161,9 +161,10 @@ def otp_verify(request):
         )
     
     # Verify OTP
-    if not user.verify_otp(code):
+    is_valid, error_message = user.verify_otp(code)
+    if not is_valid:
         return Response(
-            {'error': 'Invalid or expired code'},
+            {'error': error_message},
             status=status.HTTP_400_BAD_REQUEST
         )
     

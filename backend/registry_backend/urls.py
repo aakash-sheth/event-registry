@@ -6,9 +6,10 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from apps.common.views import health_check, log_to_cloudwatch_endpoint, admin_analytics
+from apps.users.admin import admin_site
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('admin/', admin_site.urls),  # Use custom admin site with better error messages
     path('health', health_check, name='health'),
     path('api/health', health_check, name='api-health'),
     path('api/logs/cloudwatch/', log_to_cloudwatch_endpoint, name='cloudwatch-log'),
@@ -21,11 +22,8 @@ urlpatterns = [
     path('api/payments/', include('apps.orders.payment_urls')),
 ]
 
-# Serve static files in production (if not using S3/CDN)
-if not settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-elif settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-    # Serve media files in development
+# WhiteNoise handles static files in production, so we don't need static() helper
+# Only serve media files in development (production should use S3)
+if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
