@@ -59,7 +59,7 @@ def _send_via_ses(to_email, subject, body_text, body_html=None):
     if body_html:
         message['Body']['Html'] = {'Data': body_html}
     
-    from_email = getattr(settings, 'SES_FROM_EMAIL', 'noreply@eventregistry.com')
+    from_email = getattr(settings, 'SES_FROM_EMAIL', 'no-reply@ekfern.com')
     
     ses_client.send_email(
         Source=from_email,

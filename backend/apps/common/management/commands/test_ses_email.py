@@ -77,7 +77,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  Region: {region}')
         
         # FROM email
-        from_email = getattr(settings, 'SES_FROM_EMAIL', 'noreply@eventregistry.com')
+        from_email = getattr(settings, 'SES_FROM_EMAIL', 'no-reply@ekfern.com')
         self.stdout.write(f'  FROM Email: {from_email}')
         
         # Authentication method

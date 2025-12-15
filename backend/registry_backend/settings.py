@@ -166,7 +166,7 @@ CORS_ALLOW_CREDENTIALS = True
 SES_REGION = os.environ.get('SES_REGION', 'us-east-1')
 SES_ACCESS_KEY_ID = os.environ.get('SES_ACCESS_KEY_ID', '')
 SES_SECRET_ACCESS_KEY = os.environ.get('SES_SECRET_ACCESS_KEY', '')
-SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'noreply@eventregistry.com')
+SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'no-reply@ekfern.com')
 
 # Frontend
 FRONTEND_ORIGIN = os.environ.get('FRONTEND_ORIGIN', 'http://localhost:3000')
