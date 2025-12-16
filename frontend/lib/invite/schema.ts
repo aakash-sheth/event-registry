@@ -50,6 +50,7 @@ export interface EventDetailsTileSettings {
   dressCode?: string
   mapUrl?: string // Map URL for location (Google Maps, Apple Maps, etc.)
   fontColor?: string // Font color for event details text (hex color, e.g., "#000000")
+  buttonColor?: string // Hex color for Save the Date button (e.g., "#1F2937")
 }
 
 export interface DescriptionTileSettings {
@@ -64,6 +65,21 @@ export interface FeatureButtonsTileSettings {
 
 export interface FooterTileSettings {
   text: string
+}
+
+export type TextureType =
+  | 'none'
+  | 'paper-grain'
+  | 'linen'
+  | 'canvas'
+  | 'parchment'
+  | 'vintage-paper'
+  | 'silk'
+  | 'marble'
+
+export interface TextureSettings {
+  type: TextureType
+  intensity?: number // 0-100, default 20
 }
 
 export type TileSettings = 
@@ -97,6 +113,8 @@ export interface InviteConfig {
     titleFont?: string // Overrides theme.fonts.title
     bodyFont?: string // Overrides theme.fonts.body
   }
+  // Background texture (CSS-based)
+  texture?: TextureSettings
   // New tile-based structure
   tiles?: Tile[]
   // Legacy structure (for backward compatibility)

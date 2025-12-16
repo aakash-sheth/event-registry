@@ -106,6 +106,7 @@ export default function DesignInvitationPage() {
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const gridContainerRef = useRef<HTMLDivElement>(null)
   const [rightPanelStyle, setRightPanelStyle] = useState<React.CSSProperties>({})
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [spacerHeight, setSpacerHeight] = useState<number | null>(null)
   const [config, setConfig] = useState<InviteConfig>({
     themeId: 'classic-noir',
@@ -209,7 +210,7 @@ export default function DesignInvitationPage() {
               eventData?.city
             )
 
-            // Preserve customColors and customFonts from loaded config
+            // Preserve customColors, customFonts, and texture from loaded config
             // IMPORTANT: Explicitly preserve customColors even if it's an empty object
             const preservedConfig = {
               ...migratedConfig,
@@ -220,6 +221,9 @@ export default function DesignInvitationPage() {
               customFonts: loadedConfig.customFonts !== undefined
                 ? loadedConfig.customFonts
                 : migratedConfig.customFonts,
+              texture: loadedConfig.texture !== undefined
+                ? loadedConfig.texture
+                : migratedConfig.texture,
             }
 
             // Ensure we have tiles and preserve all settings (especially coverPosition for image tiles)
@@ -297,6 +301,7 @@ export default function DesignInvitationPage() {
           setSelectedTileId('tile-title-0')
         } else {
           // Ensure customColors exists in loaded config (initialize as empty object if missing)
+          // But don't overwrite if it already exists (even if empty)
           if (!finalConfig.customColors) {
             finalConfig.customColors = {}
           }
@@ -454,40 +459,51 @@ export default function DesignInvitationPage() {
         }))
       }
       
-      // Build config to save - ALWAYS include customColors if it exists
-      // Also ensure all tile settings are preserved, including coverPosition
+      // Build config to save - ensure customColors.backgroundColor is always included if set
+      // Build tiles first
+      const tilesToSave = config.tiles?.map(t => {
+        if (t.type === 'title') {
+          return { ...t, enabled: true }
+        }
+        // For image tiles, explicitly preserve all settings including coverPosition
+        if (t.type === 'image') {
+          const imageSettings = t.settings as any
+          // Log to help debug position saving
+          if (imageSettings.coverPosition) {
+            logDebug('Saving image tile with coverPosition:', imageSettings.coverPosition)
+          }
+          return { ...t, settings: { ...imageSettings } }
+        }
+        // For feature-buttons tiles, explicitly preserve all settings including custom labels
+        if (t.type === 'feature-buttons') {
+          const featureButtonsSettings = t.settings as any
+          return { ...t, settings: { ...featureButtonsSettings } }
+        }
+        return t
+      }) || []
+      
+      // Build customColors - always include backgroundColor if it exists
+      let customColorsToSave = undefined
+      if (config.customColors?.backgroundColor) {
+        // If backgroundColor is set, include it along with any other customColors properties
+        customColorsToSave = {
+          ...(config.customColors || {}),
+          backgroundColor: config.customColors.backgroundColor,
+        }
+      } else if (config.customColors && Object.keys(config.customColors).filter(k => k !== 'backgroundColor').length > 0) {
+        // Include customColors if it has other properties (fontColor, primaryColor, etc.)
+        customColorsToSave = config.customColors
+      }
+      // If customColors is empty or doesn't exist, don't include it (undefined)
+      
       const configToSave: InviteConfig = {
-        ...config,
-        // Ensure title tile is enabled in saved config
-        // Also ensure all settings are preserved (including coverPosition for image tiles)
-        tiles: config.tiles?.map(t => {
-          if (t.type === 'title') {
-            return { ...t, enabled: true }
-          }
-          // For image tiles, explicitly preserve all settings including coverPosition
-          if (t.type === 'image') {
-            const imageSettings = t.settings as any
-            // Log to help debug position saving
-            if (imageSettings.coverPosition) {
-              logDebug('Saving image tile with coverPosition:', imageSettings.coverPosition)
-            }
-            return { ...t, settings: { ...imageSettings } }
-          }
-          // For feature-buttons tiles, explicitly preserve all settings including custom labels
-          if (t.type === 'feature-buttons') {
-            const featureButtonsSettings = t.settings as any
-            return { ...t, settings: { ...featureButtonsSettings } }
-          }
-          return t
-        }) || [],
+        themeId: config.themeId,
+        tiles: tilesToSave,
+        ...(customColorsToSave && { customColors: customColorsToSave }),
+        ...(config.customFonts && { customFonts: config.customFonts }),
+        ...(config.texture && { texture: config.texture }),
       }
       
-      // Explicitly ensure customColors is included if it has any properties
-      if (config.customColors) {
-        configToSave.customColors = config.customColors
-      }
-      
-      // Debug: Log what we're saving
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
       if (imageTile) {
         logDebug('Saving config with image tile settings')
@@ -667,6 +683,82 @@ export default function DesignInvitationPage() {
                   <p className="text-xs text-gray-500 mt-1">
                     Background color for the entire invitation page
                   </p>
+                </div>
+
+                {/* Advanced Settings - Collapsible */}
+                <div className="border-t border-gray-200 pt-4 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                    className="flex items-center justify-between w-full text-left focus:outline-none focus:ring-2 focus:ring-eco-green rounded-md p-2 -m-2"
+                  >
+                    <h3 className="text-sm font-semibold text-eco-green">Advanced Settings</h3>
+                    <svg
+                      className={`w-5 h-5 text-gray-500 transition-transform ${showAdvancedSettings ? 'transform rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showAdvancedSettings && (
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Background Texture</label>
+                        <select
+                          value={config.texture?.type || 'none'}
+                          onChange={(e) => setConfig(prev => ({
+                            ...prev,
+                            texture: {
+                              ...prev.texture,
+                              type: e.target.value as any,
+                              intensity: prev.texture?.intensity || 40,
+                            },
+                          }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
+                        >
+                          <option value="none">None</option>
+                          <option value="paper-grain">Paper Grain</option>
+                          <option value="linen">Linen</option>
+                          <option value="canvas">Canvas</option>
+                          <option value="parchment">Parchment</option>
+                          <option value="vintage-paper">Vintage Paper</option>
+                          <option value="silk">Silk</option>
+                          <option value="marble">Marble</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                          CSS-based texture overlay for a vintage, textured paper effect
+                        </p>
+                      </div>
+
+                      {config.texture?.type && config.texture.type !== 'none' && (
+                        <div>
+                          <label className="block text-sm font-medium mb-2">
+                            Texture Intensity: {config.texture?.intensity || 40}%
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={config.texture?.intensity || 40}
+                            onChange={(e) => setConfig(prev => ({
+                              ...prev,
+                              texture: {
+                                ...prev.texture!,
+                                intensity: parseInt(e.target.value, 10),
+                              },
+                            }))}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Adjust the opacity of the texture overlay (0-100%)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -2,12 +2,12 @@
 
 import React, { useEffect } from 'react'
 import { InviteConfig } from '@/lib/invite/schema'
-import { getTheme } from '@/lib/invite/themes'
-import { ThemeProvider, useTheme } from './ThemeProvider'
+import { ThemeProvider } from './ThemeProvider'
 import Hero from './Hero'
 import Description from './Description'
 import TilePreview from '@/components/invite/tiles/TilePreview'
 import ScrollIndicator from '@/components/invite/ScrollIndicator'
+import TextureOverlay from './TextureOverlay'
 
 interface LivingPosterPageProps {
   config: InviteConfig
@@ -26,20 +26,25 @@ function LivingPosterContent({
   hasRsvp = false,
   hasRegistry = false,
 }: LivingPosterPageProps) {
-  const effectiveTheme = useTheme()
+  const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
 
   // Set body background to match page background
   useEffect(() => {
-    const bodyBackground = effectiveTheme.palette.bg
-    document.body.style.backgroundColor = bodyBackground
-    document.documentElement.style.backgroundColor = bodyBackground
+    // Use setProperty with important flag to override CSS rules from globals.css
+    document.body.style.setProperty('background-color', backgroundColor, 'important')
+    document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
+    // Also set background (not just background-color) to override CSS background property
+    document.body.style.setProperty('background', backgroundColor, 'important')
+    document.documentElement.style.setProperty('background', backgroundColor, 'important')
 
     return () => {
       // Reset on unmount (optional, but clean)
-      document.body.style.backgroundColor = ''
-      document.documentElement.style.backgroundColor = ''
+      document.body.style.removeProperty('background-color')
+      document.body.style.removeProperty('background')
+      document.documentElement.style.removeProperty('background-color')
+      document.documentElement.style.removeProperty('background')
     }
-  }, [effectiveTheme.palette.bg, config.customColors?.backgroundColor])
+  }, [backgroundColor])
 
   // If tiles exist, render tile-based layout
   if (config.tiles && config.tiles.length > 0) {
@@ -48,7 +53,11 @@ function LivingPosterContent({
       .sort((a, b) => a.order - b.order)
 
     return (
-      <div className="min-h-screen w-full h-full" style={{ backgroundColor: effectiveTheme.palette.bg }}>
+      <div className="min-h-screen w-full h-full relative" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
+        <TextureOverlay 
+          type={config.texture?.type || 'none'} 
+          intensity={config.texture?.intensity || 40} 
+        />
         {sortedTiles.map((tile) => {
           // Handle overlay case (title over image)
           if (tile.type === 'title' && tile.overlayTargetId) {
@@ -101,16 +110,19 @@ function LivingPosterContent({
 
   // Fallback to legacy hero/description layout
   return (
-    <div className="min-h-screen h-full" style={{ backgroundColor: effectiveTheme.palette.bg, height: '100%' }}>
+    <div className="min-h-screen h-full relative" style={{ backgroundColor, background: backgroundColor, height: '100%' } as React.CSSProperties}>
+      <TextureOverlay 
+        type={config.texture?.type || 'none'} 
+        intensity={config.texture?.intensity || 40} 
+      />
       <Hero
         config={config}
-        theme={effectiveTheme}
         eventSlug={eventSlug}
         eventDate={eventDate}
         showBadge={showBadge}
       />
       {config.descriptionMarkdown && (
-        <Description markdown={config.descriptionMarkdown} theme={effectiveTheme} />
+        <Description markdown={config.descriptionMarkdown} config={config} />
       )}
       <ScrollIndicator />
     </div>
@@ -118,10 +130,8 @@ function LivingPosterContent({
 }
 
 export default function LivingPosterPage(props: LivingPosterPageProps) {
-  const theme = getTheme(props.config.themeId)
-
   return (
-    <ThemeProvider theme={theme} config={props.config}>
+    <ThemeProvider config={props.config}>
       <LivingPosterContent {...props} />
     </ThemeProvider>
   )

@@ -42,7 +42,9 @@ async function fetchEventData(slug: string): Promise<Event | null> {
       },
       signal: controller.signal,
       // Cache for 1 hour to reduce API calls (matches page revalidation)
-      next: { revalidate: 3600 },
+      // But add cache-busting for development to see latest data
+      next: { revalidate: process.env.NODE_ENV === 'development' ? 0 : 3600 },
+      cache: process.env.NODE_ENV === 'development' ? 'no-store' : 'default',
     })
     
     clearTimeout(timeoutId)
@@ -51,7 +53,8 @@ async function fetchEventData(slug: string): Promise<Event | null> {
       return null
     }
 
-    return await response.json()
+    const data = await response.json()
+    return data
   } catch (error: any) {
     // Only log non-timeout errors (timeouts are expected in slow network conditions)
     if (error.name !== 'AbortError') {
@@ -69,14 +72,60 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const event = await fetchEventData(params.slug)
 
+  // Get frontend URL for absolute URL conversion
+  const frontendUrl = getFrontendUrl()
+  const baseUrl = frontendUrl.replace('/api', '')
+  const pageUrl = `${baseUrl}/invite/${params.slug}`
+
   if (!event) {
     return {
       title: 'Event Invitation',
       description: 'Join us for a special celebration',
+      robots: {
+        index: false, // Don't index 404 pages
+        follow: false,
+      },
+      openGraph: {
+        title: 'Event Invitation',
+        description: 'Join us for a special celebration',
+        type: 'website',
+        url: pageUrl,
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: 'Event Invitation',
+        description: 'Join us for a special celebration',
+      },
     }
   }
 
-  // Extract banner image from page_config or use banner_image
+  // Extract title from page_config or use event title
+  let baseTitle = event.title || 'Event Invitation'
+  if (event.page_config?.tiles) {
+    const titleTile = event.page_config.tiles.find(
+      (tile: any) => tile.type === 'title' && tile.settings?.text
+    ) as any
+    if (titleTile?.settings?.text) {
+      baseTitle = titleTile.settings.text
+    }
+  }
+  
+  // Format title with suffix for branding
+  const title = `${baseTitle} | Wedding Invitation`
+
+  // Extract description
+  let description = event.description || 'Join us for a special celebration'
+  if (event.page_config?.tiles) {
+    const descTile = event.page_config.tiles.find(
+      (tile: any) => tile.type === 'description' && tile.settings?.content
+    ) as any
+    if (descTile?.settings?.content) {
+      // Strip HTML tags and limit length for description
+      description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
+    }
+  }
+
+  // Extract banner image with priority: banner_image > image tile
   let bannerImage: string | undefined = event.banner_image
   
   if (!bannerImage && event.page_config?.tiles) {
@@ -89,46 +138,19 @@ export async function generateMetadata({
     }
   }
 
-  // Extract title from page_config or use event title
-  let title = event.title || 'Event Invitation'
-  if (event.page_config?.tiles) {
-    const titleTile = event.page_config.tiles.find(
-      (tile: any) => tile.type === 'title' && tile.settings?.text
-    ) as any
-    if (titleTile?.settings?.text) {
-      title = titleTile.settings.text
-    }
-  }
-
-  // Extract description
-  let description = event.description || 'Join us for a special celebration'
-  if (event.page_config?.tiles) {
-    const descTile = event.page_config.tiles.find(
-      (tile: any) => tile.type === 'description' && tile.settings?.content
-    ) as any
-    if (descTile?.settings?.content) {
-      // Strip HTML tags for description
-      description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
-    }
-  }
-
-  // Get frontend URL for absolute URL conversion and Open Graph url property
-  const frontendUrl = getFrontendUrl()
-  const baseUrl = frontendUrl.replace('/api', '')
-  const pageUrl = `${baseUrl}/invite/${params.slug}`
-
   // Ensure banner image URL is absolute for Open Graph
   let absoluteBannerImage: string | undefined = bannerImage
-  if (bannerImage && !bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
-    // If relative URL, make it absolute using frontend URL
-    absoluteBannerImage = bannerImage.startsWith('/') 
-      ? `${baseUrl}${bannerImage}`
-      : `${baseUrl}/${bannerImage}`
+  if (bannerImage) {
+    if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
+      // If relative URL (local dev), make it absolute using frontend URL
+      absoluteBannerImage = bannerImage.startsWith('/') 
+        ? `${baseUrl}${bannerImage}`
+        : `${baseUrl}/${bannerImage}`
+    } else {
+      // Already absolute (S3 URL), use as-is
+      absoluteBannerImage = bannerImage
+    }
   }
-
-  // Use fallback image if no banner image found (for better WhatsApp preview)
-  // You can replace this with a default invitation image URL if you have one
-  const ogImage = absoluteBannerImage || undefined
 
   const metadata: Metadata = {
     title,
@@ -137,14 +159,21 @@ export async function generateMetadata({
       title,
       description,
       type: 'website',
-      url: pageUrl, // WhatsApp requires url property
-      ...(ogImage && { images: [{ url: ogImage, alt: title }] }),
+      url: pageUrl,
+      ...(absoluteBannerImage && { 
+        images: [{ 
+          url: absoluteBannerImage, 
+          alt: title,
+          width: 1200,
+          height: 630,
+        }] 
+      }),
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      ...(ogImage && { images: [ogImage] }),
+      ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
     },
   }
 
@@ -172,30 +201,32 @@ export default async function InvitePage({
     if (event.page_config) {
       initialConfig = {
         ...event.page_config,
-        customColors: event.page_config.customColors || undefined,
+        customColors: event.page_config.customColors !== undefined 
+          ? event.page_config.customColors 
+          : undefined,
       }
-    } else {
+      } else {
       // Fallback config
       initialConfig = {
-        themeId: 'classic-noir',
-        hero: {
+          themeId: 'classic-noir',
+          hero: {
           title: event.title || 'Event',
           subtitle: event.description ? event.description.substring(0, 100) : undefined,
           showTimer: !!event.date,
           eventDate: event.date,
-          buttons: [
-            { label: 'Save the Date', action: 'calendar' },
+            buttons: [
+              { label: 'Save the Date', action: 'calendar' },
             ...(event.has_rsvp
               ? [{ label: 'RSVP' as const, action: 'rsvp' as const, href: `/event/${params.slug}/rsvp` }]
-              : []),
+                : []),
             ...(event.has_registry
               ? [{ label: 'Registry' as const, action: 'registry' as const, href: `/registry/${params.slug}` }]
-              : []),
-          ],
-        },
+                : []),
+            ],
+          },
         descriptionMarkdown: event.description || undefined,
+        }
       }
-    }
   }
 
   // Always render client component - it will handle fetching if server fetch failed
