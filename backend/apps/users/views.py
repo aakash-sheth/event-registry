@@ -76,19 +76,28 @@ def _send_otp(user):
     
     # Send email with login link
     login_url = f"{settings.FRONTEND_ORIGIN}/host/login?token={token}&email={email}"
-    subject = "Your Event Registry Verification Code"
-    message = f"""
-    Hi {user.name or 'there'},
+    
+    # Extract first name from user.name (split by space, take first part, fallback to full name or "there")
+    user_name = user.name or ''
+    first_name = user_name.split()[0] if user_name and user_name.strip() else None
+    greeting_name = first_name if first_name else 'there'
+    
+    subject = "Your EkFern Verification Code"
+    message = f"""Hi {greeting_name},
 
-    Your verification code is: {otp_code}
+Your EkFern verification code is:
 
-    Or click this link to verify directly:
-    {login_url}
+{otp_code}
 
-    This code expires in 15 minutes.
+Enter this code on the verification screen to continue.
+This code expires in 15 minutes. Please do not share it with anyone.
 
-    If you didn't request this, please ignore this email.
-    """
+To open the verification page, use this link:
+{login_url}
+
+If you didn't request this, you can safely ignore this email.
+
+— Team EkFern"""
     
     # Send email via SES
     # Log failures but don't expose to user for security

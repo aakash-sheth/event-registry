@@ -113,7 +113,7 @@ function LoginForm() {
           <CardDescription className="text-base">
             {step === 'email' 
               ? 'Enter your email to receive a login code'
-              : `Enter the code sent to ${email}`
+              : `Enter the 6-digit verification code sent to ${email}`
             }
           </CardDescription>
         </CardHeader>
@@ -146,9 +146,6 @@ function LoginForm() {
             </form>
           ) : (
             <form onSubmit={handleSubmitCode(onCodeSubmit)} className="space-y-4">
-              <p className="text-sm text-gray-600 mb-4">
-                Enter the 6-digit code sent to {email}
-              </p>
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Verification Code
@@ -164,6 +161,9 @@ function LoginForm() {
                     {codeErrors.code.message}
                   </p>
                 )}
+                <p className="text-xs text-gray-500 mt-2">
+                  The code expires in 15 minutes.
+                </p>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -182,6 +182,9 @@ function LoginForm() {
                   {loading ? 'Verifying...' : 'Verify'}
                 </Button>
               </div>
+              <p className="text-sm text-gray-600 text-center mt-4">
+                Didn't receive the code? Go back to resend.
+              </p>
             </form>
           )}
           
