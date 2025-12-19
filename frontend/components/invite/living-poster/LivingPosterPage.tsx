@@ -16,6 +16,8 @@ interface LivingPosterPageProps {
   showBadge?: boolean
   hasRsvp?: boolean
   hasRegistry?: boolean
+  skipTextureOverlay?: boolean
+  skipBackgroundColor?: boolean
 }
 
 function LivingPosterContent({
@@ -25,11 +27,16 @@ function LivingPosterContent({
   showBadge = true,
   hasRsvp = false,
   hasRegistry = false,
+  skipTextureOverlay = false,
+  skipBackgroundColor = false,
 }: LivingPosterPageProps) {
   const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
 
-  // Set body background to match page background
+  // Set body background to match page background (skip if already set at page level)
   useEffect(() => {
+    if (skipBackgroundColor) {
+      return
+    }
     // Use setProperty with important flag to override CSS rules from globals.css
     document.body.style.setProperty('background-color', backgroundColor, 'important')
     document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
@@ -44,7 +51,7 @@ function LivingPosterContent({
       document.documentElement.style.removeProperty('background-color')
       document.documentElement.style.removeProperty('background')
     }
-  }, [backgroundColor])
+  }, [backgroundColor, skipBackgroundColor])
 
   // If tiles exist, render tile-based layout
   if (config.tiles && config.tiles.length > 0) {
@@ -53,11 +60,13 @@ function LivingPosterContent({
       .sort((a, b) => a.order - b.order)
 
     return (
-      <div className="min-h-screen w-full h-full relative" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
-        <TextureOverlay 
-          type={config.texture?.type || 'none'} 
-          intensity={config.texture?.intensity || 40} 
-        />
+      <div className="min-h-screen w-full h-full relative" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
+        {!skipTextureOverlay && (
+          <TextureOverlay 
+            type={config.texture?.type || 'none'} 
+            intensity={config.texture?.intensity || 40} 
+          />
+        )}
         {sortedTiles.map((tile) => {
           // Handle overlay case (title over image)
           if (tile.type === 'title' && tile.overlayTargetId) {
@@ -110,11 +119,13 @@ function LivingPosterContent({
 
   // Fallback to legacy hero/description layout
   return (
-    <div className="min-h-screen h-full relative" style={{ backgroundColor, background: backgroundColor, height: '100%' } as React.CSSProperties}>
-      <TextureOverlay 
-        type={config.texture?.type || 'none'} 
-        intensity={config.texture?.intensity || 40} 
-      />
+    <div className="min-h-screen h-full relative" style={skipBackgroundColor ? { height: '100%' } : { backgroundColor, background: backgroundColor, height: '100%' } as React.CSSProperties}>
+      {!skipTextureOverlay && (
+        <TextureOverlay 
+          type={config.texture?.type || 'none'} 
+          intensity={config.texture?.intensity || 40} 
+        />
+      )}
       <Hero
         config={config}
         eventSlug={eventSlug}

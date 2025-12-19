@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { InviteConfig } from '@/lib/invite/schema'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
 import { DEMO } from '@/lib/invite/loadConfig'
 import { logError, logDebug } from '@/lib/error-handler'
 import api from '@/lib/api'
+import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 
 interface Event {
   id: number
@@ -20,16 +21,22 @@ interface InvitePageClientProps {
   slug: string
   initialEvent?: Event | null
   initialConfig?: InviteConfig | null
+  heroSSR?: React.ReactNode
+  eventDetailsSSR?: React.ReactNode
 }
 
 export default function InvitePageClient({ 
   slug, 
   initialEvent = null, 
-  initialConfig = null 
+  initialConfig = null,
+  heroSSR = null,
+  eventDetailsSSR = null,
 }: InvitePageClientProps) {
   const [event, setEvent] = useState<Event | null>(initialEvent)
   const [config, setConfig] = useState<InviteConfig | null>(initialConfig)
   const [loading, setLoading] = useState(!initialConfig)
+
+  // Debug: Log initial config from server
 
   useEffect(() => {
     // If we have initial data from server, skip fetching
@@ -48,10 +55,20 @@ export default function InvitePageClient({
 
       if (eventData?.page_config) {
         // Use page_config from API (supports both legacy hero-based and new tile-based configs)
-        // Ensure customColors is preserved even if it's an empty object
+        // Preserve customColors - check if it's an object and has properties
+        let customColors = undefined
+        if (eventData.page_config.customColors !== undefined) {
+          // If customColors exists, use it (even if empty object)
+          if (typeof eventData.page_config.customColors === 'object' && eventData.page_config.customColors !== null) {
+            customColors = eventData.page_config.customColors
+          } else {
+            customColors = eventData.page_config.customColors
+          }
+        }
+        
         const configWithCustomColors = {
           ...eventData.page_config,
-          customColors: eventData.page_config.customColors || undefined,
+          customColors,
         }
         
         // Debug: Log image tile settings when loading public page
@@ -118,14 +135,68 @@ export default function InvitePageClient({
     )
   }
 
+  const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
+
+  // Set body background to match page background
+  useEffect(() => {
+    document.body.style.setProperty('background-color', backgroundColor, 'important')
+    document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
+    document.body.style.setProperty('background', backgroundColor, 'important')
+    document.documentElement.style.setProperty('background', backgroundColor, 'important')
+
+    return () => {
+      document.body.style.removeProperty('background-color')
+      document.body.style.removeProperty('background')
+      document.documentElement.style.removeProperty('background-color')
+      document.documentElement.style.removeProperty('background')
+    }
+  }, [backgroundColor])
+
+  // If we have SSR content, filter out those tiles from config
+  const configForClient = heroSSR || eventDetailsSSR ? {
+    ...config,
+    tiles: config.tiles?.filter((tile) => {
+      // Skip image tile if heroSSR is provided
+      if (heroSSR && tile.type === 'image') {
+        return false
+      }
+      // Skip title tile if it's overlaying on image (heroSSR handles it)
+      if (heroSSR && tile.type === 'title' && tile.overlayTargetId) {
+        return false
+      }
+      // Skip event-details tile if eventDetailsSSR is provided
+      if (eventDetailsSSR && tile.type === 'event-details') {
+        return false
+      }
+      return true
+    }) || []
+  } : config
+
   return (
-    <LivingPosterPage
-      config={config}
-      eventSlug={slug}
-      eventDate={event?.date}
-      hasRsvp={event?.has_rsvp}
-      hasRegistry={event?.has_registry}
-    />
+    <div className="min-h-screen w-full h-full relative" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
+      {/* Texture overlay at page level */}
+      <TextureOverlay 
+        type={config.texture?.type || 'none'} 
+        intensity={config.texture?.intensity || 40} 
+      />
+      
+      {/* Server-rendered hero section */}
+      {heroSSR}
+      
+      {/* Server-rendered event details */}
+      {eventDetailsSSR}
+      
+      {/* Client-rendered remaining tiles */}
+      <LivingPosterPage
+        config={configForClient}
+        eventSlug={slug}
+        eventDate={event?.date}
+        hasRsvp={event?.has_rsvp}
+        hasRegistry={event?.has_registry}
+        skipTextureOverlay={true}
+        skipBackgroundColor={true}
+      />
+    </div>
   )
 }
 

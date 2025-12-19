@@ -1,6 +1,11 @@
 import { Metadata } from 'next'
+import React from 'react'
 import InvitePageClient from './InvitePageClient'
-import { InviteConfig } from '@/lib/invite/schema'
+import { InviteConfig, Tile } from '@/lib/invite/schema'
+import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
+import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
+import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
+import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 
 // ISR: Revalidate every hour (3600 seconds)
 export const revalidate = 3600
@@ -192,50 +197,113 @@ export default async function InvitePage({
   }
 
   // Fetch event data on server for initial render
-  // If fetch fails (e.g., backend not running in dev), let client component handle it
   const event = await fetchEventData(params.slug)
+
+  // If event not found, render error page
+  if (!event) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Invite not found</h1>
+          <p className="text-gray-600">The invitation you're looking for doesn't exist or has been removed.</p>
+        </div>
+      </div>
+    )
+  }
 
   // Prepare initial config if event data is available
   let initialConfig: InviteConfig | null = null
-  if (event) {
-    if (event.page_config) {
-      initialConfig = {
-        ...event.page_config,
-        customColors: event.page_config.customColors !== undefined 
-          ? event.page_config.customColors 
-          : undefined,
-      }
-      } else {
-      // Fallback config
-      initialConfig = {
-          themeId: 'classic-noir',
-          hero: {
-          title: event.title || 'Event',
-          subtitle: event.description ? event.description.substring(0, 100) : undefined,
-          showTimer: !!event.date,
-          eventDate: event.date,
-            buttons: [
-              { label: 'Save the Date', action: 'calendar' },
-            ...(event.has_rsvp
-              ? [{ label: 'RSVP' as const, action: 'rsvp' as const, href: `/event/${params.slug}/rsvp` }]
-                : []),
-            ...(event.has_registry
-              ? [{ label: 'Registry' as const, action: 'registry' as const, href: `/registry/${params.slug}` }]
-                : []),
-            ],
-          },
-        descriptionMarkdown: event.description || undefined,
-        }
-      }
+  if (event.page_config) {
+    initialConfig = {
+      ...event.page_config,
+      customColors: event.page_config.customColors !== undefined 
+        ? event.page_config.customColors 
+        : undefined,
+    }
+  } else {
+    // Fallback config
+    initialConfig = {
+      themeId: 'classic-noir',
+      hero: {
+        title: event.title || 'Event',
+        subtitle: event.description ? event.description.substring(0, 100) : undefined,
+        showTimer: !!event.date,
+        eventDate: event.date,
+        buttons: [
+          { label: 'Save the Date', action: 'calendar' },
+          ...(event.has_rsvp
+            ? [{ label: 'RSVP' as const, action: 'rsvp' as const, href: `/event/${params.slug}/rsvp` }]
+            : []),
+          ...(event.has_registry
+            ? [{ label: 'Registry' as const, action: 'registry' as const, href: `/registry/${params.slug}` }]
+            : []),
+        ],
+      },
+      descriptionMarkdown: event.description || undefined,
+    }
   }
 
-  // Always render client component - it will handle fetching if server fetch failed
-  // This is especially important for local development where backend might not be running
+  // Extract hero tiles (image + title overlay if exists) and event details for SSR
+  let heroSSR: React.ReactNode = null
+  let eventDetailsSSR: React.ReactNode = null
+  const backgroundColor = initialConfig?.customColors?.backgroundColor || '#ffffff'
+
+  if (initialConfig?.tiles && initialConfig.tiles.length > 0) {
+    // Find image tile (first enabled image tile)
+    const imageTile = initialConfig.tiles.find(
+      (t: Tile) => t.type === 'image' && t.enabled !== false && (t.settings as any)?.src
+    ) as Tile | undefined
+
+    // Find title tile that overlays on image
+    const titleTile = imageTile ? initialConfig.tiles.find(
+      (t: Tile) => t.type === 'title' && t.enabled && t.overlayTargetId === imageTile.id
+    ) as Tile | undefined : null
+
+    // Find event details tile (first enabled)
+    const eventDetailsTile = initialConfig.tiles.find(
+      (t: Tile) => t.type === 'event-details' && t.enabled
+    ) as Tile | undefined
+
+    // Render hero section server-side
+    if (imageTile) {
+      const imageSettings = imageTile.settings as any
+      heroSSR = (
+        <div className="w-full relative">
+          <ImageTileSSR 
+            settings={imageSettings} 
+            hasTitleOverlay={!!titleTile} 
+          />
+          {titleTile && (
+            <TitleTileSSR settings={titleTile.settings as any} />
+          )}
+        </div>
+      )
+    }
+
+    // Render event details server-side
+    if (eventDetailsTile) {
+      const eventDetailsSettings = eventDetailsTile.settings as any
+      eventDetailsSSR = (
+        <div style={{ backgroundColor }}>
+          <EventDetailsTileSSR 
+            settings={eventDetailsSettings}
+            eventSlug={params.slug}
+            eventTitle={event.title}
+            eventDate={event.date}
+          />
+        </div>
+      )
+    }
+  }
+
+  // Render client component with SSR content
   return (
     <InvitePageClient
       slug={params.slug}
-      initialEvent={event || null}
+      initialEvent={event}
       initialConfig={initialConfig}
+      heroSSR={heroSSR}
+      eventDetailsSSR={eventDetailsSSR}
     />
   )
 }
