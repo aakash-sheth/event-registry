@@ -1,0 +1,287 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Analytics Dashboard | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .analytics-container {
+        padding: 20px;
+    }
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+    .metric-card {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-card h3 {
+        margin: 0 0 10px 0;
+        color: #417690;
+        font-size: 14px;
+        text-transform: uppercase;
+        font-weight: 600;
+    }
+    .metric-value {
+        font-size: 32px;
+        font-weight: bold;
+        color: #417690;
+        margin: 10px 0;
+    }
+    .metric-label {
+        color: #666;
+        font-size: 12px;
+    }
+    .section {
+        margin-bottom: 40px;
+    }
+    .section h2 {
+        color: #417690;
+        border-bottom: 2px solid #417690;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+    }
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+    .data-table th,
+    .data-table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    .data-table th {
+        background: #f5f5f5;
+        font-weight: 600;
+    }
+    .json-display {
+        background: #f9f9f9;
+        padding: 15px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+        overflow-x: auto;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .error {
+        color: #ba2121;
+        padding: 15px;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="analytics-container">
+    <h1>📊 Analytics Dashboard</h1>
+    
+    {% if analytics.error %}
+        <div class="error">
+            <strong>Error loading analytics:</strong> {{ analytics.error }}
+        </div>
+    {% else %}
+        
+        <!-- Users Section -->
+        <div class="section">
+            <h2>👥 Users</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Total Users</h3>
+                    <div class="metric-value">{{ analytics.users.total|default:0 }}</div>
+                    <div class="metric-label">All registered users</div>
+                </div>
+                <div class="metric-card">
+                    <h3>New (Last 7 Days)</h3>
+                    <div class="metric-value">{{ analytics.users.new_last_7_days|default:0 }}</div>
+                    <div class="metric-label">Recent signups</div>
+                </div>
+                <div class="metric-card">
+                    <h3>New (Last 30 Days)</h3>
+                    <div class="metric-value">{{ analytics.users.new_last_30_days|default:0 }}</div>
+                    <div class="metric-label">Monthly signups</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Verified</h3>
+                    <div class="metric-value">{{ analytics.users.verified|default:0 }}</div>
+                    <div class="metric-label">Email verified</div>
+                </div>
+                <div class="metric-card">
+                    <h3>With Events</h3>
+                    <div class="metric-value">{{ analytics.users.with_events|default:0 }}</div>
+                    <div class="metric-label">Active hosts</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Events Section -->
+        <div class="section">
+            <h2>🎉 Events</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Total Events</h3>
+                    <div class="metric-value">{{ analytics.events.total|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Active</h3>
+                    <div class="metric-value">{{ analytics.events.active|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Expired</h3>
+                    <div class="metric-value">{{ analytics.events.expired|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Public</h3>
+                    <div class="metric-value">{{ analytics.events.public|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>With RSVP</h3>
+                    <div class="metric-value">{{ analytics.events.with_rsvp|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>With Registry</h3>
+                    <div class="metric-value">{{ analytics.events.with_registry|default:0 }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Engagement Section -->
+        <div class="section">
+            <h2>💬 Engagement</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Total RSVPs</h3>
+                    <div class="metric-value">{{ analytics.engagement.total_rsvps|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>RSVPs: Yes</h3>
+                    <div class="metric-value">{{ analytics.engagement.rsvps_yes|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>RSVPs: No</h3>
+                    <div class="metric-value">{{ analytics.engagement.rsvps_no|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>RSVPs: Maybe</h3>
+                    <div class="metric-value">{{ analytics.engagement.rsvps_maybe|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Guests Invited</h3>
+                    <div class="metric-value">{{ analytics.engagement.total_guests_invited|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Guests Attending</h3>
+                    <div class="metric-value">{{ analytics.engagement.total_guests_attending|default:0 }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Business Section -->
+        <div class="section">
+            <h2>💰 Business</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Total Orders</h3>
+                    <div class="metric-value">{{ analytics.business.total_orders|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Paid Orders</h3>
+                    <div class="metric-value">{{ analytics.business.paid_orders|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Total Revenue</h3>
+                    <div class="metric-value">₹{{ analytics.business.total_revenue_rupees|floatformat:2|default:"0.00" }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Avg Order Value</h3>
+                    <div class="metric-value">₹{{ analytics.business.avg_order_value_rupees|floatformat:2|default:"0.00" }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Orders (Last 7 Days)</h3>
+                    <div class="metric-value">{{ analytics.business.orders_last_7_days|default:0 }}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Orders (Last 30 Days)</h3>
+                    <div class="metric-value">{{ analytics.business.orders_last_30_days|default:0 }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Geographic Section -->
+        {% if analytics.geographic %}
+        <div class="section">
+            <h2>🌍 Geographic</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <h3>Events by Country</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Country</th>
+                                <th>Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in analytics.geographic.events_by_country %}
+                            <tr>
+                                <td>{{ item.country|default:"Unknown" }}</td>
+                                <td>{{ item.count }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="2">No data</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div>
+                    <h3>Top Cities</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>City</th>
+                                <th>Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in analytics.geographic.top_cities %}
+                            <tr>
+                                <td>{{ item.city|default:"Unknown" }}</td>
+                                <td>{{ item.count }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="2">No data</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Raw JSON (for debugging) -->
+        <div class="section">
+            <h2>📋 Raw Data</h2>
+            <details>
+                <summary style="cursor: pointer; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                    Click to view raw JSON data
+                </summary>
+                <div class="json-display">
+                    <pre>{{ analytics|safe }}</pre>
+                </div>
+            </details>
+        </div>
+
+    {% endif %}
+</div>
+{% endblock %}

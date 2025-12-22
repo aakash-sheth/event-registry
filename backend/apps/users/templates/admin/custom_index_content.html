@@ -1,0 +1,23 @@
+{% if custom_admin_views %}
+<div class="module" id="custom-views-module">
+    <table>
+        <caption>
+            <a href="#" class="section" title="Custom Views">Custom Views</a>
+        </caption>
+        {% for view in custom_admin_views %}
+        <tr class="model-{{ view.name|lower|slugify }}">
+            <th scope="row">
+                <a href="{{ view.url }}">{{ view.icon }} {{ view.name }}</a>
+            </th>
+            <td>
+                <a href="{{ view.url }}">{{ view.description }}</a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="2" style="padding: 10px; color: #666;">No custom views available.</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}

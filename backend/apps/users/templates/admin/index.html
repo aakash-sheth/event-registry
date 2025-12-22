@@ -1,0 +1,87 @@
+{% extends "admin/index.html" %}
+{% load i18n static %}
+
+{% block content %}
+{{ block.super }}
+
+<!-- TEST: If you see this comment, the template is loading -->
+<div style="background: #ffeb3b; padding: 10px; margin: 10px 0; border: 2px solid #f57f17;">
+    <strong>Template Test:</strong> Custom admin index template is loading!
+</div>
+
+{% if custom_admin_views %}
+<div class="module" id="custom-views-module">
+    <table>
+        <caption>
+            <a href="#" class="section" title="Custom Views">Custom Views</a>
+        </caption>
+        {% for view in custom_admin_views %}
+        <tr class="model-{{ view.name|lower|slugify }}">
+            <th scope="row">
+                <a href="{{ view.url }}">{{ view.icon }} {{ view.name }}</a>
+            </th>
+            <td>
+                <a href="{{ view.url }}" class="addlink">{{ view.description }}</a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="2" style="padding: 10px; color: #666;">No custom views available.</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+{% if models_by_app %}
+<div class="module" id="all-admin-paths-module" style="margin-top: 20px;">
+    <table>
+        <caption>
+            <a href="#" class="section" title="All Admin Paths">All Admin Paths</a>
+        </caption>
+        <tbody>
+            {% for app_label, models in models_by_app.items %}
+            <tr>
+                <th colspan="2" style="background: #f8f9fa; padding: 8px; font-weight: bold; color: #417690; border-bottom: 2px solid #417690;">
+                    {{ app_label|upper }}
+                </th>
+            </tr>
+            {% for model in models %}
+            <tr class="model-{{ model.model_name|lower }}">
+                <th scope="row" style="padding: 8px;">
+                    <a href="{{ model.change_url }}">{{ model.name }}</a>
+                </th>
+                <td style="padding: 8px;">
+                    <a href="{{ model.add_url }}" class="addlink" style="margin-right: 10px;">+ Add</a>
+                    <a href="{{ model.change_url }}" class="changelink">Change</a>
+                    <span style="color: #999; font-size: 11px; margin-left: 10px;">{{ model.url }}</span>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+            
+            {% if custom_admin_views %}
+            <tr>
+                <th colspan="2" style="background: #f8f9fa; padding: 8px; font-weight: bold; color: #417690; border-bottom: 2px solid #417690; border-top: 2px solid #ddd; margin-top: 10px;">
+                    CUSTOM VIEWS
+                </th>
+            </tr>
+            {% for view in custom_admin_views %}
+            <tr class="model-{{ view.name|lower|slugify }}">
+                <th scope="row" style="padding: 8px;">
+                    <a href="{{ view.url }}">{{ view.icon }} {{ view.name }}</a>
+                </th>
+                <td style="padding: 8px;">
+                    <a href="{{ view.url }}" class="changelink">{{ view.description }}</a>
+                    <span style="color: #999; font-size: 11px; margin-left: 10px;">{{ view.url }}</span>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endblock %}
+
