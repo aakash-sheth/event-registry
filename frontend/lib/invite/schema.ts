@@ -17,7 +17,7 @@ export interface BackgroundImage {
 }
 
 // Tile-based structure
-export type TileType = 'title' | 'image' | 'timer' | 'event-details' | 'description' | 'feature-buttons' | 'footer'
+export type TileType = 'title' | 'image' | 'timer' | 'event-details' | 'description' | 'feature-buttons' | 'footer' | 'event-carousel'
 
 export interface TitleTileSettings {
   text: string
@@ -67,6 +67,36 @@ export interface FooterTileSettings {
   text: string
 }
 
+export interface EventCarouselTileSettings {
+  showFields: {
+    image?: boolean
+    title?: boolean
+    dateTime?: boolean
+    location?: boolean
+    cta?: boolean
+  }
+  // Slideshow controls
+  autoPlay?: boolean // Default: true
+  autoPlayInterval?: number // Default: 5000, range: 3000-10000
+  showArrows?: boolean // Default: true
+  showDots?: boolean // Default: true
+  // Card styling presets
+  cardStyle?: 'minimal' | 'elegant' | 'modern' | 'classic' // Default: 'elegant'
+  cardLayout?: 'full-width' | 'centered' | 'grid' // Default: 'centered'
+  cardSpacing?: 'tight' | 'normal' | 'spacious' // Default: 'normal'
+  // Card customization
+  cardBackgroundColor?: string // Hex color, default: '#ffffff'
+  cardBorderRadius?: number // 0-24, default: 12
+  cardShadow?: 'none' | 'sm' | 'md' | 'lg' | 'xl' // Default: 'md'
+  cardBorderWidth?: number // 0-4, default: 0
+  cardBorderColor?: string // Hex color
+  cardBorderStyle?: 'solid' | 'dashed' // Default: 'solid'
+  cardPadding?: 'tight' | 'normal' | 'spacious' // Default: 'normal'
+  // Image settings
+  imageHeight?: 'small' | 'medium' | 'large' | 'full' // Default: 'medium'
+  imageAspectRatio?: '16:9' | '4:3' | '1:1' | 'auto' // Default: '16:9'
+}
+
 export type TextureType =
   | 'none'
   | 'paper-grain'
@@ -90,6 +120,7 @@ export type TileSettings =
   | DescriptionTileSettings
   | FeatureButtonsTileSettings
   | FooterTileSettings
+  | EventCarouselTileSettings
 
 export interface Tile {
   id: string
