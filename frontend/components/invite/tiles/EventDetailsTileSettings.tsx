@@ -85,6 +85,28 @@ export default function EventDetailsTileSettings({ settings, onChange }: EventDe
           Color for the event details text (date, time, location, dress code)
         </p>
       </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-2">Button Color</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={settings.buttonColor || '#1F2937'}
+            onChange={(e) => onChange({ ...settings, buttonColor: e.target.value })}
+            className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
+          />
+          <Input
+            type="text"
+            value={settings.buttonColor || '#1F2937'}
+            onChange={(e) => onChange({ ...settings, buttonColor: e.target.value })}
+            placeholder="#1F2937"
+            className="flex-1"
+          />
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Color for the "Save the Date" button border and text. Text color will automatically adjust for contrast.
+        </p>
+      </div>
     </div>
   )
 }

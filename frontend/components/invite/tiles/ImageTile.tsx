@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { ImageTileSettings } from '@/lib/invite/schema'
 import { cn } from '@/lib/utils'
 
-interface ImageTileProps {
+export interface ImageTileProps {
   settings: ImageTileSettings
   preview?: boolean
   hasTitleOverlay?: boolean

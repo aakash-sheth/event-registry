@@ -69,12 +69,12 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
       // This happens in the background and updates the background color when ready
       extractDominantColors(imageUrl, 3)
         .then((colors) => {
-          const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
-          onChange({
-            ...settings,
-            src: imageUrl,
-            backgroundColor: primaryColor,
-          })
+        const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
+        onChange({
+          ...settings,
+          src: imageUrl,
+          backgroundColor: primaryColor,
+        })
         })
         .catch((error) => {
           console.error('Error extracting dominant colors (non-critical):', error)

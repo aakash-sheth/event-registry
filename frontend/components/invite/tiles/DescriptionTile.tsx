@@ -3,7 +3,7 @@
 import React from 'react'
 import { DescriptionTileSettings } from '@/lib/invite/schema'
 
-interface DescriptionTileProps {
+export interface DescriptionTileProps {
   settings: DescriptionTileSettings
   preview?: boolean
 }

@@ -3,7 +3,7 @@
 import React from 'react'
 import { FooterTileSettings } from '@/lib/invite/schema'
 
-interface FooterTileProps {
+export interface FooterTileProps {
   settings: FooterTileSettings
   preview?: boolean
 }

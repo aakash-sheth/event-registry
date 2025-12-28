@@ -30,6 +30,7 @@ interface TileListProps {
   eventTitle?: string
   hasRsvp?: boolean
   hasRegistry?: boolean
+  allowedSubEvents?: any[]
 }
 
 interface SortableTileItemProps {
@@ -41,6 +42,7 @@ interface SortableTileItemProps {
   hasRegistry?: boolean
   allTiles: Tile[]
   isFooter?: boolean
+  allowedSubEvents?: any[]
 }
 
 function SortableTileItem({
@@ -52,6 +54,7 @@ function SortableTileItem({
   hasRegistry,
   allTiles,
   isFooter = false,
+  allowedSubEvents = [],
 }: SortableTileItemProps) {
   const {
     attributes,
@@ -97,6 +100,7 @@ function SortableTileItem({
           hasRsvp={hasRsvp}
           hasRegistry={hasRegistry}
           allTiles={allTiles}
+          allowedSubEvents={allowedSubEvents}
         />
       </div>
     </div>
@@ -112,6 +116,7 @@ interface SortableImageWithOverlayProps {
   hasRsvp?: boolean
   hasRegistry?: boolean
   allTiles: Tile[]
+  allowedSubEvents?: any[]
 }
 
 function SortableImageWithOverlay({
@@ -123,6 +128,7 @@ function SortableImageWithOverlay({
   hasRsvp,
   hasRegistry,
   allTiles,
+  allowedSubEvents = [],
 }: SortableImageWithOverlayProps) {
   const {
     attributes,
@@ -163,6 +169,7 @@ function SortableImageWithOverlay({
           hasRsvp={hasRsvp}
           hasRegistry={hasRegistry}
           allTiles={allTiles}
+          allowedSubEvents={allowedSubEvents}
         />
         <TilePreview
           tile={titleTile}
@@ -172,6 +179,7 @@ function SortableImageWithOverlay({
           hasRsvp={hasRsvp}
           hasRegistry={hasRegistry}
           allTiles={allTiles}
+          allowedSubEvents={allowedSubEvents}
         />
       </div>
     </div>
@@ -186,6 +194,7 @@ export default function TileList({
   eventTitle,
   hasRsvp,
   hasRegistry,
+  allowedSubEvents = [],
 }: TileListProps) {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -256,6 +265,7 @@ export default function TileList({
                   hasRsvp={hasRsvp}
                   hasRegistry={hasRegistry}
                   allTiles={tiles}
+                  allowedSubEvents={allowedSubEvents}
                 />
               )
             }
@@ -284,6 +294,7 @@ export default function TileList({
               hasRegistry={hasRegistry}
               allTiles={tiles}
               isFooter={true}
+              allowedSubEvents={allowedSubEvents}
             />
           )}
         </div>

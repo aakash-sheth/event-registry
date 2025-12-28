@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { TimerTileSettings } from '@/lib/invite/schema'
 
-interface TimerTileProps {
+export interface TimerTileProps {
   settings: TimerTileSettings
   preview?: boolean
   eventDate?: string

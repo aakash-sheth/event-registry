@@ -4,7 +4,7 @@ import React from 'react'
 import { FeatureButtonsTileSettings } from '@/lib/invite/schema'
 import Link from 'next/link'
 
-interface FeatureButtonsTileProps {
+export interface FeatureButtonsTileProps {
   settings: FeatureButtonsTileSettings
   preview?: boolean
   hasRsvp?: boolean

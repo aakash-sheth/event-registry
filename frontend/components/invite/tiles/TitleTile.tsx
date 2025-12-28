@@ -4,7 +4,7 @@ import React from 'react'
 import { TitleTileSettings, Tile } from '@/lib/invite/schema'
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 
-interface TitleTileProps {
+export interface TitleTileProps {
   settings: TitleTileSettings
   preview?: boolean
   overlayMode?: boolean

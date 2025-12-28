@@ -5,9 +5,9 @@ import { MapPin, ChevronDown, Calendar, Download } from 'lucide-react'
 import { EventDetailsTileSettings } from '@/lib/invite/schema'
 import { getTimezoneFromLocation, formatTimeInTimezone } from '@/lib/invite/timezone'
 import { getGoogleCalendarHref } from '@/lib/calendar'
-import { getAutomaticLabelColor } from '@/lib/invite/colorUtils'
+import { getAutomaticLabelColor, hexToRgb, getBrightnessPercentage } from '@/lib/invite/colorUtils'
 
-interface EventDetailsTileProps {
+export interface EventDetailsTileProps {
   settings: EventDetailsTileSettings
   preview?: boolean
   eventSlug?: string
@@ -17,6 +17,13 @@ interface EventDetailsTileProps {
 
 export default function EventDetailsTile({ settings, preview = false, eventSlug, eventTitle, eventDate }: EventDetailsTileProps) {
   const [showCalendarMenu, setShowCalendarMenu] = useState(false)
+  
+  // Calculate button colors based on settings.buttonColor
+  const buttonColor = settings.buttonColor || '#1F2937'
+  const rgb = hexToRgb(buttonColor)
+  const brightness = rgb ? getBrightnessPercentage(rgb.r, rgb.g, rgb.b) : 0
+  const textColor = brightness < 50 ? '#FFFFFF' : '#1F2937'
+  const hoverTextColor = brightness < 50 ? '#1F2937' : '#FFFFFF'
   const formatDate = (dateString: string) => {
     try {
       let date: Date
@@ -187,10 +194,20 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
           <div className="relative mt-8">
             <button
               onClick={handleSaveTheDate}
-              className="px-8 py-3 rounded-sm font-light text-sm tracking-widest uppercase border-2 border-gray-800 text-gray-800 hover:bg-gray-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all mx-auto"
+              className="px-8 py-3 rounded-sm font-light text-sm tracking-widest uppercase border-2 focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all mx-auto"
               style={{
                 minHeight: '44px',
                 letterSpacing: '0.15em',
+                borderColor: buttonColor,
+                color: buttonColor,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = buttonColor
+                e.currentTarget.style.color = hoverTextColor
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+                e.currentTarget.style.color = buttonColor
               }}
               aria-expanded={showCalendarMenu}
               aria-haspopup="true"

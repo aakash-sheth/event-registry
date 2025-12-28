@@ -10,6 +10,7 @@ import EventDetailsTileSettings from './EventDetailsTileSettings'
 import DescriptionTileSettings from './DescriptionTileSettings'
 import FeatureButtonsTileSettings from './FeatureButtonsTileSettings'
 import FooterTileSettings from './FooterTileSettings'
+import EventCarouselTileSettings from './EventCarouselTileSettings'
 
 interface TileSettingsProps {
   tile: Tile
@@ -30,6 +31,7 @@ const TILE_LABELS: Record<TileType, string> = {
   'description': 'Description',
   'feature-buttons': 'Feature Buttons',
   'footer': 'Footer',
+  'event-carousel': 'Event Carousel',
 }
 
 export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId, hasRsvp = false, hasRegistry = false }: TileSettingsProps) {
@@ -90,6 +92,8 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
         return <FeatureButtonsTileSettings settings={tile.settings as any} onChange={handleSettingsChange} hasRsvp={hasRsvp} hasRegistry={hasRegistry} />
       case 'footer':
         return <FooterTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
+      case 'event-carousel':
+        return <EventCarouselTileSettings settings={tile.settings as any} onUpdate={handleSettingsChange} />
       default:
         return null
     }
