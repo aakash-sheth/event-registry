@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Event, RSVP, Guest, InvitePage
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code
 
@@ -12,7 +12,7 @@ class EventSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'is_expired', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'is_expired', 'created_at', 'updated_at')
         read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
     
     def get_country_code(self, obj):
@@ -23,11 +23,25 @@ class EventSerializer(serializers.ModelSerializer):
 class InvitePageSerializer(serializers.ModelSerializer):
     """Full serializer for InvitePage - read/write"""
     event_slug = serializers.CharField(source='event.slug', read_only=True)
+    allowed_sub_events = serializers.SerializerMethodField()
+    guest_context = serializers.SerializerMethodField()
+    event_structure = serializers.CharField(source='event.event_structure', read_only=True)
+    rsvp_mode = serializers.CharField(source='event.rsvp_mode', read_only=True)
     
     class Meta:
         model = InvitePage
-        fields = ('id', 'event', 'event_slug', 'slug', 'background_url', 'config', 'is_published', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'event_slug', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'event_slug', 'slug', 'background_url', 'config', 'is_published', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event_slug', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'created_at', 'updated_at')
+    
+    def get_allowed_sub_events(self, obj):
+        """Get allowed sub-events - set by view based on guest token or public visibility"""
+        # This will be set by the view using context
+        return self.context.get('allowed_sub_events', [])
+    
+    def get_guest_context(self, obj):
+        """Get guest context if guest token was provided"""
+        # This will be set by the view using context
+        return self.context.get('guest_context', None)
     
     def validate_config(self, value):
         """Validate config structure"""
@@ -94,14 +108,16 @@ class EventCreateSerializer(serializers.ModelSerializer):
 
 class RSVPSerializer(serializers.ModelSerializer):
     guest_id = serializers.IntegerField(source='guest.id', read_only=True, allow_null=True)
+    sub_event_id = serializers.IntegerField(source='sub_event.id', read_only=True, allow_null=True)
+    sub_event_title = serializers.CharField(source='sub_event.title', read_only=True, allow_null=True)
     is_core_guest = serializers.SerializerMethodField()
     country_code = serializers.SerializerMethodField()
     local_number = serializers.SerializerMethodField()
     
     class Meta:
         model = RSVP
-        fields = ('id', 'event', 'name', 'phone', 'email', 'will_attend', 'guests_count', 'notes', 'source_channel', 'guest_id', 'is_core_guest', 'is_removed', 'country_code', 'local_number', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'created_at', 'updated_at', 'country_code', 'local_number')
+        fields = ('id', 'event', 'sub_event', 'sub_event_id', 'sub_event_title', 'name', 'phone', 'email', 'will_attend', 'guests_count', 'notes', 'source_channel', 'guest_id', 'is_core_guest', 'is_removed', 'country_code', 'local_number', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'sub_event_id', 'sub_event_title', 'created_at', 'updated_at', 'country_code', 'local_number')
     
     def get_is_core_guest(self, obj):
         """Check if this RSVP is from a guest in the guest list"""
@@ -145,6 +161,12 @@ class RSVPCreateSerializer(serializers.Serializer):
     guests_count = serializers.IntegerField(default=1, min_value=0)
     notes = serializers.CharField(required=False, allow_blank=True)
     source_channel = serializers.ChoiceField(choices=[('qr', 'QR Code'), ('link', 'Web Link'), ('manual', 'Manual')], default='link', required=False)
+    selectedSubEventIds = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        help_text="Array of sub-event IDs for PER_SUBEVENT mode (only for ENVELOPE events)"
+    )
 
 
 class GuestSerializer(serializers.ModelSerializer):
@@ -152,11 +174,17 @@ class GuestSerializer(serializers.ModelSerializer):
     rsvp_will_attend = serializers.SerializerMethodField()
     country_code = serializers.SerializerMethodField()
     local_number = serializers.SerializerMethodField()
+    guest_token = serializers.CharField(read_only=True)
+    sub_event_invites = serializers.SerializerMethodField()
     
     class Meta:
         model = Guest
-        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'created_at')
-        read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'country_code', 'local_number')
+        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'guest_token', 'sub_event_invites', 'created_at')
+        read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'country_code', 'local_number', 'guest_token', 'sub_event_invites')
+    
+    def get_sub_event_invites(self, obj):
+        """Get list of sub-event IDs this guest is invited to"""
+        return list(obj.sub_event_invites.values_list('sub_event_id', flat=True))
     
     def get_rsvp_status(self, obj):
         """Check if this guest has RSVP'd by matching phone number (with country code)"""
@@ -232,4 +260,52 @@ class GuestCreateSerializer(serializers.Serializer):
             # If no country code provided, it will be set in the view based on event country
         
         return data
+
+
+class SubEventSerializer(serializers.ModelSerializer):
+    """Serializer for SubEvent - full CRUD"""
+    
+    class Meta:
+        model = SubEvent
+        fields = ('id', 'event', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled', 'is_public_visible', 'is_removed', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event', 'created_at', 'updated_at')
+    
+    def validate(self, data):
+        """Validate that end_at is after start_at if both are provided"""
+        start_at = data.get('start_at')
+        end_at = data.get('end_at')
+        
+        if start_at and end_at and end_at <= start_at:
+            raise serializers.ValidationError("end_at must be after start_at")
+        
+        return data
+
+
+class SubEventCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating SubEvent"""
+    
+    class Meta:
+        model = SubEvent
+        fields = ('title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled', 'is_public_visible')
+    
+    def validate(self, data):
+        """Validate that end_at is after start_at if both are provided"""
+        start_at = data.get('start_at')
+        end_at = data.get('end_at')
+        
+        if start_at and end_at and end_at <= start_at:
+            raise serializers.ValidationError("end_at must be after start_at")
+        
+        return data
+
+
+class GuestSubEventInviteSerializer(serializers.ModelSerializer):
+    """Serializer for GuestSubEventInvite"""
+    sub_event_title = serializers.CharField(source='sub_event.title', read_only=True)
+    guest_name = serializers.CharField(source='guest.name', read_only=True)
+    
+    class Meta:
+        model = GuestSubEventInvite
+        fields = ('id', 'guest', 'guest_name', 'sub_event', 'sub_event_title', 'created_at')
+        read_only_fields = ('id', 'guest_name', 'sub_event_title', 'created_at')
 

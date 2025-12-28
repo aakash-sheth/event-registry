@@ -1,9 +1,15 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp, InvitePageViewSet, PublicInviteViewSet, upload_image
+from .views import (
+    EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp,
+    InvitePageViewSet, PublicInviteViewSet, upload_image,
+    SubEventViewSet, GuestInviteViewSet
+)
 
 router = DefaultRouter()
 router.register(r'', EventViewSet, basename='event')
+router.register(r'sub-events', SubEventViewSet, basename='sub-event')
+router.register(r'guest-invites', GuestInviteViewSet, basename='guest-invite')
 
 urlpatterns = [
     # Put custom paths BEFORE router.urls so they take precedence
@@ -21,5 +27,11 @@ urlpatterns = [
     path('invite/<str:slug>/publish/', InvitePageViewSet.as_view({'post': 'publish'}), name='invite-publish'),
     # Image upload endpoint
     path('<int:event_id>/upload-image/', upload_image, name='upload-image'),
+    # Sub-events endpoints
+    path('envelopes/<int:event_id>/sub-events/', SubEventViewSet.as_view({'get': 'list', 'post': 'create'}), name='envelope-sub-events'),
+    path('sub-events/<int:id>/', SubEventViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='sub-event-detail'),
+    # Guest invite management endpoints
+    path('envelopes/<int:event_id>/guests/', GuestInviteViewSet.as_view({'get': 'by_event'}), name='envelope-guests'),
+    path('guests/<int:guest_id>/invites/', GuestInviteViewSet.as_view({'put': 'update_guest_invites'}), name='guest-invites-update'),
     path('', include(router.urls)),
 ]

@@ -10,14 +10,29 @@ class Event(models.Model):
         ('other', 'Other'),
     ]
     
+    EVENT_STRUCTURE_CHOICES = [
+        ('SIMPLE', 'Simple'),
+        ('ENVELOPE', 'Envelope'),
+    ]
+    
+    RSVP_MODE_CHOICES = [
+        ('PER_SUBEVENT', 'Per Sub-Event'),
+        ('ONE_TAP_ALL', 'One Tap All'),
+    ]
+    
     host = models.ForeignKey(User, on_delete=models.CASCADE, related_name='events')
     slug = models.SlugField(unique=True, max_length=100)
     title = models.CharField(max_length=255)
     event_type = models.CharField(max_length=50, choices=EVENT_TYPE_CHOICES, default='wedding')
     date = models.DateField(null=True, blank=True)
+    event_end_date = models.DateField(null=True, blank=True, help_text="End date for multi-day events (optional)")
     city = models.CharField(max_length=255, blank=True)
     country = models.CharField(max_length=2, default='IN', help_text="ISO 3166-1 alpha-2 country code (e.g., IN, US, UK)")
     is_public = models.BooleanField(default=True)
+    
+    # Event structure and RSVP mode
+    event_structure = models.CharField(max_length=20, choices=EVENT_STRUCTURE_CHOICES, default='SIMPLE', help_text="SIMPLE: single event, ENVELOPE: event with sub-events")
+    rsvp_mode = models.CharField(max_length=20, choices=RSVP_MODE_CHOICES, default='ONE_TAP_ALL', help_text="PER_SUBEVENT: RSVP per sub-event, ONE_TAP_ALL: single confirmation for all")
     
     # Feature toggles
     has_rsvp = models.BooleanField(default=True, help_text="Enable RSVP functionality for this event")
@@ -48,6 +63,19 @@ class Event(models.Model):
         if not expiry:
             return False
         return expiry < date.today()
+    
+    def upgrade_to_envelope_if_needed(self):
+        """Automatically upgrade event to ENVELOPE when conditions are met"""
+        if self.event_structure == 'SIMPLE':
+            # Check if any upgrade conditions are met
+            has_sub_events = self.sub_events.exists()
+            has_event_carousel = self.page_config.get('tiles', []) if isinstance(self.page_config, dict) else []
+            has_event_carousel = any(t.get('type') == 'event-carousel' for t in has_event_carousel)
+            has_guest_assignments = GuestSubEventInvite.objects.filter(guest__event=self).exists()
+            
+            if has_sub_events or has_event_carousel or has_guest_assignments:
+                self.event_structure = 'ENVELOPE'
+                self.save(update_fields=['event_structure', 'updated_at'])
     
     def __str__(self):
         return f"{self.title} ({self.slug})"
@@ -88,6 +116,9 @@ class Guest(models.Model):
     notes = models.TextField(blank=True)
     is_removed = models.BooleanField(default=False, help_text="Soft delete flag - guest is removed but record preserved")
     
+    # Guest token for private invite links
+    guest_token = models.CharField(max_length=64, unique=True, db_index=True, null=True, blank=True, help_text="Random token for guest-specific invite links")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -96,8 +127,53 @@ class Guest(models.Model):
         unique_together = [['event', 'phone']]  # Phone is unique per event
         ordering = ['name']
     
+    def generate_guest_token(self):
+        """Generate a random, unguessable token for guest-specific invite links"""
+        import secrets
+        if not self.guest_token:
+            self.guest_token = secrets.token_urlsafe(32)  # 32 bytes = ~43 chars
+            self.save(update_fields=['guest_token'])
+        return self.guest_token
+    
     def __str__(self):
         return f"{self.name} - {self.event.title}"
+
+
+class SubEvent(models.Model):
+    """Sub-events within an envelope event (e.g., Haldi, Mehndi, Sangeet, Wedding, Reception)"""
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='sub_events')
+    title = models.CharField(max_length=255)
+    start_at = models.DateTimeField()
+    end_at = models.DateTimeField(null=True, blank=True)
+    location = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True, null=True)
+    image_url = models.TextField(blank=True, null=True)
+    rsvp_enabled = models.BooleanField(default=True)
+    is_public_visible = models.BooleanField(default=False, help_text="Visible on public invite links without guest token")
+    is_removed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'sub_events'
+        ordering = ['start_at']
+    
+    def __str__(self):
+        return f"{self.title} - {self.event.title}"
+
+
+class GuestSubEventInvite(models.Model):
+    """Join table linking guests to sub-events they're invited to"""
+    guest = models.ForeignKey('Guest', on_delete=models.CASCADE, related_name='sub_event_invites')
+    sub_event = models.ForeignKey(SubEvent, on_delete=models.CASCADE, related_name='guest_invites')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'guest_sub_event_invites'
+        unique_together = [['guest', 'sub_event']]
+    
+    def __str__(self):
+        return f"{self.guest.name} - {self.sub_event.title}"
 
 
 class RSVP(models.Model):
@@ -108,6 +184,7 @@ class RSVP(models.Model):
     ]
     
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='rsvps')
+    sub_event = models.ForeignKey(SubEvent, on_delete=models.CASCADE, null=True, blank=True, related_name='rsvps', help_text="NULL for SIMPLE events, set for ENVELOPE events")
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20)  # Format: +91XXXXXXXXXX (with country code)
     email = models.EmailField(blank=True, null=True)
@@ -132,9 +209,12 @@ class RSVP(models.Model):
     
     class Meta:
         db_table = 'rsvps'
-        unique_together = [['event', 'phone']]  # One RSVP per phone per event
+        # Note: unique_together with nullable sub_event requires special handling
+        # We'll use a database-level partial unique index or application-level validation
+        unique_together = [['event', 'phone', 'sub_event']]
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"{self.name} - {self.event.title} - {self.will_attend}"
+        sub_event_str = f" - {self.sub_event.title}" if self.sub_event else ""
+        return f"{self.name} - {self.event.title}{sub_event_str} - {self.will_attend}"
 

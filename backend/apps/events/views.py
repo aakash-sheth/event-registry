@@ -8,12 +8,14 @@ from django.http import HttpResponse
 from django.conf import settings
 import csv
 from urllib.parse import quote
-from .models import Event, RSVP, Guest, InvitePage
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
     GuestSerializer, GuestCreateSerializer,
-    InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer
+    InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer,
+    SubEventSerializer, SubEventCreateSerializer,
+    GuestSubEventInviteSerializer
 )
 import re
 from .utils import get_country_code, format_phone_with_country_code, upload_to_s3, parse_phone_number
@@ -25,22 +27,10 @@ class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
     
     def retrieve(self, request, *args, **kwargs):
-        """Override retrieve to log page_config for debugging"""
+        """Override retrieve"""
         instance = self.get_object()
         serializer = self.get_serializer(instance)
-        response_data = serializer.data
-        
-        # Log page_config details for debugging tile issues
-        import logging
-        logger = logging.getLogger(__name__)
-        if response_data.get('page_config'):
-            page_config = response_data['page_config']
-            tiles_count = len(page_config.get('tiles', [])) if isinstance(page_config, dict) else 0
-            logger.info(f'Event {instance.id} page_config: tiles_count={tiles_count}, has_tiles={bool(page_config.get("tiles"))}')
-        else:
-            logger.info(f'Event {instance.id} page_config: None or empty')
-        
-        return Response(response_data)
+        return Response(serializer.data)
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
     
@@ -478,6 +468,17 @@ class EventViewSet(viewsets.ModelViewSet):
                 event.page_config = page_config
                 # Only update page_config and updated_at fields (faster than full save)
                 event.save(update_fields=['page_config', 'updated_at'])
+                
+                # Sync to InvitePage.config if it exists (ensures invite page has latest config)
+                try:
+                    invite_page = InvitePage.objects.filter(event=event).first()
+                    if invite_page:
+                        invite_page.config = page_config
+                        invite_page.save(update_fields=['config', 'updated_at'])
+                except Exception:
+                    # InvitePage might not exist yet - ignore
+                    pass
+                
                 # Return minimal response instead of full event object (much faster)
                 return Response({
                     'status': 'success',
@@ -932,6 +933,7 @@ class InvitePageViewSet(viewsets.ModelViewSet):
 class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Public invite page view - no authentication required
+    Supports guest token via ?g=<token> query parameter for guest-scoped rendering
     """
     serializer_class = InvitePageSerializer
     permission_classes = [AllowAny]
@@ -940,6 +942,105 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         """Only return published invite pages"""
         return InvitePage.objects.filter(is_published=True)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve invite page with guest-scoped sub-events if token provided"""
+        slug = kwargs.get('slug')
+        
+        # Try to get invite page by slug
+        try:
+            invite_page = InvitePage.objects.get(slug=slug, is_published=True)
+            event = invite_page.event
+        except InvitePage.DoesNotExist:
+            # If invite page doesn't exist, try to find event by slug and create/use a default invite page
+            try:
+                event = Event.objects.get(slug=slug)
+                # Create a default invite page if it doesn't exist
+                invite_page, created = InvitePage.objects.get_or_create(
+                    event=event,
+                    defaults={
+                        'slug': event.slug,  # Use event slug as invite page slug
+                        'is_published': True,  # Auto-publish if created
+                        'config': event.page_config if event.page_config else {}  # Use event's page_config if available
+                    }
+                )
+                # If it already existed but wasn't published, publish it
+                if not created and not invite_page.is_published:
+                    invite_page.is_published = True
+                    invite_page.save(update_fields=['is_published'])
+                # Always sync config from event.page_config if it exists and is more complete
+                # This ensures invite page always has the latest design settings
+                if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
+                    # Update if current config is empty, or if event.page_config has more tiles/settings
+                    should_update = False
+                    if not invite_page.config or not isinstance(invite_page.config, dict):
+                        should_update = True
+                    else:
+                        # Compare tile counts - if event has more tiles, it's likely more recent
+                        event_tiles = event.page_config.get('tiles', [])
+                        invite_tiles = invite_page.config.get('tiles', [])
+                        if len(event_tiles) > len(invite_tiles):
+                            should_update = True
+                        # Also check if event has event-carousel tile with more settings
+                        event_carousel = next((t for t in event_tiles if t.get('type') == 'event-carousel'), None)
+                        invite_carousel = next((t for t in invite_tiles if t.get('type') == 'event-carousel'), None)
+                        if event_carousel and invite_carousel:
+                            event_settings_keys = len(event_carousel.get('settings', {}).keys())
+                            invite_settings_keys = len(invite_carousel.get('settings', {}).keys())
+                            if event_settings_keys > invite_settings_keys:
+                                should_update = True
+                    
+                    if should_update:
+                        invite_page.config = event.page_config
+                        invite_page.save(update_fields=['config'])
+            except Event.DoesNotExist:
+                from rest_framework.exceptions import NotFound
+                raise NotFound("Invite page or event not found")
+        
+        # Extract guest token from query params
+        guest_token = request.query_params.get('g', '').strip()
+        guest = None
+        allowed_sub_events = []
+        
+        if guest_token:
+            # Resolve guest token
+            try:
+                guest = Guest.objects.get(guest_token=guest_token, event=event, is_removed=False)
+                # Get allowed sub-events via join table
+                allowed_sub_events = SubEvent.objects.filter(
+                    guest_invites__guest=guest,
+                    is_removed=False
+                ).order_by('start_at')
+            except Guest.DoesNotExist:
+                # Invalid token - return empty sub-events (guest won't see any)
+                allowed_sub_events = []
+        else:
+            # Public link - only show public-visible sub-events
+            # Check if event has sub-events (even if structure is still SIMPLE, it might have been upgraded)
+            # This handles the case where sub-events exist but event_structure hasn't been updated yet
+            allowed_sub_events = SubEvent.objects.filter(
+                event=event,
+                is_public_visible=True,
+                is_removed=False
+            ).order_by('start_at')
+            
+            # If we found sub-events but event structure is still SIMPLE, upgrade it
+            if allowed_sub_events.exists() and event.event_structure == 'SIMPLE':
+                event.event_structure = 'ENVELOPE'
+                event.save(update_fields=['event_structure', 'updated_at'])
+        
+        # Serialize sub-events
+        serialized_sub_events = SubEventSerializer(allowed_sub_events, many=True).data
+        
+        # Debug logging
+        import logging
+        # Serialize with context
+        serializer = self.get_serializer(invite_page, context={
+            'allowed_sub_events': serialized_sub_events,
+            'guest_context': GuestSerializer(guest).data if guest else None
+        })
+        
+        return Response(serializer.data)
     
     @action(detail=True, methods=['get'], url_path='guests.csv')
     def guests_csv(self, request, id=None):
@@ -1106,15 +1207,6 @@ def get_rsvp(request, event_id):
         country_code = request.query_params.get('country_code', event_country_code)
         phone = format_phone_with_country_code(phone, country_code)
     
-    # Debug logging
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"RSVP Check - Original: {original_phone}, Formatted: {phone}, Country Code: {request.query_params.get('country_code', event_country_code)}")
-    
-    # Debug: Log all RSVP phones for this event to see stored format
-    all_rsvps_debug = RSVP.objects.filter(event=event).values_list('phone', flat=True)
-    logger.info(f"All RSVP phones in DB for event {event.id}: {list(all_rsvps_debug)}")
-    
     # Find existing RSVP - try multiple formats (grandfather clause: check RSVP first)
     existing_rsvp = RSVP.objects.filter(event=event, phone=phone, is_removed=False).first()
     
@@ -1137,7 +1229,6 @@ def get_rsvp(request, event_id):
                 # Check if phone digits match exactly
                 if rsvp_phone_digits == phone_digits_only:
                     existing_rsvp = rsvp
-                    logger.info(f"Found RSVP by matching phone digits (ignoring formatting): {rsvp.phone}")
                     break
                 
                 # If digits don't match exactly, try matching last 10 digits with country code verification
@@ -1149,7 +1240,6 @@ def get_rsvp(request, event_id):
                         # Only match if country codes are the same
                         if stored_country_code == provided_country_code:
                             existing_rsvp = rsvp
-                            logger.info(f"Found RSVP by matching last 10 digits with matching country code: {rsvp.phone}")
                             break
     
     if existing_rsvp:
@@ -1181,7 +1271,6 @@ def get_rsvp(request, event_id):
                 guest_phone_digits = re.sub(r'\D', '', g.phone)
                 if guest_phone_digits == phone_digits_only:
                     guest = g
-                    logger.info(f"Found guest by matching phone digits: {g.phone}")
                     break
                 
                 # Try matching last 10 digits with country code verification
@@ -1191,7 +1280,6 @@ def get_rsvp(request, event_id):
                         stored_country_code, _ = parse_phone_number(g.phone)
                         if stored_country_code == provided_country_code:
                             guest = g
-                            logger.info(f"Found guest by matching last 10 digits: {g.phone}")
                             break
         
         if guest:
@@ -1428,8 +1516,140 @@ def create_rsvp(request, event_id):
         
         # Update phone in validated_data and remove country_code (not a model field)
         serializer.validated_data['phone'] = phone
-        rsvp_data = {k: v for k, v in serializer.validated_data.items() if k != 'country_code'}
+        selected_sub_event_ids = serializer.validated_data.pop('selectedSubEventIds', [])
+        rsvp_data = {k: v for k, v in serializer.validated_data.items() if k not in ['country_code', 'selectedSubEventIds']}
         
+        # Handle ENVELOPE events with sub-events
+        if event.event_structure == 'ENVELOPE':
+            if event.rsvp_mode == 'PER_SUBEVENT':
+                # PER_SUBEVENT mode: Create/update RSVP for each selected sub-event
+                if not selected_sub_event_ids:
+                    return Response(
+                        {'error': 'selectedSubEventIds is required for PER_SUBEVENT mode'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Verify all sub-events belong to this event and are not removed
+                sub_events = SubEvent.objects.filter(
+                    id__in=selected_sub_event_ids,
+                    event=event,
+                    is_removed=False,
+                    rsvp_enabled=True
+                )
+                
+                if sub_events.count() != len(selected_sub_event_ids):
+                    return Response(
+                        {'error': 'Some sub-events not found, disabled, or do not belong to this event'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # For private events, verify guest has access to these sub-events
+                if not event.is_public and guest:
+                    allowed_sub_event_ids = set(
+                        GuestSubEventInvite.objects.filter(guest=guest)
+                        .values_list('sub_event_id', flat=True)
+                    )
+                    if not all(se_id in allowed_sub_event_ids for se_id in selected_sub_event_ids):
+                        return Response(
+                            {'error': 'You are not invited to some of the selected sub-events'},
+                            status=status.HTTP_403_FORBIDDEN
+                        )
+                
+                # Create/update RSVP for each sub-event
+                created_rsvps = []
+                for sub_event in sub_events:
+                    # Check if RSVP already exists for this sub-event
+                    existing_sub_rsvp = RSVP.objects.filter(
+                        event=event,
+                        phone=phone,
+                        sub_event=sub_event,
+                        is_removed=False
+                    ).first()
+                    
+                    if existing_sub_rsvp:
+                        # Update existing RSVP
+                        for key, value in rsvp_data.items():
+                            setattr(existing_sub_rsvp, key, value)
+                        if guest:
+                            existing_sub_rsvp.guest = guest
+                        existing_sub_rsvp.save()
+                        created_rsvps.append(existing_sub_rsvp)
+                    else:
+                        # Create new RSVP
+                        rsvp = RSVP.objects.create(
+                            event=event,
+                            sub_event=sub_event,
+                            guest=guest,
+                            **rsvp_data
+                        )
+                        created_rsvps.append(rsvp)
+                
+                # Return all created/updated RSVPs
+                return Response(
+                    RSVPSerializer(created_rsvps, many=True).data,
+                    status=status.HTTP_201_CREATED if not existing_rsvp else status.HTTP_200_OK
+                )
+            
+            elif event.rsvp_mode == 'ONE_TAP_ALL':
+                # ONE_TAP_ALL mode: Create RSVP for all allowed sub-events
+                # Get allowed sub-events for this guest
+                if guest:
+                    allowed_sub_events = SubEvent.objects.filter(
+                        guest_invites__guest=guest,
+                        is_removed=False,
+                        rsvp_enabled=True
+                    )
+                else:
+                    # Public event - get all public-visible sub-events
+                    allowed_sub_events = SubEvent.objects.filter(
+                        event=event,
+                        is_public_visible=True,
+                        is_removed=False,
+                        rsvp_enabled=True
+                    )
+                
+                if not allowed_sub_events.exists():
+                    return Response(
+                        {'error': 'No sub-events available for RSVP'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Create/update RSVP for each allowed sub-event
+                created_rsvps = []
+                for sub_event in allowed_sub_events:
+                    # Check if RSVP already exists for this sub-event
+                    existing_sub_rsvp = RSVP.objects.filter(
+                        event=event,
+                        phone=phone,
+                        sub_event=sub_event,
+                        is_removed=False
+                    ).first()
+                    
+                    if existing_sub_rsvp:
+                        # Update existing RSVP
+                        for key, value in rsvp_data.items():
+                            setattr(existing_sub_rsvp, key, value)
+                        if guest:
+                            existing_sub_rsvp.guest = guest
+                        existing_sub_rsvp.save()
+                        created_rsvps.append(existing_sub_rsvp)
+                    else:
+                        # Create new RSVP
+                        rsvp = RSVP.objects.create(
+                            event=event,
+                            sub_event=sub_event,
+                            guest=guest,
+                            **rsvp_data
+                        )
+                        created_rsvps.append(rsvp)
+                
+                # Return all created/updated RSVPs
+                return Response(
+                    RSVPSerializer(created_rsvps, many=True).data,
+                    status=status.HTTP_201_CREATED if not existing_rsvp else status.HTTP_200_OK
+                )
+        
+        # SIMPLE event: Keep existing behavior (sub_event = NULL)
         if existing_rsvp:
             # Check if RSVP itself is removed (shouldn't happen due to filter, but double-check)
             if existing_rsvp.is_removed:
@@ -1446,7 +1666,7 @@ def create_rsvp(request, event_id):
             existing_rsvp.save()
             return Response(RSVPSerializer(existing_rsvp).data, status=status.HTTP_200_OK)
         else:
-            # Create new RSVP
+            # Create new RSVP (sub_event will be NULL for SIMPLE events)
             rsvp = RSVP.objects.create(event=event, guest=guest, **rsvp_data)
             return Response(RSVPSerializer(rsvp).data, status=status.HTTP_201_CREATED)
     
@@ -1538,3 +1758,170 @@ def upload_image(request, event_id):
             {'error': f'Failed to upload image: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+class SubEventViewSet(viewsets.ModelViewSet):
+    """
+    CRUD operations for sub-events - host only, privacy protected
+    """
+    serializer_class = SubEventSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+    
+    def get_queryset(self):
+        """Hosts can only see sub-events for their own events"""
+        queryset = SubEvent.objects.filter(event__host=self.request.user, is_removed=False)
+        
+        # Filter by event_id if provided in URL kwargs (for /envelopes/<event_id>/sub-events/ endpoint)
+        event_id = self.kwargs.get('event_id')
+        if event_id:
+            # Verify the event belongs to the user
+            try:
+                event = Event.objects.get(id=event_id, host=self.request.user)
+                queryset = queryset.filter(event=event)
+            except Event.DoesNotExist:
+                from rest_framework.exceptions import NotFound
+                raise NotFound("Event not found or you don't have permission to access it.")
+        
+        return queryset.order_by('start_at')
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return SubEventCreateSerializer
+        return SubEventSerializer
+    
+    def get_object(self):
+        """Override to ensure host can only access their own sub-events"""
+        obj = super().get_object()
+        if obj.event.host != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access sub-events for your own events.")
+        return obj
+    
+    def perform_create(self, serializer):
+        """Ensure sub-event is created for an event owned by the user"""
+        event_id = self.kwargs.get('event_id')
+        if not event_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("event_id is required")
+        
+        event = get_object_or_404(Event, id=event_id, host=self.request.user)
+        
+        # Upgrade event to ENVELOPE if needed
+        event.upgrade_to_envelope_if_needed()
+        
+        sub_event = serializer.save(event=event)
+        
+        # If rsvp_mode is PER_SUBEVENT, ensure event is ENVELOPE
+        if event.rsvp_mode == 'PER_SUBEVENT':
+            event.event_structure = 'ENVELOPE'
+            event.save(update_fields=['event_structure', 'updated_at'])
+        
+        return sub_event
+    
+    def create(self, request, *args, **kwargs):
+        """Create sub-event for an event"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        sub_event = self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(SubEventSerializer(sub_event).data, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def perform_destroy(self, instance):
+        """Soft delete sub-event"""
+        instance.is_removed = True
+        instance.save(update_fields=['is_removed', 'updated_at'])
+
+
+class GuestInviteViewSet(viewsets.ModelViewSet):
+    """
+    Manage guest sub-event assignments - host only, privacy protected
+    """
+    serializer_class = GuestSubEventInviteSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+    
+    def get_queryset(self):
+        """Hosts can only see guest invites for their own events"""
+        return GuestSubEventInvite.objects.filter(
+            guest__event__host=self.request.user
+        )
+    
+    def get_object(self):
+        """Override to ensure host can only access their own guest invites"""
+        obj = super().get_object()
+        if obj.guest.event.host != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access guest invites for your own events.")
+        return obj
+    
+    @action(detail=False, methods=['get'], url_path='event/(?P<event_id>[^/.]+)')
+    def by_event(self, request, event_id=None):
+        """Get all guest invites for an event"""
+        event = get_object_or_404(Event, id=event_id, host=request.user)
+        
+        # Get all guests with their sub-event assignments
+        guests = Guest.objects.filter(event=event, is_removed=False)
+        result = []
+        
+        for guest in guests:
+            invites = GuestSubEventInvite.objects.filter(guest=guest)
+            result.append({
+                'guest': GuestSerializer(guest).data,
+                'sub_event_ids': list(invites.values_list('sub_event_id', flat=True))
+            })
+        
+        return Response(result)
+    
+    @action(detail=False, methods=['put'], url_path='guest/(?P<guest_id>[^/.]+)')
+    def update_guest_invites(self, request, guest_id=None):
+        """Update sub-event assignments for a guest"""
+        guest = get_object_or_404(Guest, id=guest_id, event__host=request.user)
+        
+        # Verify ownership
+        if guest.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only update guest invites for your own events.")
+        
+        # Get sub_event_ids from request
+        sub_event_ids = request.data.get('sub_event_ids', [])
+        if not isinstance(sub_event_ids, list):
+            return Response(
+                {'error': 'sub_event_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify all sub-events belong to the same event
+        sub_events = SubEvent.objects.filter(
+            id__in=sub_event_ids,
+            event=guest.event,
+            is_removed=False
+        )
+        
+        if sub_events.count() != len(sub_event_ids):
+            return Response(
+                {'error': 'Some sub-events not found or do not belong to this event'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Upgrade event to ENVELOPE if needed
+        guest.event.upgrade_to_envelope_if_needed()
+        
+        # Remove existing invites
+        GuestSubEventInvite.objects.filter(guest=guest).delete()
+        
+        # Create new invites
+        for sub_event in sub_events:
+            GuestSubEventInvite.objects.get_or_create(
+                guest=guest,
+                sub_event=sub_event
+            )
+        
+        # Generate guest token if not present
+        guest.generate_guest_token()
+        
+        # Return updated guest data
+        return Response({
+            'guest': GuestSerializer(guest).data,
+            'sub_event_ids': list(GuestSubEventInvite.objects.filter(guest=guest).values_list('sub_event_id', flat=True))
+        })
