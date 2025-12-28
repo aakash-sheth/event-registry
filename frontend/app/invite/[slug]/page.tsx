@@ -34,6 +34,45 @@ function getFrontendUrl(): string {
   return process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || process.env.NEXT_PUBLIC_API_BASE || 'https://eventregistry.com'
 }
 
+// Fetch invite page data (supports guest token)
+async function fetchInviteData(slug: string, guestToken?: string): Promise<any | null> {
+  try {
+    const apiBase = getApiBase()
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
+    
+    const url = guestToken 
+      ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+      : `${apiBase}/api/events/invite/${slug}/`
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      // Use cache: 'no-store' for development, or next: { revalidate } for production
+      ...(process.env.NODE_ENV === 'development' 
+        ? { cache: 'no-store' as RequestCache }
+        : { next: { revalidate: 3600 } }
+      ),
+    })
+    
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      return null
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error: any) {
+    if (error.name !== 'AbortError') {
+      console.error('Failed to fetch invite data:', error)
+    }
+    return null
+  }
+}
+
 // Fetch event data on the server
 async function fetchEventData(slug: string): Promise<Event | null> {
   try {
@@ -148,9 +187,9 @@ export async function generateMetadata({
   if (bannerImage) {
     if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
       // If relative URL (local dev), make it absolute using frontend URL
-      absoluteBannerImage = bannerImage.startsWith('/') 
-        ? `${baseUrl}${bannerImage}`
-        : `${baseUrl}/${bannerImage}`
+    absoluteBannerImage = bannerImage.startsWith('/') 
+      ? `${baseUrl}${bannerImage}`
+      : `${baseUrl}/${bannerImage}`
     } else {
       // Already absolute (S3 URL), use as-is
       absoluteBannerImage = bannerImage
@@ -187,17 +226,42 @@ export async function generateMetadata({
 
 // Server component that fetches initial data and renders client component
 export default async function InvitePage({ 
-  params 
+  params,
+  searchParams
 }: { 
-  params: { slug: string } 
+  params: { slug: string }
+  searchParams: { g?: string }
 }) {
   // Handle demo route
   if (params.slug === 'aakash-alisha') {
     return <InvitePageClient slug={params.slug} />
   }
 
-  // Fetch event data on server for initial render
-  const event = await fetchEventData(params.slug)
+  // Fetch invite page data (supports guest token via ?g= parameter)
+  const inviteData = await fetchInviteData(params.slug, searchParams.g)
+  
+  // Debug: Log what we got from the API
+  if (inviteData) {
+    console.log('[InvitePage SSR] inviteData received:', {
+      hasAllowedSubEvents: !!inviteData.allowed_sub_events,
+      allowedSubEventsCount: inviteData.allowed_sub_events?.length || 0,
+      keys: Object.keys(inviteData),
+    })
+  } else {
+    console.log('[InvitePage SSR] inviteData is null!')
+  }
+  
+  // Extract event data from invite response
+  const event = inviteData ? {
+    id: inviteData.event || 0,
+    title: inviteData.event_slug || params.slug,
+    date: undefined,
+    description: undefined,
+    banner_image: inviteData.background_url,
+    page_config: inviteData.config,
+    has_rsvp: true,
+    has_registry: true,
+  } : await fetchEventData(params.slug)
 
   // If event not found, render error page
   if (!event) {
@@ -213,7 +277,13 @@ export default async function InvitePage({
 
   // Prepare initial config if event data is available
   let initialConfig: InviteConfig | null = null
-  if (event.page_config) {
+  // Check if page_config exists and has meaningful content (not just empty object)
+  const hasValidConfig = event.page_config && 
+    typeof event.page_config === 'object' && 
+    Object.keys(event.page_config).length > 0 &&
+    (event.page_config.tiles || event.page_config.themeId || event.page_config.hero)
+  
+  if (hasValidConfig) {
     initialConfig = {
       ...event.page_config,
       customColors: event.page_config.customColors !== undefined 
@@ -296,6 +366,10 @@ export default async function InvitePage({
     }
   }
 
+  // Extract allowed_sub_events from invite data
+  const allowedSubEvents = inviteData?.allowed_sub_events || []
+  
+
   // Render client component with SSR content
   return (
     <InvitePageClient
@@ -304,6 +378,7 @@ export default async function InvitePage({
       initialConfig={initialConfig}
       heroSSR={heroSSR}
       eventDetailsSSR={eventDetailsSSR}
+      allowedSubEvents={allowedSubEvents}
     />
   )
 }

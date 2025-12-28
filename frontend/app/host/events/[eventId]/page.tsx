@@ -29,6 +29,8 @@ interface Event {
   has_rsvp: boolean
   has_registry: boolean
   whatsapp_message_template?: string
+  event_structure?: 'SIMPLE' | 'ENVELOPE'
+  rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
 }
 
 interface Order {
@@ -543,6 +545,11 @@ export default function EventDetailPage() {
                   </Button>
                 </Link>
               </div>
+              <Link href={`/host/events/${eventId}/sub-events`}>
+                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3 mt-3">
+                  Manage Sub-Events
+                </Button>
+              </Link>
               
             </CardContent>
           </Card>
@@ -558,6 +565,67 @@ export default function EventDetailPage() {
                 <CardTitle className="text-eco-green">Event Features</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Event Structure Toggle */}
+                <div className="pb-3 border-b">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Event Structure
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="event_structure"
+                        value="SIMPLE"
+                        checked={event.event_structure === 'SIMPLE' || !event.event_structure}
+                        onChange={async (e) => {
+                          try {
+                            await api.patch(`/api/events/${eventId}/`, {
+                              event_structure: 'SIMPLE',
+                            })
+                            showToast('Event structure updated to Simple', 'success')
+                            fetchEvent()
+                          } catch (error: any) {
+                            showToast('Failed to update event structure', 'error')
+                          }
+                        }}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium">Simple</div>
+                        <p className="text-xs text-gray-500">
+                          Single event without sub-events
+                        </p>
+                      </div>
+                    </label>
+                    <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="event_structure"
+                        value="ENVELOPE"
+                        checked={event.event_structure === 'ENVELOPE'}
+                        onChange={async (e) => {
+                          try {
+                            await api.patch(`/api/events/${eventId}/`, {
+                              event_structure: 'ENVELOPE',
+                            })
+                            showToast('Event structure updated to Envelope', 'success')
+                            fetchEvent()
+                          } catch (error: any) {
+                            showToast('Failed to update event structure', 'error')
+                          }
+                        }}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium">Envelope</div>
+                        <p className="text-xs text-gray-500">
+                          Event with multiple sub-events (e.g., Haldi, Mehndi, Wedding)
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
                 <div>
                   <label className="flex items-center justify-between">
                     <div>
@@ -640,6 +708,79 @@ export default function EventDetailPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* ENVELOPE Mode Configuration */}
+            {event.event_structure === 'ENVELOPE' && (
+              <Card className="bg-white border-2 border-eco-green-light">
+                <CardHeader>
+                  <CardTitle className="text-eco-green">Event Envelope Settings</CardTitle>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Configure RSVP behavior for sub-events
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      RSVP Mode
+                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="radio"
+                          name="rsvp_mode"
+                          value="ONE_TAP_ALL"
+                          checked={event.rsvp_mode === 'ONE_TAP_ALL'}
+                          onChange={async (e) => {
+                            try {
+                              await api.patch(`/api/events/${eventId}/`, {
+                                rsvp_mode: 'ONE_TAP_ALL',
+                              })
+                              showToast('RSVP mode updated to One Tap All', 'success')
+                              fetchEvent()
+                            } catch (error: any) {
+                              showToast('Failed to update RSVP mode', 'error')
+                            }
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">One Tap All</div>
+                          <p className="text-xs text-gray-500">
+                            Guests confirm attendance for all sub-events with a single Yes/No response
+                          </p>
+                        </div>
+                      </label>
+                      <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="radio"
+                          name="rsvp_mode"
+                          value="PER_SUBEVENT"
+                          checked={event.rsvp_mode === 'PER_SUBEVENT'}
+                          onChange={async (e) => {
+                            try {
+                              await api.patch(`/api/events/${eventId}/`, {
+                                rsvp_mode: 'PER_SUBEVENT',
+                              })
+                              showToast('RSVP mode updated to Per Sub-Event', 'success')
+                              fetchEvent()
+                            } catch (error: any) {
+                              showToast('Failed to update RSVP mode', 'error')
+                            }
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">Per Sub-Event</div>
+                          <p className="text-xs text-gray-500">
+                            Guests can select which specific sub-events they'll attend
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Event Expiry Management */}
             {event.is_expired && (

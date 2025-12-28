@@ -152,20 +152,20 @@ export default function RegistryPage() {
                   return (
                     <>
                       {date && (
-                        <p className="text-xl md:text-2xl mb-2 drop-shadow-md font-light">
+                  <p className="text-xl md:text-2xl mb-2 drop-shadow-md font-light">
                           {new Date(date).toLocaleDateString('en-IN', {
-                            weekday: 'long',
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          })}
-                        </p>
-                      )}
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+                )}
                       {location && (
-                        <p className="text-lg md:text-xl drop-shadow-md font-light">
+                  <p className="text-lg md:text-xl drop-shadow-md font-light">
                           {location}
-                        </p>
-                      )}
+                  </p>
+                )}
                     </>
                   )
                 })()}
@@ -184,20 +184,20 @@ export default function RegistryPage() {
                 return (
                   <>
                     {date && (
-                      <p className="text-xl md:text-2xl text-white/90 mb-2 font-light">
+                <p className="text-xl md:text-2xl text-white/90 mb-2 font-light">
                         {new Date(date).toLocaleDateString('en-IN', {
-                          weekday: 'long',
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })}
-                      </p>
-                    )}
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+              )}
                     {location && (
-                      <p className="text-lg md:text-xl text-white/80 font-light">
+                <p className="text-lg md:text-xl text-white/80 font-light">
                         {location}
-                      </p>
-                    )}
+                </p>
+              )}
                   </>
                 )
               })()}

@@ -187,3 +187,37 @@ export async function uploadImage(file: File, eventId: number): Promise<string> 
   throw new Error(response.data.error || 'Failed to upload image')
 }
 
+// Sub-events API functions
+export async function getSubEvents(eventId: number) {
+  const response = await api.get(`/api/events/envelopes/${eventId}/sub-events/`)
+  return response.data.results || response.data || []
+}
+
+export async function createSubEvent(eventId: number, data: any) {
+  const response = await api.post(`/api/events/envelopes/${eventId}/sub-events/`, data)
+  return response.data
+}
+
+export async function updateSubEvent(subEventId: number, data: any) {
+  const response = await api.put(`/api/events/sub-events/${subEventId}/`, data)
+  return response.data
+}
+
+export async function deleteSubEvent(subEventId: number) {
+  const response = await api.delete(`/api/events/sub-events/${subEventId}/`)
+  return response.data
+}
+
+// Guest invite management
+export async function getGuestInvites(eventId: number) {
+  const response = await api.get(`/api/events/envelopes/${eventId}/guests/invites/`)
+  return response.data
+}
+
+export async function updateGuestInvites(eventId: number, guestId: number, subEventIds: number[]) {
+  const response = await api.put(`/api/events/envelopes/${eventId}/guests/${guestId}/invites/`, {
+    sub_event_ids: subEventIds
+  })
+  return response.data
+}
+

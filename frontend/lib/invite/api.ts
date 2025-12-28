@@ -37,12 +37,12 @@ export async function updateInvitePage(
 }
 
 export async function getPublicInvite(slug: string): Promise<InvitePage> {
-  const response = await api.get(`/api/invite/${slug}/`)
+  const response = await api.get(`/api/events/invite/${slug}/`)
   return response.data
 }
 
 export async function publishInvitePage(slug: string, isPublished: boolean): Promise<InvitePage> {
-  const response = await api.post(`/api/invite/${slug}/publish/`, { is_published: isPublished })
+  const response = await api.post(`/api/events/invite/${slug}/publish/`, { is_published: isPublished })
   return response.data
 }
 

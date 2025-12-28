@@ -23,6 +23,7 @@ interface Event {
   description?: string
   has_rsvp: boolean
   has_registry: boolean
+  event_structure?: 'SIMPLE' | 'ENVELOPE'
 }
 
 const DEFAULT_TILES: Tile[] = [
@@ -69,15 +70,30 @@ const DEFAULT_TILES: Tile[] = [
     settings: { buttonColor: '#0D6EFD' },
   },
   {
-    id: 'tile-footer-6',
+    id: 'tile-event-carousel-7',
+    type: 'event-carousel',
+    enabled: false,
+    order: 7,
+    settings: {
+      showFields: {
+        image: true,
+        title: true,
+        dateTime: true,
+        location: true,
+        cta: true,
+      },
+    },
+  },
+  {
+    id: 'tile-footer-8',
     type: 'footer',
     enabled: false,
-    order: 6,
+    order: 8,
     settings: { text: '' },
   },
 ]
 
-export default function DesignInvitationPage() {
+export default function DesignInvitationPage(): JSX.Element {
   const params = useParams()
   const router = useRouter()
   const eventId = params.eventId ? parseInt(params.eventId as string) : 0
@@ -99,6 +115,7 @@ export default function DesignInvitationPage() {
   
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
+  const [allowedSubEvents, setAllowedSubEvents] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null)
   const [headerHeight, setHeaderHeight] = useState(160)
@@ -115,25 +132,28 @@ export default function DesignInvitationPage() {
 
   useEffect(() => {
     const loadData = async () => {
-    try {
+      try {
         // First fetch event data
         const eventResponse = await api.get(`/api/events/${eventId}/`)
         const eventData = eventResponse.data
-      setEvent(eventData)
+        setEvent(eventData)
+      
+      // Always fetch sub-events (regardless of event_structure) for Event Carousel tile
+      try {
+        const subEventsResponse = await api.get(`/api/events/envelopes/${eventId}/sub-events/`)
+        const subEvents = subEventsResponse.data.results || subEventsResponse.data || []
+        setAllowedSubEvents(subEvents)
+      } catch (error: any) {
+        // Event might not be ENVELOPE or might not have sub-events yet
+        if (error.response?.status !== 404) {
+          logError('Failed to fetch sub-events:', error)
+        }
+        setAllowedSubEvents([])
+      }
       
       // Debug: Log API response to help diagnose staging issues
-      const debugInfo = {
-        eventId,
-        hasPageConfig: !!eventData?.page_config,
-        pageConfigKeys: eventData?.page_config ? Object.keys(eventData.page_config) : [],
-        tilesCount: eventData?.page_config?.tiles?.length || 0,
-        tileTypes: eventData?.page_config?.tiles?.map((t: any) => t.type) || [],
-        fullPageConfig: eventData?.page_config, // Log full config to see what's actually there
-      }
-      logDebug('Event data loaded:', debugInfo)
-      
-        // Helper function to create default tiles
-        const createDefaultTiles = (data: typeof eventData): Tile[] => [
+      // Helper function to create default tiles
+      const createDefaultTiles = (data: typeof eventData): Tile[] => [
           {
             id: 'tile-title-0',
             type: 'title',
@@ -180,164 +200,158 @@ export default function DesignInvitationPage() {
             settings: { buttonColor: '#0D6EFD' },
           },
           {
-            id: 'tile-footer-6',
+            id: 'tile-event-carousel-7',
+            type: 'event-carousel',
+            enabled: false,
+            order: 7,
+            settings: {
+              showFields: {
+                image: true,
+                title: true,
+                dateTime: true,
+                location: true,
+                cta: true,
+              },
+            },
+          },
+          {
+            id: 'tile-footer-8',
             type: 'footer',
             enabled: false,
-            order: 6,
+            order: 8,
             settings: { text: '' },
           },
         ]
-        
-        // Then fetch page config (which may need event data for migration)
-        const pageConfig = await getEventPageConfig(eventId)
-        const pageConfigDebug = {
-          hasPageConfig: !!pageConfig?.page_config,
-          tilesCount: pageConfig?.page_config?.tiles?.length || 0,
-          tileTypes: pageConfig?.page_config?.tiles?.map((t: any) => t.type) || [],
-        }
-        logDebug('Page config loaded:', pageConfigDebug)
-        let finalConfig: InviteConfig | null = null
-        
-        if (pageConfig?.page_config) {
-          try {
-            const loadedConfig = pageConfig.page_config as InviteConfig
-            
-            // Migrate old config to tile-based if needed
-            const migratedConfig = migrateToTileConfig(
-              loadedConfig,
-              eventData?.title,
-              eventData?.date,
-              eventData?.city
-            )
-
-            // Preserve customColors, customFonts, and texture from loaded config
-            // IMPORTANT: Explicitly preserve customColors even if it's an empty object
-            const preservedConfig = {
-              ...migratedConfig,
-              // Preserve customColors if it exists in loadedConfig, otherwise keep migratedConfig's customColors
-              customColors: loadedConfig.customColors !== undefined 
-                ? loadedConfig.customColors 
-                : (migratedConfig.customColors || {}),
-              customFonts: loadedConfig.customFonts !== undefined
-                ? loadedConfig.customFonts
-                : migratedConfig.customFonts,
-              texture: loadedConfig.texture !== undefined
-                ? loadedConfig.texture
-                : migratedConfig.texture,
-            }
-
-            // Ensure we have tiles and preserve all settings (especially coverPosition for image tiles)
-            if (!preservedConfig.tiles || preservedConfig.tiles.length === 0) {
-              finalConfig = {
-                ...preservedConfig,
-                tiles: createDefaultTiles(eventData),
-              }
-            } else {
-              // Explicitly preserve all tile settings from loaded config
-              // This ensures coverPosition and other settings are not lost
-              const existingTiles = preservedConfig.tiles.map(tile => {
-                // Find the corresponding tile in loadedConfig to preserve all settings
-                const loadedTile = loadedConfig.tiles?.find(lt => lt.id === tile.id)
-                if (loadedTile && loadedTile.settings) {
-                  // Merge settings: loadedTile.settings takes precedence to preserve saved values like coverPosition
-                  // Then apply any defaults from migrated tile
-                  return {
-                    ...tile,
-                    settings: { ...tile.settings, ...loadedTile.settings }
-                  }
-                }
-                return tile
-              })
-              
-              // Ensure all tile types are present - add missing ones from defaults
-              const defaultTiles = createDefaultTiles(eventData)
-              const existingTileTypes = new Set(existingTiles.map(t => t.type))
-              const missingTiles = defaultTiles.filter(t => !existingTileTypes.has(t.type))
-              
-              // Merge existing tiles with missing default tiles, preserving order
-              const allTiles = [...existingTiles, ...missingTiles]
-                .sort((a, b) => {
-                  // Keep existing tiles in their current order, new tiles go after
-                  const aExists = existingTiles.some(t => t.id === a.id)
-                  const bExists = existingTiles.some(t => t.id === b.id)
-                  if (aExists && !bExists) return -1
-                  if (!aExists && bExists) return 1
-                  return a.order - b.order
-                })
-                .map((tile, index) => ({ ...tile, order: index }))
-              
-              finalConfig = {
-                ...preservedConfig,
-                tiles: allTiles
-              }
-              
-              // Debug: Log image tile settings when loading
-              const imageTile = finalConfig.tiles?.find(t => t.type === 'image')
-              if (imageTile) {
-                logDebug('Loaded config with image tile settings')
-              }
-            }
-
-            // Select first enabled tile by default
-            const firstEnabled = finalConfig.tiles?.find(t => t.enabled)
-            if (firstEnabled) {
-              setSelectedTileId(firstEnabled.id)
-            }
-          } catch (migrationError) {
-            logError('Error during migration:', migrationError)
-            // Fall through to initialize with default tiles
-            finalConfig = null
-          }
-        }
-        
-        // If no config exists or migration failed, initialize with event data
-        if (!finalConfig) {
-          const defaultTiles = createDefaultTiles(eventData)
-          finalConfig = { 
-            themeId: 'classic-noir', 
-            tiles: defaultTiles,
-            customColors: {}, // Initialize empty customColors object
-          }
-          setSelectedTileId('tile-title-0')
-        } else {
-          // Ensure customColors exists in loaded config (initialize as empty object if missing)
-          // But don't overwrite if it already exists (even if empty)
-          if (!finalConfig.customColors) {
-            finalConfig.customColors = {}
-          }
-        }
-        
-        // Set the final config
-        if (finalConfig) {
-                const finalConfigDebug = {
-                  tilesCount: finalConfig.tiles?.length || 0,
-                  tileTypes: finalConfig.tiles?.map(t => t.type) || [],
-                  allTiles: finalConfig.tiles,
-                }
-                logDebug('Final config before setting:', finalConfigDebug)
-          // Ensure title tile always exists and is enabled
-          if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
-            // Add title tile if missing
-            const titleTile: Tile = {
-              id: 'tile-title-0',
-              type: 'title',
-              enabled: true,
-              order: 0,
-              settings: { text: eventData?.title || 'Event Title' },
-            }
-            finalConfig.tiles = [titleTile, ...(finalConfig.tiles || [])]
-          } else {
-            // Ensure title tile is always enabled
-            finalConfig.tiles = finalConfig.tiles.map(t => 
-              t.type === 'title' ? { ...t, enabled: true } : t
-            )
-          }
+      
+      // Then fetch page config (which may need event data for migration)
+      const pageConfig = await getEventPageConfig(eventId)
+      let finalConfig: InviteConfig | null = null
+      
+      if (pageConfig?.page_config) {
+        try {
+          const loadedConfig = pageConfig.page_config as InviteConfig
           
-          setConfig(finalConfig)
-          logDebug('Config set successfully:', {
-            tilesCount: finalConfig.tiles?.length || 0,
-            tileTypes: finalConfig.tiles?.map(t => t.type) || [],
-          })
+          // Migrate old config to tile-based if needed
+          const migratedConfig = migrateToTileConfig(
+            loadedConfig,
+            eventData?.title,
+            eventData?.date,
+            eventData?.city
+          )
+
+          // Preserve customColors, customFonts, and texture from loaded config
+          // IMPORTANT: Explicitly preserve customColors even if it's an empty object
+          const preservedConfig = {
+            ...migratedConfig,
+            // Preserve customColors if it exists in loadedConfig, otherwise keep migratedConfig's customColors
+            customColors: loadedConfig.customColors !== undefined 
+              ? loadedConfig.customColors 
+              : (migratedConfig.customColors || {}),
+            customFonts: loadedConfig.customFonts !== undefined
+              ? loadedConfig.customFonts
+              : migratedConfig.customFonts,
+            texture: loadedConfig.texture !== undefined
+              ? loadedConfig.texture
+              : migratedConfig.texture,
+          }
+
+          // Ensure we have tiles and preserve all settings (especially coverPosition for image tiles)
+          if (!preservedConfig.tiles || preservedConfig.tiles.length === 0) {
+            finalConfig = {
+              ...preservedConfig,
+              tiles: createDefaultTiles(eventData),
+            }
+          } else {
+            // Explicitly preserve all tile settings from loaded config
+            // This ensures coverPosition and other settings are not lost
+            const existingTiles = preservedConfig.tiles.map(tile => {
+              // Find the corresponding tile in loadedConfig to preserve all settings
+              const loadedTile = loadedConfig.tiles?.find(lt => lt.id === tile.id)
+              if (loadedTile && loadedTile.settings) {
+                // Merge settings: loadedTile.settings takes precedence to preserve saved values like coverPosition
+                // Then apply any defaults from migrated tile
+                return {
+                  ...tile,
+                  settings: { ...tile.settings, ...loadedTile.settings }
+                }
+              }
+              return tile
+            })
+            
+            // Ensure all tile types are present - add missing ones from defaults
+            const defaultTiles = createDefaultTiles(eventData)
+            const existingTileTypes = new Set(existingTiles.map(t => t.type))
+            const missingTiles = defaultTiles.filter(t => !existingTileTypes.has(t.type))
+            
+            // Merge existing tiles with missing default tiles, preserving order
+            const allTiles = [...existingTiles, ...missingTiles]
+              .sort((a, b) => {
+                // Keep existing tiles in their current order, new tiles go after
+                const aExists = existingTiles.some(t => t.id === a.id)
+                const bExists = existingTiles.some(t => t.id === b.id)
+                if (aExists && !bExists) return -1
+                if (!aExists && bExists) return 1
+                return a.order - b.order
+              })
+              .map((tile, index) => ({ ...tile, order: index }))
+            
+            finalConfig = {
+              ...preservedConfig,
+              tiles: allTiles
+            }
+            
+          }
+
+          // Select first enabled tile by default
+          const firstEnabled = finalConfig.tiles?.find(t => t.enabled)
+          if (firstEnabled) {
+            setSelectedTileId(firstEnabled.id)
+          }
+        } catch (migrationError) {
+          logError('Error during migration:', migrationError)
+          // Fall through to initialize with default tiles
+          finalConfig = null
+        }
+      }
+      
+      // If no config exists or migration failed, initialize with event data
+      if (!finalConfig) {
+        const defaultTiles = createDefaultTiles(eventData)
+        finalConfig = { 
+          themeId: 'classic-noir', 
+          tiles: defaultTiles,
+          customColors: {}, // Initialize empty customColors object
+        }
+        setSelectedTileId('tile-title-0')
+      } else {
+        // Ensure customColors exists in loaded config (initialize as empty object if missing)
+        // But don't overwrite if it already exists (even if empty)
+        if (!finalConfig.customColors) {
+          finalConfig.customColors = {}
+        }
+      }
+      
+      // Set the final config
+      if (finalConfig) {
+        // Ensure title tile always exists and is enabled
+        if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
+          // Add title tile if missing
+          const titleTile: Tile = {
+            id: 'tile-title-0',
+            type: 'title',
+            enabled: true,
+            order: 0,
+            settings: { text: eventData?.title || 'Event Title' },
+          }
+          finalConfig.tiles = [titleTile, ...(finalConfig.tiles || [])]
+        } else {
+          // Ensure title tile is always enabled
+          finalConfig.tiles = finalConfig.tiles.map(t => 
+            t.type === 'title' ? { ...t, enabled: true } : t
+          )
+        }
+        
+        setConfig(finalConfig)
       } else {
         logError('Final config is null - this should not happen')
       }
@@ -462,24 +476,28 @@ export default function DesignInvitationPage() {
       // Build config to save - ensure customColors.backgroundColor is always included if set
       // Build tiles first
       const tilesToSave = config.tiles?.map(t => {
-        if (t.type === 'title') {
-          return { ...t, enabled: true }
-        }
-        // For image tiles, explicitly preserve all settings including coverPosition
-        if (t.type === 'image') {
-          const imageSettings = t.settings as any
-          // Log to help debug position saving
-          if (imageSettings.coverPosition) {
-            logDebug('Saving image tile with coverPosition:', imageSettings.coverPosition)
+          if (t.type === 'title') {
+            return { ...t, enabled: true }
           }
-          return { ...t, settings: { ...imageSettings } }
-        }
-        // For feature-buttons tiles, explicitly preserve all settings including custom labels
-        if (t.type === 'feature-buttons') {
-          const featureButtonsSettings = t.settings as any
-          return { ...t, settings: { ...featureButtonsSettings } }
-        }
-        return t
+          // For image tiles, explicitly preserve all settings including coverPosition
+          if (t.type === 'image') {
+            const imageSettings = t.settings as any
+            // Log to help debug position saving
+            if (imageSettings.coverPosition) {
+            }
+            return { ...t, settings: { ...imageSettings } }
+          }
+          // For feature-buttons tiles, explicitly preserve all settings including custom labels
+          if (t.type === 'feature-buttons') {
+            const featureButtonsSettings = t.settings as any
+            return { ...t, settings: { ...featureButtonsSettings } }
+          }
+          // For event-carousel tiles, explicitly preserve all settings including slideshow and styling options
+          if (t.type === 'event-carousel') {
+            const carouselSettings = t.settings as any
+            return { ...t, settings: { ...carouselSettings } }
+          }
+          return t
       }) || []
       
       // Build customColors - always include backgroundColor if it exists
@@ -506,7 +524,6 @@ export default function DesignInvitationPage() {
       
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
       if (imageTile) {
-        logDebug('Saving config with image tile settings')
       }
       
       await updateEventPageConfig(eventId, configToSave)
@@ -571,7 +588,6 @@ export default function DesignInvitationPage() {
     }))
   }
 
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-eco-beige">
@@ -596,15 +612,9 @@ export default function DesignInvitationPage() {
   }
 
   const selectedTile = config.tiles?.find(t => t.id === selectedTileId)
-  let sortedTiles: Tile[]
+  let sortedTiles: Tile[] = []
   if (config.tiles && config.tiles.length > 0) {
     sortedTiles = [...config.tiles].sort((a, b) => a.order - b.order)
-    // Debug: Log tiles being rendered (will show in console if DEBUG mode, or can be checked in network tab)
-    logDebug('Rendering tiles:', {
-      count: sortedTiles.length,
-      types: sortedTiles.map(t => t.type),
-      enabled: sortedTiles.filter(t => t.enabled).map(t => t.type),
-    })
   } else {
     logError('No tiles in config, using DEFAULT_TILES')
     sortedTiles = DEFAULT_TILES
@@ -874,15 +884,24 @@ export default function DesignInvitationPage() {
                         {/* Content Area */}
                         <div className="overflow-y-auto flex-1 w-full overflow-x-hidden" style={{ paddingBottom: '24px' }}>
                     {sortedTiles && sortedTiles.length > 0 ? (
-                      <TileList
-                        tiles={sortedTiles}
-                        onReorder={handleTileReorder}
-                        eventDate={event?.date}
-                        eventSlug={event?.slug}
+                      <>
+                        <TileList
+                          tiles={sortedTiles}
+                          onReorder={handleTileReorder}
+                          eventDate={event?.date}
+                          eventSlug={event?.slug}
                               eventTitle={(sortedTiles.find(t => t.type === 'title')?.settings as { text?: string })?.text || event?.title || 'Event'}
-                        hasRsvp={event?.has_rsvp}
-                        hasRegistry={event?.has_registry}
-                      />
+                          hasRsvp={event?.has_rsvp}
+                          hasRegistry={event?.has_registry}
+                          allowedSubEvents={allowedSubEvents}
+                        />
+                        {/* Debug: Show sub-events count in development */}
+                        {process.env.NODE_ENV === 'development' && (
+                          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                            Debug: allowedSubEvents = {allowedSubEvents.length} | Event structure: {event?.event_structure || 'unknown'}
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <div className="p-8 text-center text-gray-500">
                         <p>Loading tiles...</p>

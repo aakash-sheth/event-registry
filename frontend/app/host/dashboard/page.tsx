@@ -47,9 +47,16 @@ export default function DashboardPage() {
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set())
 
   useEffect(() => {
-    checkAuth()
+    const token = localStorage.getItem('access_token')
+    if (!token) {
+      router.push('/host/login')
+      return
+    }
+    
+    // Only fetch data if authenticated
     fetchEvents()
     fetchImpact()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -59,14 +66,14 @@ export default function DashboardPage() {
     }
   }, [impact])
 
-  const checkAuth = () => {
+  const fetchEvents = async () => {
+    // Double-check auth before making request
     const token = localStorage.getItem('access_token')
     if (!token) {
       router.push('/host/login')
+      return
     }
-  }
-
-  const fetchEvents = async () => {
+    
     try {
       const response = await api.get('/api/events/')
       setEvents(response.data.results || response.data)
@@ -82,6 +89,12 @@ export default function DashboardPage() {
   }
 
   const fetchImpact = async () => {
+    // Double-check auth before making request
+    const token = localStorage.getItem('access_token')
+    if (!token) {
+      return
+    }
+    
     setLoadingImpact(true)
     try {
       const response = await api.get('/api/events/impact/overall/')

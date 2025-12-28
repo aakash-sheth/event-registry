@@ -76,6 +76,7 @@ export function migrateToTileConfig(config: InviteConfig, eventTitle?: string, e
     date: eventDate || config.hero?.eventDate || new Date().toISOString().split('T')[0],
     time: undefined,
     dressCode: undefined,
+    buttonColor: config.customColors?.primaryColor || undefined,
   }
   tiles.push({
     id: `tile-${order}`,

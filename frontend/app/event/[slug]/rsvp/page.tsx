@@ -226,21 +226,21 @@ export default function RSVPPage() {
         
         // Only pre-fill if the field is empty or just whitespace
         if (!currentName || currentName.trim() === '') {
-          setValue('name', response.data.name, { shouldValidate: false, shouldDirty: true })
+        setValue('name', response.data.name, { shouldValidate: false, shouldDirty: true })
         }
         // Only update phone if we found a valid localPhone AND it's different from what user typed
         // This prevents clearing the phone field when check returns 404 or invalid data
         if (localPhone && localPhone.trim() !== '' && localPhone !== currentPhone) {
-          setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
+        setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
         }
         // Only update country code if it's different from current
         const currentCountryCode = getValues('country_code')
         if (storedCountryCode !== currentCountryCode) {
-          setValue('country_code', storedCountryCode, { shouldValidate: false, shouldDirty: true })
+        setValue('country_code', storedCountryCode, { shouldValidate: false, shouldDirty: true })
         }
         // Only pre-fill email if empty
         if (!currentEmail || currentEmail.trim() === '') {
-          setValue('email', response.data.email || '', { shouldValidate: false, shouldDirty: true })
+        setValue('email', response.data.email || '', { shouldValidate: false, shouldDirty: true })
         }
         
         // Only pre-fill RSVP-specific fields if it's an existing RSVP
@@ -285,7 +285,7 @@ export default function RSVPPage() {
       } finally {
         // Only update checking state if check wasn't cancelled
         if (!isPhoneCheckCancelledRef.current) {
-          setCheckingRSVP(false)
+        setCheckingRSVP(false)
         }
       }
     }, 1000) // Wait 1 second after user stops typing
@@ -476,10 +476,10 @@ export default function RSVPPage() {
         // Reset form after showing thank you
         reset()
       } else {
-        // Redirect to registry after a moment (longer for updates so user can see the change)
-        setTimeout(() => {
-          window.location.href = `/registry/${slug}`
-        }, isUpdate ? 3000 : 2000)
+      // Redirect to registry after a moment (longer for updates so user can see the change)
+      setTimeout(() => {
+        window.location.href = `/registry/${slug}`
+      }, isUpdate ? 3000 : 2000)
       }
     } catch (error: any) {
       logError('RSVP error:', error)
@@ -535,7 +535,7 @@ export default function RSVPPage() {
             return (
               <>
                 {date && (
-                  <p className="text-lg text-gray-700">
+            <p className="text-lg text-gray-700">
                     {(() => {
                       // Parse date string and create date in local timezone to avoid UTC conversion issues
                       // If date is in format "YYYY-MM-DD", parse it as local date
@@ -549,13 +549,13 @@ export default function RSVPPage() {
                         dateObj = new Date(date)
                       }
                       return dateObj.toLocaleDateString('en-IN', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
                       })
                     })()}
-                  </p>
-                )}
+            </p>
+          )}
                 {location && <p className="text-gray-600">{location}</p>}
               </>
             )
@@ -713,22 +713,22 @@ export default function RSVPPage() {
                         'Verify Phone Number'
                       )}
                     </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-            {/* RSVP Form */}
+        {/* RSVP Form */}
             {((!event.is_public && phoneVerified) || event.is_public) ? (
-              <Card className="bg-white border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green text-2xl">
-                  {existingRSVP 
-                    ? (existingRSVP.found_in === 'guest_list' 
-                        ? 'You\'re Invited! 🌿' 
-                        : 'Update your RSVP 🌿')
-                    : 'Confirm your attendance 🌿'}
-                </CardTitle>
+        <Card className="bg-white border-eco-green-light">
+          <CardHeader>
+            <CardTitle className="text-eco-green text-2xl">
+              {existingRSVP 
+                ? (existingRSVP.found_in === 'guest_list' 
+                    ? 'You\'re Invited! 🌿' 
+                    : 'Update your RSVP 🌿')
+                : 'Confirm your attendance 🌿'}
+            </CardTitle>
             <CardDescription>
               {existingRSVP 
                 ? (existingRSVP.found_in === 'guest_list'
@@ -766,8 +766,8 @@ export default function RSVPPage() {
               </div>
             )}
           </CardHeader>
-          <CardContent className="pt-4">
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <CardContent className="pt-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium mb-1">Full Name *</label>
                 <Input {...register('name')} placeholder="Your name" />
@@ -789,11 +789,11 @@ export default function RSVPPage() {
                     disabled={checkingRSVP || (!event.is_public && phoneVerified)}
                   />
                   <div className="flex-1 relative">
-                    <Input
-                      type="tel"
-                      {...register('phone')}
-                      placeholder="10-digit phone number"
-                      className="flex-1"
+                  <Input
+                    type="tel"
+                    {...register('phone')}
+                    placeholder="10-digit phone number"
+                    className="flex-1"
                       disabled={checkingRSVP || (!event.is_public && phoneVerified)}
                       readOnly={!event.is_public && phoneVerified}
                     />
@@ -819,9 +819,9 @@ export default function RSVPPage() {
                   <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>
                 )}
                 {!checkingRSVP && event.is_public && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    We'll send updates via SMS or WhatsApp
-                  </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  We'll send updates via SMS or WhatsApp
+                </p>
                 )}
               </div>
 
@@ -918,13 +918,13 @@ export default function RSVPPage() {
 
         {/* Link to Registry - Only show if registry is enabled */}
         {event.has_registry && !showThankYou && (
-          <div className="text-center mt-8">
-            <Link href={`/registry/${slug}`}>
-              <Button variant="outline" className="border-eco-green text-eco-green">
-                View Gift Registry →
-              </Button>
-            </Link>
-          </div>
+        <div className="text-center mt-8">
+          <Link href={`/registry/${slug}`}>
+            <Button variant="outline" className="border-eco-green text-eco-green">
+              View Gift Registry →
+            </Button>
+          </Link>
+        </div>
         )}
       </div>
     </div>

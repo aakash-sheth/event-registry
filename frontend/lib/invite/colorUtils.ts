@@ -127,3 +127,5 @@ export function getAutomaticLabelColor(fontColor: string | undefined): string {
   return rgbToHex(adjustedRgb.r, adjustedRgb.g, adjustedRgb.b)
 }
 
+
+

@@ -23,6 +23,7 @@ interface InvitePageClientProps {
   initialConfig?: InviteConfig | null
   heroSSR?: React.ReactNode
   eventDetailsSSR?: React.ReactNode
+  allowedSubEvents?: any[]
 }
 
 export default function InvitePageClient({ 
@@ -31,12 +32,13 @@ export default function InvitePageClient({
   initialConfig = null,
   heroSSR = null,
   eventDetailsSSR = null,
+  allowedSubEvents = [],
 }: InvitePageClientProps) {
   const [event, setEvent] = useState<Event | null>(initialEvent)
   const [config, setConfig] = useState<InviteConfig | null>(initialConfig)
   const [loading, setLoading] = useState(!initialConfig)
-
-  // Debug: Log initial config from server
+  const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
+  
 
   useEffect(() => {
     // If we have initial data from server, skip fetching
@@ -49,9 +51,27 @@ export default function InvitePageClient({
 
   const fetchInvite = async () => {
     try {
-      // Try to fetch from API
-      const response = await api.get(`/api/registry/${slug}/`)
-      const eventData = response.data
+      // Extract guest token from URL
+      const urlParams = new URLSearchParams(window.location.search)
+      const guestToken = urlParams.get('g')
+      
+              // Fetch from invite endpoint (supports guest token)
+              const inviteUrl = guestToken 
+                ? `/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+                : `/api/events/invite/${slug}/`
+      
+      const response = await api.get(inviteUrl)
+      const inviteData = response.data
+      
+      // Extract event data and allowed_sub_events
+      const eventData = {
+        ...inviteData,
+        page_config: inviteData.config,
+      }
+      
+      if (inviteData.allowed_sub_events) {
+        setSubEvents(inviteData.allowed_sub_events)
+      }
 
       if (eventData?.page_config) {
         // Use page_config from API (supports both legacy hero-based and new tile-based configs)
@@ -187,15 +207,16 @@ export default function InvitePageClient({
       {eventDetailsSSR}
       
       {/* Client-rendered remaining tiles */}
-      <LivingPosterPage
+    <LivingPosterPage
         config={configForClient}
-        eventSlug={slug}
-        eventDate={event?.date}
-        hasRsvp={event?.has_rsvp}
-        hasRegistry={event?.has_registry}
+      eventSlug={slug}
+      eventDate={event?.date}
+      hasRsvp={event?.has_rsvp}
+      hasRegistry={event?.has_registry}
         skipTextureOverlay={true}
         skipBackgroundColor={true}
-      />
+        allowedSubEvents={subEvents}
+    />
     </div>
   )
 }
