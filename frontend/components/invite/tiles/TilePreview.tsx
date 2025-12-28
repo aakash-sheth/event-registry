@@ -9,8 +9,9 @@ import EventDetailsTile from './EventDetailsTile'
 import DescriptionTile from './DescriptionTile'
 import FeatureButtonsTile from './FeatureButtonsTile'
 import FooterTile from './FooterTile'
+import EventCarouselTile from './EventCarouselTile'
 
-interface TilePreviewProps {
+export interface TilePreviewProps {
   tile: Tile
   eventDate?: string
   eventSlug?: string
@@ -18,6 +19,7 @@ interface TilePreviewProps {
   hasRsvp?: boolean
   hasRegistry?: boolean
   allTiles?: Tile[] // For overlay relationships
+  allowedSubEvents?: any[] // Sub-events for event-carousel tile
 }
 
 export default function TilePreview({
@@ -28,6 +30,7 @@ export default function TilePreview({
   hasRsvp,
   hasRegistry,
   allTiles = [],
+  allowedSubEvents = [],
 }: TilePreviewProps) {
   if (!tile.enabled) return null
 
@@ -78,6 +81,16 @@ export default function TilePreview({
         )
       case 'footer':
         return <FooterTile settings={tile.settings as any} preview />
+      case 'event-carousel':
+        return (
+          <EventCarouselTile
+            key={`event-carousel-${tile.id}`}
+            settings={tile.settings as any}
+            allowedSubEvents={allowedSubEvents}
+            preview={false}
+            eventSlug={eventSlug}
+          />
+        )
       default:
         return null
     }
