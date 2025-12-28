@@ -3,7 +3,7 @@
 import React from 'react'
 import { TextureType } from '@/lib/invite/schema'
 
-interface TextureOverlayProps {
+export interface TextureOverlayProps {
   type: TextureType
   intensity?: number // 0-100, default 20
 }
