@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react'
 import { InviteConfig } from '@/lib/invite/schema'
-import { ThemeProvider } from './ThemeProvider'
+import { ThemeProvider, useTheme } from './ThemeProvider'
 import Hero from './Hero'
 import Description from './Description'
 import TilePreview from '@/components/invite/tiles/TilePreview'
@@ -18,6 +18,7 @@ interface LivingPosterPageProps {
   hasRegistry?: boolean
   skipTextureOverlay?: boolean
   skipBackgroundColor?: boolean
+  allowedSubEvents?: any[]
 }
 
 function LivingPosterContent({
@@ -29,7 +30,9 @@ function LivingPosterContent({
   hasRegistry = false,
   skipTextureOverlay = false,
   skipBackgroundColor = false,
+  allowedSubEvents = [],
 }: LivingPosterPageProps) {
+  const theme = useTheme()
   const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
 
   // Set body background to match page background (skip if already set at page level)
@@ -81,6 +84,7 @@ function LivingPosterContent({
                     hasRsvp={hasRsvp}
                     hasRegistry={hasRegistry}
                     allTiles={config.tiles || []}
+                    allowedSubEvents={allowedSubEvents}
                   />
                   <TilePreview
                     tile={tile}
@@ -89,6 +93,7 @@ function LivingPosterContent({
                     hasRsvp={hasRsvp}
                     hasRegistry={hasRegistry}
                     allTiles={config.tiles || []}
+                    allowedSubEvents={allowedSubEvents}
                   />
                 </div>
               )
@@ -109,6 +114,7 @@ function LivingPosterContent({
               hasRsvp={hasRsvp}
               hasRegistry={hasRegistry}
               allTiles={config.tiles || []}
+              allowedSubEvents={allowedSubEvents}
             />
           )
         })}
@@ -131,6 +137,7 @@ function LivingPosterContent({
         eventSlug={eventSlug}
         eventDate={eventDate}
         showBadge={showBadge}
+        theme={theme}
       />
       {config.descriptionMarkdown && (
         <Description markdown={config.descriptionMarkdown} config={config} />

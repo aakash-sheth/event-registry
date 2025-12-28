@@ -3,20 +3,40 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { Theme } from '@/lib/invite/themes'
 import { InviteConfig } from '@/lib/invite/schema'
 import Countdown from './Countdown'
 import ActionButtons from './ActionButtons'
+import { ColorsAndFonts } from './ThemeProvider'
 
 interface HeroProps {
   config: InviteConfig
-  theme: Theme
   eventSlug: string
   eventDate?: string
   showBadge?: boolean
+  theme: ColorsAndFonts
 }
 
-export default function Hero({ config, theme, eventSlug, eventDate, showBadge = true }: HeroProps) {
+const DEFAULT_COLORS = {
+  backgroundColor: '#ffffff',
+  fontColor: '#000000',
+  primaryColor: '#0D6EFD',
+  mutedColor: '#6B7280',
+}
+
+const DEFAULT_FONTS = {
+  titleFont: 'Inter, system-ui',
+  bodyFont: 'Inter, system-ui',
+}
+
+const DEFAULT_OVERLAY_OPACITY = 0.25
+
+export default function Hero({ config, eventSlug, eventDate, showBadge = true }: HeroProps) {
+  const backgroundColor = config.customColors?.backgroundColor || DEFAULT_COLORS.backgroundColor
+  const fontColor = config.customColors?.fontColor || DEFAULT_COLORS.fontColor
+  const primaryColor = config.customColors?.primaryColor || DEFAULT_COLORS.primaryColor
+  const mutedColor = config.customColors?.mutedColor || DEFAULT_COLORS.mutedColor
+  const titleFont = config.customFonts?.titleFont || DEFAULT_FONTS.titleFont
+  const bodyFont = config.customFonts?.bodyFont || DEFAULT_FONTS.bodyFont
   const { hero } = config
   const background = hero?.background
 
@@ -45,7 +65,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
         <div
           className="absolute inset-0"
           style={{
-            background: `linear-gradient(135deg, ${theme.palette.bg} 0%, ${theme.palette.primary}20 100%)`,
+            background: `linear-gradient(135deg, ${backgroundColor} 0%, ${primaryColor}20 100%)`,
           }}
         />
       )
@@ -239,7 +259,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
           <div
             className="absolute inset-0"
             style={{
-              background: `linear-gradient(135deg, ${background.gradientFrom || theme.palette.bg} 0%, ${background.gradientTo || theme.palette.primary} 100%)`,
+              background: `linear-gradient(135deg, ${background.gradientFrom || backgroundColor} 0%, ${background.gradientTo || primaryColor} 100%)`,
             }}
           />
         )
@@ -252,7 +272,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
     <section
       className="relative flex flex-col items-center justify-center px-4 py-safe overflow-hidden"
       style={{
-        fontFamily: theme.fonts.body,
+        fontFamily: bodyFont,
         // Fill container height, but ensure minimum viewport height on public page
         height: '100%',
         minHeight: '100svh',
@@ -265,7 +285,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
       <div
         className="absolute inset-0"
         style={{
-          backgroundColor: `rgba(0, 0, 0, ${theme.palette.overlayOpacity})`,
+          backgroundColor: `rgba(0, 0, 0, ${DEFAULT_OVERLAY_OPACITY})`,
         }}
       />
 
@@ -281,7 +301,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
             className="inline-block px-4 py-2 rounded-full text-sm font-medium backdrop-blur-md shadow-lg"
             style={{
               backgroundColor: `rgba(255, 255, 255, 0.25)`,
-              color: theme.palette.fg,
+              color: fontColor,
               border: `1px solid rgba(255, 255, 255, 0.4)`,
               textShadow: '0 1px 2px rgba(0,0,0,0.2)',
             }}
@@ -302,8 +322,8 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-[clamp(28px,7vw,56px)] font-bold leading-tight max-w-[26ch]"
             style={{
-              fontFamily: theme.fonts.title,
-              color: theme.palette.fg,
+              fontFamily: titleFont,
+              color: fontColor,
               textShadow: '0 2px 8px rgba(0,0,0,0.3)',
             }}
           >
@@ -318,7 +338,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
               transition={{ duration: 0.8, delay: 0.4 }}
               className="text-[clamp(16px,4vw,20px)] max-w-[22ch]"
               style={{
-                color: theme.palette.muted,
+                color: mutedColor,
                 textShadow: '0 1px 4px rgba(0,0,0,0.3)',
               }}
             >
@@ -335,7 +355,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
             >
               <Countdown 
                 targetDate={new Date(hero.eventDate)} 
-                theme={theme}
+                config={config}
                 eventSlug={eventSlug}
                 eventTitle={hero?.title || 'Event'}
               />
@@ -352,7 +372,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
             >
               <ActionButtons
                 buttons={hero.buttons}
-                theme={theme}
+                config={config}
                 eventSlug={eventSlug}
                 eventDate={eventDate || hero.eventDate}
                 eventTitle={hero.title || 'Event'}
@@ -373,7 +393,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
           <div className="flex flex-col items-center space-y-2">
             <span
               className="text-sm"
-              style={{ color: theme.palette.fg }}
+              style={{ color: fontColor }}
             >
               Scroll for more
             </span>
@@ -388,7 +408,7 @@ export default function Hero({ config, theme, eventSlug, eventDate, showBadge = 
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                style={{ color: theme.palette.fg }}
+                style={{ color: fontColor }}
               >
                 <path d="M7 13l5 5 5-5M7 6l5 5 5-5" />
               </svg>
