@@ -3,16 +3,21 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { ChevronDown, Calendar, Download } from 'lucide-react'
-import { Theme } from '@/lib/invite/themes'
+import { InviteConfig } from '@/lib/invite/schema'
 import { getGoogleCalendarHref } from '@/lib/calendar'
 
-interface ActionButtonsProps {
+const DEFAULT_COLORS = {
+  fontColor: '#000000',
+  primaryColor: '#0D6EFD',
+}
+
+export interface ActionButtonsProps {
   buttons: Array<{
     label: 'Save the Date' | 'RSVP' | 'Registry'
     action: 'calendar' | 'rsvp' | 'registry'
     href?: string
   }>
-  theme: Theme
+  config: InviteConfig
   eventSlug: string
   eventDate?: string
   eventTitle: string
@@ -20,11 +25,13 @@ interface ActionButtonsProps {
 
 export default function ActionButtons({
   buttons,
-  theme,
+  config,
   eventSlug,
   eventDate,
   eventTitle,
 }: ActionButtonsProps) {
+  const fontColor = config.customColors?.fontColor || DEFAULT_COLORS.fontColor
+  const primaryColor = config.customColors?.primaryColor || DEFAULT_COLORS.primaryColor
   const [showCalendarMenu, setShowCalendarMenu] = useState(false)
 
   const handleSaveTheDate = () => {
@@ -69,14 +76,14 @@ export default function ActionButtons({
 
   const primaryButtonStyle: React.CSSProperties = {
     ...baseButtonStyle,
-    backgroundColor: theme.palette.primary,
-    color: theme.palette.fg,
+    backgroundColor: primaryColor,
+    color: fontColor,
   }
 
   const secondaryButtonStyle: React.CSSProperties = {
     ...baseButtonStyle,
     backgroundColor: `rgba(255, 255, 255, 0.15)`,
-    color: theme.palette.fg,
+    color: fontColor,
     backdropFilter: 'blur(10px)',
     border: `1px solid rgba(255, 255, 255, 0.2)`,
   }
@@ -92,7 +99,7 @@ export default function ActionButtons({
                 className="w-full hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent"
                 style={{
                   ...primaryButtonStyle,
-                  '--tw-ring-color': theme.palette.primary,
+                  '--tw-ring-color': primaryColor,
                 } as React.CSSProperties}
                 aria-expanded={showCalendarMenu}
                 aria-haspopup="true"
@@ -119,7 +126,7 @@ export default function ActionButtons({
                     <button
                       onClick={handleGoogleCalendar}
                       className="w-full px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus:bg-white/10 flex items-center gap-3"
-                      style={{ color: theme.palette.fg }}
+                      style={{ color: fontColor }}
                     >
                       <Calendar className="w-5 h-5" />
                       <span>Add to Google Calendar</span>
@@ -127,7 +134,7 @@ export default function ActionButtons({
                     <button
                       onClick={handleDownloadICS}
                       className="w-full px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus:bg-white/10 flex items-center gap-3 border-t border-white/10"
-                      style={{ color: theme.palette.fg }}
+                      style={{ color: fontColor }}
                     >
                       <Download className="w-5 h-5" />
                       <span>Download .ics file</span>

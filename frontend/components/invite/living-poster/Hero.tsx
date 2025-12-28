@@ -8,7 +8,7 @@ import Countdown from './Countdown'
 import ActionButtons from './ActionButtons'
 import { ColorsAndFonts } from './ThemeProvider'
 
-interface HeroProps {
+export interface HeroProps {
   config: InviteConfig
   eventSlug: string
   eventDate?: string
