@@ -2,12 +2,18 @@
 
 import React, { useState, useEffect } from 'react'
 import { ChevronDown, Calendar, Download } from 'lucide-react'
-import { Theme } from '@/lib/invite/themes'
+import { InviteConfig } from '@/lib/invite/schema'
 import { getGoogleCalendarHref } from '@/lib/calendar'
 
-interface CountdownProps {
+const DEFAULT_COLORS = {
+  fontColor: '#000000',
+  primaryColor: '#0D6EFD',
+  mutedColor: '#6B7280',
+}
+
+export interface CountdownProps {
   targetDate: Date
-  theme: Theme
+  config: InviteConfig
   eventSlug?: string
   eventTitle?: string
 }
@@ -19,7 +25,10 @@ interface TimeLeft {
   seconds: number
 }
 
-export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: CountdownProps) {
+export default function Countdown({ targetDate, config, eventSlug, eventTitle }: CountdownProps) {
+  const fontColor = config.customColors?.fontColor || DEFAULT_COLORS.fontColor
+  const primaryColor = config.customColors?.primaryColor || DEFAULT_COLORS.primaryColor
+  const mutedColor = config.customColors?.mutedColor || DEFAULT_COLORS.mutedColor
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,
@@ -62,7 +71,7 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
         style={{ minHeight: '80px' }}
         aria-hidden="true"
       >
-        <div className="text-2xl md:text-3xl font-bold" style={{ color: theme.palette.fg }}>
+        <div className="text-2xl md:text-3xl font-bold" style={{ color: fontColor }}>
           00
         </div>
       </div>
@@ -121,7 +130,7 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
           <div
             className="text-2xl md:text-3xl font-bold tabular-nums"
             style={{
-              color: theme.palette.fg,
+              color: fontColor,
               textShadow: '0 2px 8px rgba(0,0,0,0.3)',
             }}
           >
@@ -130,7 +139,7 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
           <div
             className="text-xs md:text-sm uppercase tracking-wider"
             style={{
-              color: theme.palette.muted,
+              color: mutedColor,
               textShadow: '0 1px 4px rgba(0,0,0,0.3)',
             }}
           >
@@ -139,7 +148,7 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
           {index < timeUnits.length - 1 && (
             <span
               className="hidden md:inline mx-2 text-xl"
-              style={{ color: theme.palette.muted }}
+              style={{ color: mutedColor }}
             >
               •
             </span>
@@ -154,8 +163,8 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
           onClick={handleSaveTheDate}
           className="px-6 py-3 rounded-lg font-semibold text-base flex items-center gap-2 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all"
           style={{
-            backgroundColor: theme.palette.primary,
-            color: theme.palette.fg,
+            backgroundColor: primaryColor,
+            color: fontColor,
             minHeight: '44px',
           }}
           aria-expanded={showCalendarMenu}
@@ -183,7 +192,7 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
               <button
                 onClick={handleGoogleCalendar}
                 className="w-full px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus:bg-white/10 flex items-center gap-3"
-                style={{ color: theme.palette.fg }}
+                style={{ color: fontColor }}
               >
                 <Calendar className="w-5 h-5" />
                 <span>Add to Google Calendar</span>
@@ -191,7 +200,7 @@ export default function Countdown({ targetDate, theme, eventSlug, eventTitle }: 
               <button
                 onClick={handleDownloadICS}
                 className="w-full px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus:bg-white/10 flex items-center gap-3 border-t border-white/10"
-                style={{ color: theme.palette.fg }}
+                style={{ color: fontColor }}
               >
                 <Download className="w-5 h-5" />
                 <span>Download .ics file</span>
