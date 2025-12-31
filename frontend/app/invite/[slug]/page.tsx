@@ -396,18 +396,21 @@ export default async function InvitePage({
   // Prepare initial config if event data is available
   let initialConfig: InviteConfig | null = null
   // Check if page_config exists and has meaningful content (not just empty object)
-  const hasValidConfig = event.page_config && 
-    typeof event.page_config === 'object' && 
-    Object.keys(event.page_config).length > 0 &&
-    (event.page_config.tiles || event.page_config.themeId || event.page_config.hero)
+  const pageConfig = event.page_config
+  const hasValidConfig = pageConfig && 
+    typeof pageConfig === 'object' && 
+    Object.keys(pageConfig).length > 0 &&
+    (pageConfig.tiles || pageConfig.themeId || pageConfig.hero)
   
-  if (hasValidConfig) {
+  if (hasValidConfig && pageConfig) {
     initialConfig = {
-      ...event.page_config,
-      customColors: event.page_config.customColors !== undefined 
-        ? event.page_config.customColors 
+      ...pageConfig,
+      // Ensure themeId is set if it's missing (required by InviteConfig)
+      themeId: pageConfig.themeId || 'classic-noir',
+      customColors: pageConfig.customColors !== undefined 
+        ? pageConfig.customColors 
         : undefined,
-    }
+    } as InviteConfig
   } else {
     // Fallback config
     initialConfig = {
