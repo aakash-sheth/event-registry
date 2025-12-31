@@ -221,3 +221,151 @@ export async function updateGuestInvites(eventId: number, guestId: number, subEv
   return response.data
 }
 
+// WhatsApp Template API functions
+export interface WhatsAppTemplate {
+  id: number
+  event: number
+  name: string
+  message_type: 'invitation' | 'reminder' | 'update' | 'venue_change' | 'time_change' | 'thank_you' | 'custom'
+  template_text: string
+  description?: string
+  usage_count: number
+  is_active: boolean
+  last_used_at?: string | null
+  is_default?: boolean
+  is_system_default?: boolean
+  created_by?: number
+  created_at: string
+  updated_at: string
+  preview?: string
+  available_variables?: Array<{
+    key: string
+    label: string
+    description: string
+    example: string
+    is_custom?: boolean
+  }>
+}
+
+export interface CreateWhatsAppTemplateData {
+  name: string
+  message_type: string
+  template_text: string
+  description?: string
+  is_default?: boolean
+}
+
+export async function getWhatsAppTemplates(eventId: number): Promise<WhatsAppTemplate[]> {
+  const response = await api.get(`/api/events/${eventId}/whatsapp-templates/`)
+  return response.data.results || response.data || []
+}
+
+export async function getWhatsAppTemplate(templateId: number): Promise<WhatsAppTemplate> {
+  const response = await api.get(`/api/events/whatsapp-templates/${templateId}/`)
+  return response.data
+}
+
+export async function createWhatsAppTemplate(eventId: number, data: CreateWhatsAppTemplateData): Promise<WhatsAppTemplate> {
+  const response = await api.post(`/api/events/${eventId}/whatsapp-templates/`, {
+    ...data,
+    event: eventId
+  })
+  return response.data
+}
+
+export async function updateWhatsAppTemplate(templateId: number, data: Partial<CreateWhatsAppTemplateData>): Promise<WhatsAppTemplate> {
+  const response = await api.patch(`/api/events/whatsapp-templates/${templateId}/`, data)
+  return response.data
+}
+
+export async function deleteWhatsAppTemplate(templateId: number): Promise<void> {
+  await api.delete(`/api/events/whatsapp-templates/${templateId}/`)
+}
+
+export async function previewWhatsAppTemplate(templateId: number, sampleData?: Record<string, any>): Promise<{ preview: string; template: WhatsAppTemplate }> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/preview/`, {
+    sample_data: sampleData || {}
+  })
+  return response.data
+}
+
+export async function duplicateWhatsAppTemplate(templateId: number, newName?: string): Promise<WhatsAppTemplate> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/duplicate/`, {
+    name: newName
+  })
+  return response.data
+}
+
+export async function archiveWhatsAppTemplate(templateId: number): Promise<WhatsAppTemplate> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/archive/`)
+  return response.data
+}
+
+export async function activateWhatsAppTemplate(templateId: number): Promise<WhatsAppTemplate> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/activate/`)
+  return response.data
+}
+
+export async function incrementWhatsAppTemplateUsage(templateId: number): Promise<WhatsAppTemplate> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/increment-usage/`)
+  return response.data
+}
+
+export async function setDefaultTemplate(templateId: number): Promise<WhatsAppTemplate> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/set-default/`)
+  return response.data
+}
+
+export async function getAvailableVariables(eventId: number): Promise<Array<{
+  key: string
+  label: string
+  description: string
+  example: string
+  is_custom?: boolean
+}>> {
+  const response = await api.get(`/api/events/${eventId}/whatsapp-templates/available-variables/`)
+  return response.data.variables || []
+}
+
+export async function previewWhatsAppMessage(eventId: number, data: {
+  template_id?: number
+  guest_id?: number
+  raw_body?: string
+}): Promise<{
+  preview: string
+  warnings: {
+    unresolved_variables: string[]
+    missing_custom_fields: string[]
+  }
+}> {
+  const response = await api.post(`/api/events/${eventId}/whatsapp-preview/`, data)
+  return response.data
+}
+
+export async function getSystemDefaultTemplate(eventId: number): Promise<WhatsAppTemplate | null> {
+  try {
+    const response = await api.get(`/api/events/${eventId}/system-default-template/`)
+    return response.data
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      return null
+    }
+    throw error
+  }
+}
+
+export async function previewTemplateWithGuest(templateId: number, guestId: number): Promise<{
+  preview: string
+  warnings: {
+    unresolved_variables: string[]
+    missing_custom_fields: string[]
+  }
+  template: WhatsAppTemplate
+  guest: any
+}> {
+  const response = await api.post(`/api/events/whatsapp-templates/${templateId}/preview-with-guest/`, {
+    guest_id: guestId
+  })
+  return response.data
+}
+
