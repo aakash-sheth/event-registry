@@ -8,12 +8,18 @@ import api from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
-import { generateWhatsAppShareLink, generateEventMessage, openWhatsApp } from '@/lib/whatsapp'
+import { generateWhatsAppShareLink, generateEventMessage, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
+import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
 
 const QRCode = dynamic(() => import('react-qr-code'), {
   ssr: false,
   loading: () => <div className="w-[200px] h-[200px] bg-gray-100 animate-pulse rounded" />
+})
+
+const TemplateSelector = dynamic(() => import('@/components/communications/TemplateSelector'), {
+  ssr: false,
+  loading: () => null
 })
 
 interface Event {
@@ -31,6 +37,7 @@ interface Event {
   whatsapp_message_template?: string
   event_structure?: 'SIMPLE' | 'ENVELOPE'
   rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
+  host_name?: string
 }
 
 interface Order {
@@ -61,13 +68,11 @@ export default function EventDetailPage() {
   const [showPrivacyModal, setShowPrivacyModal] = useState(false)
   const [pendingPrivacyChange, setPendingPrivacyChange] = useState<boolean | null>(null)
   const [sharingWhatsApp, setSharingWhatsApp] = useState(false)
-  const [showTemplateEditor, setShowTemplateEditor] = useState(false)
-  const [templateText, setTemplateText] = useState('')
-  const [savingTemplate, setSavingTemplate] = useState(false)
   const [showExpiryEditor, setShowExpiryEditor] = useState(false)
   const [expiryDate, setExpiryDate] = useState('')
   const [savingExpiry, setSavingExpiry] = useState(false)
   const [impact, setImpact] = useState<any>(null)
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false)
 
   useEffect(() => {
     if (!eventId || eventId === 'undefined') {
@@ -81,12 +86,6 @@ export default function EventDetailPage() {
     fetchGuests()
     fetchRsvps()
   }, [eventId, router])
-
-  useEffect(() => {
-    if (event && showTemplateEditor) {
-      setTemplateText(event.whatsapp_message_template || '')
-    }
-  }, [event, showTemplateEditor])
 
   useEffect(() => {
     if (event && showExpiryEditor) {
@@ -242,19 +241,50 @@ export default function EventDetailPage() {
     return `${getRSVPUrl()}?source=qr`
   }
 
-  const handleShareWhatsApp = async () => {
+  const handleShareWhatsApp = () => {
+    if (!event) return
+    setShowTemplateSelector(true)
+  }
+
+  const handleTemplateSelected = async (template: WhatsAppTemplate | null) => {
     if (!event) return
     
+    setShowTemplateSelector(false)
     setSharingWhatsApp(true)
+    
     try {
       const eventUrl = getEventUrl()
-      const message = generateEventMessage(
-        event.title,
-        event.date,
-        eventUrl,
-        undefined, // Host name could be added if available
-        (event as any).whatsapp_message_template // Custom template
-      )
+      let message: string
+      
+      if (template) {
+        // Use selected template
+        const result = replaceTemplateVariables(template.template_text, {
+          name: '', // No guest name for general message
+          event_title: event.title,
+          event_date: event.date,
+          event_location: event.city || '',
+          event_url: eventUrl,
+          host_name: event.host_name || undefined,
+        })
+        message = result.message
+        
+        // Increment usage count
+        try {
+          await incrementWhatsAppTemplateUsage(template.id)
+        } catch (error) {
+          // Silently fail - usage tracking is not critical
+          logError('Failed to increment template usage:', error)
+        }
+      } else {
+        // Use event default template
+        message = generateEventMessage(
+          event.title,
+          event.date,
+          eventUrl,
+          event.host_name,
+          (event as any).whatsapp_message_template
+        )
+      }
       
       const whatsappUrl = generateWhatsAppShareLink(message)
       openWhatsApp(whatsappUrl)
@@ -347,62 +377,77 @@ export default function EventDetailPage() {
 
   const totalAmount = orders
     .filter((o) => o.status === 'paid')
-    .reduce((sum, o) => sum + o.amount_inr, 0)
+    .reduce((sum, o) => sum + o.amount_inr, 0);
   
   // Calculate comprehensive guest list stats
   // Filter out removed guests and RSVPs for stats
-  const activeGuests = guests.filter(g => !g.is_removed)
-  const activeRSVPs = rsvps.filter(r => !r.is_removed)
+  const activeGuests = guests.filter(g => !g.is_removed);
+  const activeRSVPs = rsvps.filter(r => !r.is_removed);
   
-  const totalGuests = activeGuests.length
-  const totalRSVPs = activeRSVPs.length
+  const totalGuests = activeGuests.length;
+  const totalRSVPs = activeRSVPs.length;
   
   // RSVP breakdown by status (exclude removed)
-  const rsvpsYes = activeRSVPs.filter(r => r.will_attend === 'yes')
-  const rsvpsNo = activeRSVPs.filter(r => r.will_attend === 'no')
-  const rsvpsMaybe = activeRSVPs.filter(r => r.will_attend === 'maybe')
+  const rsvpsYes = activeRSVPs.filter(r => r.will_attend === 'yes');
+  const rsvpsNo = activeRSVPs.filter(r => r.will_attend === 'no');
+  const rsvpsMaybe = activeRSVPs.filter(r => r.will_attend === 'maybe');
   
   // Attendance estimates (using guests_count from RSVPs)
-  const confirmedAttendees = rsvpsYes.reduce((sum, r) => sum + (r.guests_count || 1), 0)
-  const maybeAttendees = rsvpsMaybe.reduce((sum, r) => sum + (r.guests_count || 1), 0)
-  const totalExpectedAttendees = confirmedAttendees + maybeAttendees
+  const confirmedAttendees = rsvpsYes.reduce((sum, r) => sum + (r.guests_count || 1), 0);
+  const maybeAttendees = rsvpsMaybe.reduce((sum, r) => sum + (r.guests_count || 1), 0);
+  const totalExpectedAttendees = confirmedAttendees + maybeAttendees;
   
   // Guest list coverage (exclude removed)
-  const coreGuestsWithRSVP = activeRSVPs.filter(r => r.is_core_guest || r.guest_id).length
-  const coreGuestsPending = totalGuests - coreGuestsWithRSVP
-  const otherGuestsRSVP = activeRSVPs.filter(r => !r.is_core_guest && !r.guest_id).length
+  const coreGuestsWithRSVP = activeRSVPs.filter(r => r.is_core_guest || r.guest_id).length;
+  const coreGuestsPending = totalGuests - coreGuestsWithRSVP;
+  const otherGuestsRSVP = activeRSVPs.filter(r => !r.is_core_guest && !r.guest_id).length;
   
   // Confirmed count from invited guests (core guests who said yes, exclude removed)
-  const coreGuestsConfirmed = activeRSVPs.filter(r => (r.is_core_guest || r.guest_id) && r.will_attend === 'yes').length
+  const coreGuestsConfirmed = activeRSVPs.filter(r => (r.is_core_guest || r.guest_id) && r.will_attend === 'yes').length;
   
   // Response rate
-  const responseRate = totalGuests > 0 ? Math.round((coreGuestsWithRSVP / totalGuests) * 100) : 0
+  const responseRate = totalGuests > 0 ? Math.round((coreGuestsWithRSVP / totalGuests) * 100) : 0;
   
   // Gift stats (exclude removed guests)
-  const coreGuestsWithGifts = orders.filter(o => o.status === 'paid' && 
-    activeGuests.some(g => 
-      (o.buyer_phone && g.phone && o.buyer_phone === g.phone) ||
-      (o.buyer_email && g.email && o.buyer_email === g.email)
-    )
-  ).length
+  const paidOrders = orders.filter((o) => o.status === 'paid');
+  const coreGuestsWithGifts = paidOrders.filter((o) => {
+    return activeGuests.some((g) => {
+      return (
+        (o.buyer_phone && g.phone && o.buyer_phone === g.phone) ||
+        (o.buyer_email && g.email && o.buyer_email === g.email)
+      );
+    });
+  }).length;
 
   return (
     <div className="min-h-screen bg-eco-beige">
       <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
+        {/* Header */}
+        <div className="mb-6">
           <Link href="/host/dashboard">
             <Button variant="outline" className="mb-4 border-eco-green text-eco-green hover:bg-eco-green-light">
               ← Back to Dashboard
             </Button>
           </Link>
-          <h1 className="text-4xl font-bold mb-2 text-eco-green">{event.title}</h1>
-          <p className="text-lg text-gray-700">
-            <span className="capitalize">{event.event_type}</span> • {event.city || 'No location'}
-          </p>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-4xl font-bold mb-2 text-eco-green">{event.title}</h1>
+              <p className="text-lg text-gray-700">
+                <span className="capitalize">{event.event_type}</span> • {event.city || 'No location'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Link href={`/host/events/${eventId}/design`}>
+                <Button className="bg-eco-green hover:bg-green-600 text-white">
+                  Design Invitation
+                </Button>
+              </Link>
+            </div>
+          </div>
         </div>
 
         {/* Stats Section */}
-        <div className={`grid grid-cols-1 ${totalGuests > 0 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-6 mb-8`}>
+        <div className={totalGuests > 0 ? 'grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8' : 'grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8'}>
           {/* Show Impact Stats if expired, otherwise show Total Gifts */}
           {event.is_expired && impact ? (
             <Card className="bg-white border-2 border-eco-green-light">
@@ -521,7 +566,7 @@ export default function EventDetailPage() {
             </Card>
           )}
 
-          {/* Actions Card - Quick Actions */}
+          {/* Quick Actions Card */}
           <Card className="bg-white border-2 border-eco-green-light">
             <CardHeader>
               <CardTitle className="text-eco-green">Quick Actions</CardTitle>
@@ -546,11 +591,77 @@ export default function EventDetailPage() {
                 </Link>
               </div>
               <Link href={`/host/events/${eventId}/sub-events`}>
-                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3 mt-3">
+                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3">
                   Manage Sub-Events
                 </Button>
               </Link>
-              
+              <Link href={`/host/events/${eventId}/communications`}>
+                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3">
+                  Communication Management
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Recent Gifts Section */}
+        <div className="mb-8">
+          <Card className="bg-white border-2 border-eco-green-light">
+            <CardHeader>
+              <CardTitle className="text-eco-green">Recent Gifts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {orders.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No gifts received yet</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-2">Gift Giver</th>
+                        <th className="text-left p-2">Gift Item</th>
+                        <th className="text-left p-2">Amount</th>
+                        <th className="text-left p-2">Status</th>
+                        <th className="text-left p-2">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.map((order) => (
+                        <tr key={order.id} className="border-b">
+                          <td className="p-2">
+                            <div>
+                              <div className="font-medium">{order.buyer_name}</div>
+                              <div className="text-sm text-gray-600">
+                                {order.buyer_email}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-2">
+                            {order.item?.name || 'Cash Gift'}
+                          </td>
+                          <td className="p-2">
+                            ₹{(order.amount_inr / 100).toLocaleString('en-IN')}
+                          </td>
+                          <td className="p-2">
+                            <span
+                              className={`px-2 py-1 rounded text-xs ${
+                                order.status === 'paid'
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}
+                            >
+                              {order.status === 'paid' ? 'Received' : order.status}
+                            </span>
+                          </td>
+                          <td className="p-2 text-sm text-gray-600">
+                            {new Date(order.created_at).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -709,9 +820,11 @@ export default function EventDetailPage() {
               </CardContent>
             </Card>
 
-            {/* ENVELOPE Mode Configuration */}
-            {event.event_structure === 'ENVELOPE' && (
-              <Card className="bg-white border-2 border-eco-green-light">
+            {/* Right Column: Wrapper for conditional cards */}
+            <div className="space-y-6">
+              {/* ENVELOPE Mode Configuration */}
+              {event.event_structure === 'ENVELOPE' && (
+                <Card className="bg-white border-2 border-eco-green-light">
                 <CardHeader>
                   <CardTitle className="text-eco-green">Event Envelope Settings</CardTitle>
                   <p className="text-sm text-gray-500 mt-1">
@@ -860,103 +973,6 @@ export default function EventDetailPage() {
               </Card>
             )}
 
-            {/* WhatsApp Message Template */}
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">WhatsApp Message Template</CardTitle>
-                <p className="text-sm text-gray-600 mt-1">
-                  Customize your WhatsApp messages. Use variables like [name], [event_title], [event_date], [event_location], [event_url], [host_name]
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {!showTemplateEditor ? (
-                  <>
-                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                        {event.whatsapp_message_template || 'Hey [name]! 💛\n\nJust wanted to share [event_title] on [event_date]!\n\nPlease confirm here: [event_url]\n\n- [host_name]'}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => setShowTemplateEditor(true)}
-                        variant="outline"
-                        className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                      >
-                        Edit Template
-                      </Button>
-                      {event.whatsapp_message_template && (
-                        <Button
-                          onClick={async () => {
-                            try {
-                              await api.patch(`/api/events/${eventId}/`, {
-                                whatsapp_message_template: '',
-                              })
-                              showToast('Template reset to default', 'success')
-                              fetchEvent()
-                            } catch (error: any) {
-                              showToast('Failed to reset template', 'error')
-                            }
-                          }}
-                          variant="outline"
-                          className="border-gray-300 text-gray-700 hover:bg-gray-50"
-                        >
-                          Reset to Default
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Message Template</label>
-                      <textarea
-                        value={templateText}
-                        onChange={(e) => setTemplateText(e.target.value)}
-                        placeholder="Hey [name]! 💛&#10;&#10;Just reminding you about [event_title] on [event_date]!&#10;&#10;Please confirm here: [event_url]&#10;&#10;- [host_name]"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md min-h-[150px] font-mono text-sm"
-                      />
-                      <p className="text-xs text-gray-500">
-                        Available variables: <code className="bg-gray-100 px-1 rounded">[name]</code>, <code className="bg-gray-100 px-1 rounded">[event_title]</code>, <code className="bg-gray-100 px-1 rounded">[event_date]</code>, <code className="bg-gray-100 px-1 rounded">[event_location]</code>, <code className="bg-gray-100 px-1 rounded">[event_url]</code>, <code className="bg-gray-100 px-1 rounded">[host_name]</code>
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={async () => {
-                          setSavingTemplate(true)
-                          try {
-                            await api.patch(`/api/events/${eventId}/`, {
-                              whatsapp_message_template: templateText,
-                            })
-                            showToast('Template saved!', 'success')
-                            setShowTemplateEditor(false)
-                            fetchEvent()
-                          } catch (error: any) {
-                            showToast('Failed to save template', 'error')
-                          } finally {
-                            setSavingTemplate(false)
-                          }
-                        }}
-                        disabled={savingTemplate}
-                        className="bg-eco-green hover:bg-green-600 text-white"
-                      >
-                        {savingTemplate ? 'Saving...' : 'Save Template'}
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          setTemplateText(event.whatsapp_message_template || '')
-                          setShowTemplateEditor(false)
-                        }}
-                        variant="outline"
-                        className="border-gray-300 text-gray-700 hover:bg-gray-50"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
             {/* Event URL & Sharing */}
             {event.is_public && (
               <Card className="bg-white border-2 border-eco-green-light">
@@ -1036,125 +1052,77 @@ export default function EventDetailPage() {
                 </CardContent>
               </Card>
             )}
+            </div>
           </div>
         </div>
-
-        {/* Recent Gifts Section */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-eco-green mb-4">Recent Activity</h2>
-          <Card className="bg-white border-2 border-eco-green-light">
-          <CardHeader>
-            <CardTitle className="text-eco-green">Recent Gifts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {orders.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No gifts received yet</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left p-2">Gift Giver</th>
-                      <th className="text-left p-2">Gift Item</th>
-                      <th className="text-left p-2">Amount</th>
-                      <th className="text-left p-2">Status</th>
-                      <th className="text-left p-2">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id} className="border-b">
-                        <td className="p-2">
-                          <div>
-                            <div className="font-medium">{order.buyer_name}</div>
-                            <div className="text-sm text-gray-600">
-                              {order.buyer_email}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          {order.item?.name || 'Cash Gift'}
-                        </td>
-                        <td className="p-2">
-                          ₹{(order.amount_inr / 100).toLocaleString('en-IN')}
-                        </td>
-                        <td className="p-2">
-                          <span
-                            className={`px-2 py-1 rounded text-xs ${
-                              order.status === 'paid'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}
-                          >
-                            {order.status === 'paid' ? 'Received' : order.status}
-                          </span>
-                        </td>
-                        <td className="p-2 text-sm text-gray-600">
-                          {new Date(order.created_at).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </div>
-
-        {/* Privacy Confirmation Modal */}
-        {showPrivacyModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-md">
-              <CardHeader>
-                <CardTitle className="text-eco-green">
-                  {pendingPrivacyChange ? 'Make Event Public?' : 'Make Event Private?'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {pendingPrivacyChange ? (
-                  <div className="space-y-2">
-                    <p className="text-sm text-gray-700">
-                      <strong className="text-green-600">Public Event:</strong> Anyone with the event URL or QR code can RSVP and purchase items from the registry, even if they're not on your guest list.
-                    </p>
-                    <p className="text-xs text-orange-600 bg-orange-50 p-2 rounded">
-                      ⚠️ This means people you haven't invited can still participate in your event.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm text-gray-700">
-                      <strong className="text-blue-600">Private Event:</strong> Only people in your guest list can RSVP and purchase items from the registry.
-                    </p>
-                    <p className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
-                      ℹ️ People not on your guest list will be unable to RSVP or purchase gifts, even if they have the event link.
-                    </p>
-                  </div>
-                )}
-                
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowPrivacyModal(false)
-                      setPendingPrivacyChange(null)
-                    }}
-                    className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={confirmPrivacyChange}
-                    className="flex-1 bg-eco-green hover:bg-green-600 text-white"
-                  >
-                    Confirm
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
       </div>
+
+      {/* Privacy Confirmation Modal */}
+      {showPrivacyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="text-eco-green">
+                {pendingPrivacyChange ? 'Make Event Public?' : 'Make Event Private?'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {pendingPrivacyChange ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-700">
+                    <strong className="text-green-600">Public Event:</strong> Anyone with the event URL or QR code can RSVP and purchase items from the registry, even if they're not on your guest list.
+                  </p>
+                  <p className="text-xs text-orange-600 bg-orange-50 p-2 rounded">
+                    ⚠️ This means people you haven't invited can still participate in your event.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-700">
+                    <strong className="text-blue-600">Private Event:</strong> Only people in your guest list can RSVP and purchase items from the registry.
+                  </p>
+                  <p className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
+                    ℹ️ People not on your guest list will be unable to RSVP or purchase gifts, even if they have the event link.
+                  </p>
+                </div>
+              )}
+              
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPrivacyModal(false)
+                    setPendingPrivacyChange(null)
+                  }}
+                  className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={confirmPrivacyChange}
+                  className="flex-1 bg-eco-green hover:bg-green-600 text-white"
+                >
+                  Confirm
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Template Selector Modal */}
+      {showTemplateSelector && event && (
+        <TemplateSelector
+          eventId={parseInt(eventId)}
+          eventTitle={event.title}
+          eventDate={event.date}
+          eventUrl={getEventUrl()}
+          hostName={event.host_name}
+          eventLocation={event.city}
+          onSelect={handleTemplateSelected}
+          onCancel={() => setShowTemplateSelector(false)}
+        />
+      )}
     </div>
   )
 }

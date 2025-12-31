@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { 
-  Leaf, 
   Mail, 
   CheckCircle, 
   Gift, 
@@ -15,9 +14,12 @@ import {
   Clock,
   Check,
   Bell,
-  Lock
+  Lock,
+  Leaf
 } from 'lucide-react'
 import { useEffect, useRef } from 'react'
+import Logo from '@/components/Logo'
+import { BRAND_NAME } from '@/lib/brand_utility'
 
 export default function LandingPage() {
   const stepsRef = useRef<(HTMLDivElement | null)[]>([])
@@ -52,12 +54,11 @@ export default function LandingPage() {
       {/* Navigation Bar */}
       <nav className="bg-white border-b border-pastel-green sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Leaf className="w-6 h-6 text-bright-teal" />
-            <div>
-              <div className="text-xl font-bold text-bright-teal">EkFern</div>
-            </div>
-          </div>
+          <Logo 
+            href="/"
+            iconClassName="text-bright-teal"
+            textClassName="text-bright-teal"
+          />
           <div className="flex gap-4">
             <Link href="/host/login">
               <Button variant="ghost" className="text-bright-teal">Host Login</Button>
@@ -78,7 +79,7 @@ export default function LandingPage() {
           
           <div className="text-center z-10 max-w-5xl mx-auto">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-bright-teal mb-4">
-              🌿 EkFern
+              🌿 {BRAND_NAME}
             </h1>
             <p className="text-xl md:text-2xl text-forest-green mb-4">
               Plan Smarter. Celebrate Sustainably.
@@ -281,7 +282,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="bg-forest-green text-white py-8 px-4 text-center">
-        <p className="text-lg font-bold mb-2">🌿 <strong>EkFern</strong></p>
+        <p className="text-lg font-bold mb-2">🌿 <strong>{BRAND_NAME}</strong></p>
         <p className="text-sm opacity-80">Making celebrations smarter, more sustainable, and more meaningful.</p>
       </footer>
 
