@@ -447,3 +447,134 @@ def calculate_event_impact(event):
         }
     }
 
+
+def normalize_csv_header(header: str) -> str:
+    """
+    Normalize CSV column header to variable name format.
+    
+    Rules:
+    - Trim spaces
+    - Lowercase
+    - Replace spaces with underscores
+    - Remove special characters except underscores
+    
+    Args:
+        header: Original CSV column header (e.g., "Room Number", "Table #")
+    
+    Returns:
+        Normalized key (e.g., "room_number", "table_")
+    """
+    import re
+    # Trim and lowercase
+    normalized = header.strip().lower()
+    # Replace spaces with underscores
+    normalized = normalized.replace(' ', '_')
+    # Remove special characters except underscores
+    normalized = re.sub(r'[^a-z0-9_]', '', normalized)
+    # Remove multiple consecutive underscores
+    normalized = re.sub(r'_+', '_', normalized)
+    # Remove leading/trailing underscores
+    normalized = normalized.strip('_')
+    return normalized
+
+
+def render_template_with_guest(template_text: str, event, guest=None, base_url: str = None):
+    """
+    Render WhatsApp template with all variables (default + custom fields).
+    
+    Args:
+        template_text: Template text with variables like [name], [event_title], etc.
+        event: Event instance
+        guest: Guest instance (optional, for guest-specific variables)
+        base_url: Base URL for generating invite links (optional)
+    
+    Returns:
+        Tuple of (rendered_message, warnings_dict)
+        warnings_dict contains:
+        - unresolved_variables: List of variables that couldn't be resolved
+        - missing_custom_fields: List of custom field keys that are missing for this guest
+    """
+    from datetime import date
+    import urllib.parse
+    
+    warnings = {
+        'unresolved_variables': [],
+        'missing_custom_fields': [],
+    }
+    
+    message = template_text
+    
+    # Default variables
+    replacements = {}
+    
+    # Guest name
+    if guest:
+        replacements['[name]'] = guest.name
+    else:
+        replacements['[name]'] = ''
+    
+    # Event title
+    replacements['[event_title]'] = event.title or 'Event'
+    
+    # Event date
+    if event.date:
+        date_str = event.date.strftime('%B %d, %Y')
+    else:
+        date_str = 'TBD'
+    replacements['[event_date]'] = date_str
+    
+    # Event URL (with guest token if available)
+    if base_url:
+        if guest and guest.guest_token:
+            # Generate guest-scoped invite link
+            invite_url = f"{base_url}/invite/{event.slug}?token={guest.guest_token}"
+        else:
+            # Public invite link
+            invite_url = f"{base_url}/invite/{event.slug}"
+    else:
+        invite_url = f"https://example.com/invite/{event.slug}"
+    replacements['[event_url]'] = invite_url
+    
+    # Host name
+    replacements['[host_name]'] = event.host.name or 'Host'
+    
+    # Event location
+    replacements['[event_location]'] = event.city or 'Location TBD'
+    
+    # Map direction
+    if event.city:
+        encoded_location = urllib.parse.quote(event.city)
+        replacements['[map_direction]'] = f"https://maps.google.com/?q={encoded_location}"
+    else:
+        replacements['[map_direction]'] = ''
+    
+    # Custom fields from CSV (if guest provided)
+    if guest and guest.custom_fields:
+        custom_metadata = event.custom_fields_metadata or {}
+        for normalized_key, value in guest.custom_fields.items():
+            variable_key = f'[{normalized_key}]'
+            if value:
+                replacements[variable_key] = str(value)
+            else:
+                replacements[variable_key] = '—'
+                warnings['missing_custom_fields'].append(normalized_key)
+    
+    # Replace all known variables
+    import re
+    for variable, value in replacements.items():
+        # Escape special regex characters in variable
+        escaped_variable = re.escape(variable)
+        message = re.sub(escaped_variable, value, message)
+    
+    # Find unresolved variables (variables in template that weren't replaced)
+    unresolved_pattern = r'\[([a-z0-9_]+)\]'
+    unresolved_matches = re.findall(unresolved_pattern, message, re.IGNORECASE)
+    
+    # Filter out variables that were already replaced (check if they still exist in message)
+    for match in unresolved_matches:
+        variable = f'[{match}]'
+        if variable in message:
+            warnings['unresolved_variables'].append(variable)
+    
+    return message, warnings
+

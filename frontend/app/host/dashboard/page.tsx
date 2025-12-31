@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { logError } from '@/lib/error-handler'
+import Logo from '@/components/Logo'
 
 interface Event {
   id: number
@@ -173,10 +174,7 @@ export default function DashboardPage() {
       {/* Header */}
       <nav className="bg-white border-b border-eco-green-light shadow-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-2xl">🌿</span>
-            <span className="text-xl font-bold text-eco-green">CelebrateMindfully</span>
-          </Link>
+          <Logo href="/" />
           <div className="flex items-center gap-4">
             <Link href="/host/events/new">
               <Button className="bg-eco-green hover:bg-green-600 text-white">

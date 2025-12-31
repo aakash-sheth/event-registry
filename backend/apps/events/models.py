@@ -48,6 +48,9 @@ class Event(models.Model):
     expiry_date = models.DateField(null=True, blank=True, help_text="Date when event expires (for impact calculation)")
     whatsapp_message_template = models.TextField(blank=True, help_text="Custom WhatsApp message template for sharing")
     
+    # Custom fields from CSV imports
+    custom_fields_metadata = models.JSONField(default=dict, blank=True, help_text="Metadata for custom CSV columns: normalized key -> display label mapping")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -118,6 +121,9 @@ class Guest(models.Model):
     
     # Guest token for private invite links
     guest_token = models.CharField(max_length=64, unique=True, db_index=True, null=True, blank=True, help_text="Random token for guest-specific invite links")
+    
+    # Custom fields from CSV imports
+    custom_fields = models.JSONField(default=dict, blank=True, help_text="Custom field values from CSV imports (normalized key -> value)")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -217,4 +223,147 @@ class RSVP(models.Model):
     def __str__(self):
         sub_event_str = f" - {self.sub_event.title}" if self.sub_event else ""
         return f"{self.name} - {self.event.title}{sub_event_str} - {self.will_attend}"
+
+
+class WhatsAppTemplate(models.Model):
+    """WhatsApp message templates for event updates - one event can have multiple templates"""
+    
+    MESSAGE_TYPE_CHOICES = [
+        ('invitation', 'Initial Invitation'),
+        ('reminder', 'Reminder'),
+        ('update', 'Event Update'),
+        ('venue_change', 'Venue Change'),
+        ('time_change', 'Time Change'),
+        ('thank_you', 'Thank You'),
+        ('custom', 'Custom Message'),
+    ]
+    
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='whatsapp_templates')
+    name = models.CharField(max_length=100, help_text="Template name (e.g., 'Initial Invitation', 'Venue Change Update')")
+    message_type = models.CharField(
+        max_length=50,
+        choices=MESSAGE_TYPE_CHOICES,
+        default='custom',
+        help_text="Type of message/update being sent"
+    )
+    template_text = models.TextField(
+        help_text="Template with variables like [name], [event_title], [event_date], [event_url], [host_name], [event_location]"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of when/why to use this template"
+    )
+    usage_count = models.IntegerField(
+        default=0,
+        help_text="Number of times this template has been used to send messages"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this template is active and can be used"
+    )
+    last_used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this template was last used to send a message"
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Whether this is the default template for the event (only one per event)"
+    )
+    is_system_default = models.BooleanField(
+        default=False,
+        help_text="Whether this is the system-wide default template (only one globally, non-deletable)"
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_whatsapp_templates',
+        help_text="User who created this template"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'whatsapp_templates'
+        ordering = ['-last_used_at', '-created_at']
+        unique_together = [['event', 'name']]
+        indexes = [
+            models.Index(fields=['event', 'message_type']),
+            models.Index(fields=['event', 'is_active']),
+            models.Index(fields=['event', 'is_default']),
+            models.Index(fields=['is_system_default']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['event', 'is_default'],
+                condition=models.Q(is_default=True),
+                name='unique_default_per_event'
+            ),
+            models.UniqueConstraint(
+                fields=['is_system_default'],
+                condition=models.Q(is_system_default=True),
+                name='unique_system_default'
+            ),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} - {self.event.title}"
+    
+    def save(self, *args, **kwargs):
+        """Override save to ensure only one default per event and one system default globally"""
+        if self.is_default:
+            # Unset other defaults for this event
+            WhatsAppTemplate.objects.filter(event=self.event, is_default=True).exclude(id=self.id).update(is_default=False)
+        
+        if self.is_system_default:
+            # Unset other system defaults
+            WhatsAppTemplate.objects.filter(is_system_default=True).exclude(id=self.id).update(is_system_default=False)
+        
+        super().save(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        """Prevent deletion of system default templates"""
+        if self.is_system_default:
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied("System default templates cannot be deleted.")
+        super().delete(*args, **kwargs)
+    
+    def increment_usage(self):
+        """Increment usage count and update last_used_at"""
+        from django.utils import timezone
+        self.usage_count += 1
+        self.last_used_at = timezone.now()
+        self.save(update_fields=['usage_count', 'last_used_at'])
+    
+    def get_preview(self, sample_data=None):
+        """Generate preview with sample data"""
+        if not sample_data:
+            from datetime import date
+            date_str = self.event.date.strftime('%B %d, %Y') if self.event.date else 'TBD'
+            sample_data = {
+                'name': 'Sarah',
+                'event_title': self.event.title,
+                'event_date': date_str,
+                'event_url': f"https://example.com/invite/{self.event.slug}",
+                'host_name': self.event.host.name or 'Host',
+                'event_location': self.event.city or 'Location TBD'
+            }
+        
+        # Simple variable replacement for preview
+        message = self.template_text
+        replacements = {
+            '[name]': sample_data.get('name', ''),
+            '[event_title]': sample_data.get('event_title', ''),
+            '[event_date]': sample_data.get('event_date', ''),
+            '[event_url]': sample_data.get('event_url', ''),
+            '[host_name]': sample_data.get('host_name', ''),
+            '[event_location]': sample_data.get('event_location', ''),
+        }
+        
+        for variable, value in replacements.items():
+            message = message.replace(variable, value)
+        
+        return message
 

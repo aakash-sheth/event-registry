@@ -128,12 +128,12 @@ jobs:
             echo "✅ Using FRONTEND_URL from SSM: ${FRONTEND_URL}"
           else
             # Fallback: Try NEXT_PUBLIC_API_BASE directly
-            NEXT_PUBLIC_API_BASE=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" --query "Parameter.Value" --output text 2>/dev/null || echo "")
-            
-            if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
+          NEXT_PUBLIC_API_BASE=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          
+          if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
               # Final fallback: construct from ALB_DNS (defaults to HTTP)
-              ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
-              NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
+            ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
+            NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
               echo "⚠️  Using fallback: constructed from ALB_DNS"
             else
               echo "✅ Using NEXT_PUBLIC_API_BASE from SSM"

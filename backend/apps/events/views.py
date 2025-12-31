@@ -8,17 +8,18 @@ from django.http import HttpResponse
 from django.conf import settings
 import csv
 from urllib.parse import quote
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, WhatsAppTemplate
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
     GuestSerializer, GuestCreateSerializer,
     InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer,
     SubEventSerializer, SubEventCreateSerializer,
-    GuestSubEventInviteSerializer
+    GuestSubEventInviteSerializer,
+    WhatsAppTemplateSerializer
 )
 import re
-from .utils import get_country_code, format_phone_with_country_code, upload_to_s3, parse_phone_number
+from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
 from apps.items.models import RegistryItem
 from apps.items.serializers import RegistryItemSerializer
 
@@ -394,6 +395,53 @@ class EventViewSet(viewsets.ModelViewSet):
         
         event_country_code = get_country_code(event.country)
         
+        # Define required columns (case-insensitive matching)
+        required_columns = {'name', 'phone', 'email', 'relationship', 'notes', 'is_removed'}
+        
+        # Track custom fields metadata (normalized key -> display label)
+        custom_fields_metadata = event.custom_fields_metadata.copy() if event.custom_fields_metadata else {}
+        reserved_variables = {'name', 'event_title', 'event_date', 'event_url', 'host_name', 'event_location', 'map_direction'}
+        
+        # Process first row to identify custom columns
+        if rows:
+            first_row = rows[0][1]  # Get the row dict
+            for original_header in first_row.keys():
+                # Normalize header
+                normalized_header = original_header.strip().lower()
+                # Skip if it's a required column (case-insensitive)
+                if normalized_header in required_columns:
+                    continue
+                
+                # Normalize to variable format
+                normalized_key = normalize_csv_header(original_header)
+                
+                # Skip empty normalized keys
+                if not normalized_key:
+                    continue
+                
+                # Handle collisions with reserved variables
+                final_key = normalized_key
+                if final_key in reserved_variables:
+                    # Add suffix to avoid collision
+                    counter = 1
+                    while f"{final_key}_custom" in custom_fields_metadata or f"{final_key}_custom" in reserved_variables:
+                        final_key = f"{normalized_key}_{counter}"
+                        counter += 1
+                    if final_key == normalized_key:
+                        final_key = f"{normalized_key}_custom"
+                
+                # Store metadata
+                if final_key not in custom_fields_metadata:
+                    custom_fields_metadata[final_key] = {
+                        'display_label': original_header.strip(),
+                        'source': 'csv_import',
+                    }
+        
+        # Update event's custom_fields_metadata
+        if custom_fields_metadata:
+            event.custom_fields_metadata = custom_fields_metadata
+            event.save(update_fields=['custom_fields_metadata'])
+        
         for row_num, row in rows:
             try:
                 name = row.get('name') or row.get('Name') or row.get('NAME')
@@ -436,7 +484,44 @@ class EventViewSet(viewsets.ModelViewSet):
                     errors.append(f"Row {row_num}: Guest with phone {phone} already exists (Name: {existing_guest.name})")
                     continue
                 
-                Guest.objects.create(
+                # Extract custom fields
+                custom_fields = {}
+                for original_header, value in row.items():
+                    normalized_header = original_header.strip().lower()
+                    # Skip required columns
+                    if normalized_header in required_columns:
+                        continue
+                    
+                    # Normalize to variable format
+                    normalized_key = normalize_csv_header(original_header)
+                    if not normalized_key:
+                        continue
+                    
+                    # Find the final key (handling collisions)
+                    final_key = normalized_key
+                    if final_key in reserved_variables:
+                        # Check if we have a custom version
+                        if f"{normalized_key}_custom" in custom_fields_metadata:
+                            final_key = f"{normalized_key}_custom"
+                        else:
+                            # Find the numbered version
+                            counter = 1
+                            while f"{normalized_key}_{counter}" not in custom_fields_metadata and f"{normalized_key}_{counter}" in reserved_variables:
+                                counter += 1
+                            if f"{normalized_key}_{counter}" in custom_fields_metadata:
+                                final_key = f"{normalized_key}_{counter}"
+                            else:
+                                final_key = f"{normalized_key}_custom"
+                    
+                    # Only store if this is a known custom field
+                    if final_key in custom_fields_metadata:
+                        # Store the value (strip whitespace)
+                        value_str = str(value).strip() if value else ''
+                        if value_str:
+                            custom_fields[final_key] = value_str
+                
+                # Generate guest token
+                guest = Guest.objects.create(
                     event=event,
                     name=name.strip(),
                     phone=phone,
@@ -445,7 +530,13 @@ class EventViewSet(viewsets.ModelViewSet):
                     relationship=(row.get('relationship') or row.get('Relationship') or '').strip() or '',
                     notes=(row.get('notes') or row.get('Notes') or '').strip() or '',
                     is_removed=is_removed,
+                    custom_fields=custom_fields,
                 )
+                
+                # Generate guest token if not present
+                if not guest.guest_token:
+                    guest.generate_guest_token()
+                
                 created_count += 1
             except Exception as e:
                 errors.append(f"Row {row_num}: {str(e)}")
@@ -696,6 +787,152 @@ class EventViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
         
         elif share_type == 'bulk':
+            # Bulk share - generate links for multiple guests
+            guest_ids = request.data.get('guest_ids', [])
+            if not guest_ids:
+                return Response({'error': 'guest_ids is required for bulk sharing'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            results = []
+            for guest_id in guest_ids:
+                try:
+                    guest = Guest.objects.get(id=guest_id, event=event)
+                    if not guest.phone:
+                        results.append({
+                            'guest_id': guest_id,
+                            'error': 'Guest has no phone number'
+                        })
+                        continue
+                    
+                    # Format phone number
+                    phone = guest.phone.replace('+', '').replace(' ', '').replace('-', '')
+                    
+                    # Personalize message
+                    personalized_message = custom_message.replace('Hey!', f"Hey {guest.name}!")
+                    message = quote(personalized_message)
+                    whatsapp_url = f"https://wa.me/{phone}/?text={message}"
+                    
+                    results.append({
+                        'guest_id': guest.id,
+                        'guest_name': guest.name,
+                        'whatsapp_url': whatsapp_url,
+                        'message': personalized_message,
+                    })
+                except Guest.DoesNotExist:
+                    results.append({
+                        'guest_id': guest_id,
+                        'error': 'Guest not found'
+                    })
+            
+            return Response({
+                'results': results,
+                'event_url': event_url,
+            }, status=status.HTTP_200_OK)
+        
+        else:
+            return Response({'error': 'Invalid share_type'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'], url_path='whatsapp-preview')
+    def whatsapp_preview(self, request, id=None):
+        """Preview WhatsApp message with template and guest data"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        template_id = request.data.get('template_id')
+        guest_id = request.data.get('guest_id')
+        raw_body = request.data.get('raw_body')
+        
+        if not template_id and not raw_body:
+            return Response({'error': 'Either template_id or raw_body is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get base URL
+        base_url = request.build_absolute_uri('/').rstrip('/')
+        
+        # Get template if provided
+        template_text = None
+        if template_id:
+            try:
+                template = WhatsAppTemplate.objects.get(id=template_id, event=event)
+                template_text = template.template_text
+            except WhatsAppTemplate.DoesNotExist:
+                return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            template_text = raw_body
+        
+        # Get guest if provided
+        guest = None
+        if guest_id:
+            try:
+                guest = Guest.objects.get(id=guest_id, event=event)
+            except Guest.DoesNotExist:
+                return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Render template
+        from .utils import render_template_with_guest
+        rendered_message, warnings = render_template_with_guest(
+            template_text,
+            event,
+            guest,
+            base_url
+        )
+        
+        return Response({
+            'preview': rendered_message,
+            'warnings': warnings,
+        })
+    
+    @action(detail=True, methods=['get'], url_path='whatsapp-templates/available-variables')
+    def get_available_variables(self, request, id=None):
+        """Get list of available variables for this event (default + custom from CSV)"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        variables = []
+        
+        # Default variables
+        default_vars = [
+            {'key': '[name]', 'label': 'Guest Name', 'description': 'Name of the guest', 'example': 'Sarah', 'is_custom': False},
+            {'key': '[event_title]', 'label': 'Event Title', 'description': 'Title of the event', 'example': event.title, 'is_custom': False},
+            {'key': '[event_date]', 'label': 'Event Date', 'description': 'Date of the event', 'example': event.date.strftime('%B %d, %Y') if event.date else 'TBD', 'is_custom': False},
+            {'key': '[event_url]', 'label': 'Event URL', 'description': 'Link to the event invitation', 'example': f'https://example.com/invite/{event.slug}', 'is_custom': False},
+            {'key': '[host_name]', 'label': 'Host Name', 'description': 'Name of the event host', 'example': event.host.name or 'Host', 'is_custom': False},
+            {'key': '[event_location]', 'label': 'Event Location', 'description': 'Location of the event', 'example': event.city or 'Location TBD', 'is_custom': False},
+            {'key': '[map_direction]', 'label': 'Map Direction Link', 'description': 'Google Maps link to event location', 'example': 'https://maps.google.com/?q=Location', 'is_custom': False},
+        ]
+        variables.extend(default_vars)
+        
+        # Custom variables from CSV imports
+        custom_metadata = event.custom_fields_metadata or {}
+        for normalized_key, metadata in custom_metadata.items():
+            if isinstance(metadata, dict):
+                display_label = metadata.get('display_label', normalized_key)
+                example = metadata.get('example', '—')
+            else:
+                # Backward compatibility
+                display_label = metadata
+                example = '—'
+            
+            variables.append({
+                'key': f'[{normalized_key}]',
+                'label': display_label,
+                'description': f'Custom field from CSV: {display_label}',
+                'example': example,
+                'is_custom': True,
+            })
+        
+        return Response({'variables': variables})
+    
+    @action(detail=True, methods=['get'], url_path='system-default-template')
+    def get_system_default_template(self, request, id=None):
+        """Get the system default template"""
+        # System default template is global, not event-specific
+        try:
+            system_template = WhatsAppTemplate.objects.filter(is_system_default=True).first()
+            if not system_template:
+                return Response({'error': 'System default template not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            return Response(WhatsAppTemplateSerializer(system_template).data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             # Generate links for multiple guests
             if not guest_ids:
                 return Response({'error': 'guest_ids array is required for bulk sharing'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1925,3 +2162,315 @@ class GuestInviteViewSet(viewsets.ModelViewSet):
             'guest': GuestSerializer(guest).data,
             'sub_event_ids': list(GuestSubEventInvite.objects.filter(guest=guest).values_list('sub_event_id', flat=True))
         })
+
+
+class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing WhatsApp templates per event"""
+    serializer_class = WhatsAppTemplateSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+    
+    def get_queryset(self):
+        """Filter templates by event and verify event ownership"""
+        # Start with all templates owned by the user (allows detail operations without event_id)
+        queryset = WhatsAppTemplate.objects.filter(event__host=self.request.user)
+        
+        # Filter by event_id if provided in URL kwargs (for nested list/create routes)
+        event_id = self.kwargs.get('event_id') or self.request.query_params.get('event_id') or self.request.data.get('event_id')
+        
+        if event_id:
+            # Verify the event belongs to the user and filter
+            try:
+                event = Event.objects.get(id=event_id, host=self.request.user)
+                queryset = queryset.filter(event=event)
+            except Event.DoesNotExist:
+                return WhatsAppTemplate.objects.none()
+        
+        return queryset
+    
+    def get_object(self):
+        """Override to verify event ownership"""
+        obj = super().get_object()
+        # Verify the event belongs to the user
+        if obj.event.host != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        return obj
+    
+    def perform_create(self, serializer):
+        """Ensure template is created with valid event owned by user"""
+        # Get event_id from URL kwargs (for nested routes) or request data
+        event_id = self.kwargs.get('event_id') or self.request.data.get('event')
+        if not event_id:
+            raise drf_serializers.ValidationError({'event': 'Event ID is required.'})
+        
+        try:
+            event = Event.objects.get(id=event_id, host=self.request.user)
+        except Event.DoesNotExist:
+            raise drf_serializers.ValidationError({'event': 'Event not found or you do not have permission.'})
+        
+        # Check for duplicate name
+        if WhatsAppTemplate.objects.filter(event=event, name=serializer.validated_data['name']).exists():
+            raise drf_serializers.ValidationError({'name': 'A template with this name already exists for this event.'})
+        
+        # Set created_by
+        serializer.save(event=event, created_by=self.request.user)
+        
+        # Handle is_default flag
+        if serializer.validated_data.get('is_default', False):
+            # Unset other defaults for this event
+            WhatsAppTemplate.objects.filter(event=event, is_default=True).exclude(id=serializer.instance.id).update(is_default=False)
+    
+    def perform_update(self, serializer):
+        """Ensure template update maintains event ownership"""
+        event_id = serializer.validated_data.get('event') or self.get_object().event.id
+        
+        try:
+            event = Event.objects.get(id=event_id, host=self.request.user)
+        except Event.DoesNotExist:
+            raise drf_serializers.ValidationError({'event': 'Event not found or you do not have permission.'})
+        
+        # Check for duplicate name (excluding current template)
+        template = self.get_object()
+        if WhatsAppTemplate.objects.filter(event=event, name=serializer.validated_data['name']).exclude(id=template.id).exists():
+            raise drf_serializers.ValidationError({'name': 'A template with this name already exists for this event.'})
+        
+        serializer.save()
+        
+        # Handle is_default flag
+        if serializer.validated_data.get('is_default', False):
+            # Unset other defaults for this event
+            WhatsAppTemplate.objects.filter(event=event, is_default=True).exclude(id=template.id).update(is_default=False)
+    
+    @action(detail=True, methods=['post'])
+    def preview(self, request, id=None):
+        """Generate preview with sample data"""
+        template = self.get_object()
+        sample_data = request.data.get('sample_data', {})
+        preview_text = template.get_preview(sample_data)
+        return Response({
+            'preview': preview_text,
+            'template': WhatsAppTemplateSerializer(template).data
+        })
+    
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, id=None):
+        """Create a copy of this template"""
+        template = self.get_object()
+        new_name = request.data.get('name') or f"{template.name} (Copy)"
+        
+        # Check if name already exists
+        if WhatsAppTemplate.objects.filter(event=template.event, name=new_name).exists():
+            return Response(
+                {'error': f'A template with the name "{new_name}" already exists for this event.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        new_template = WhatsAppTemplate.objects.create(
+            event=template.event,
+            name=new_name,
+            message_type=template.message_type,
+            template_text=template.template_text,
+            description=template.description,
+            is_active=True,
+            usage_count=0,
+            last_used_at=None
+        )
+        
+        return Response(
+            WhatsAppTemplateSerializer(new_template).data,
+            status=status.HTTP_201_CREATED
+        )
+    
+    @action(detail=True, methods=['post'])
+    def archive(self, request, id=None):
+        """Archive template (set is_active=False)"""
+        template = self.get_object()
+        template.is_active = False
+        template.save(update_fields=['is_active'])
+        return Response(WhatsAppTemplateSerializer(template).data)
+    
+    @action(detail=True, methods=['post'])
+    def activate(self, request, id=None):
+        """Activate template (set is_active=True)"""
+        template = self.get_object()
+        template.is_active = True
+        template.save(update_fields=['is_active'])
+        return Response(WhatsAppTemplateSerializer(template).data)
+    
+    @action(detail=True, methods=['post'])
+    def increment_usage(self, request, id=None):
+        """Increment usage count and update last_used_at"""
+        template = self.get_object()
+        template.increment_usage()
+        return Response(WhatsAppTemplateSerializer(template).data)
+    
+    def perform_destroy(self, instance):
+        """Prevent deletion of system default templates"""
+        if instance.is_system_default:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("System default templates cannot be deleted.")
+        super().perform_destroy(instance)
+    
+    @action(detail=True, methods=['post'], url_path='set-default')
+    def set_default(self, request, id=None):
+        """Set this template as the event's default template"""
+        template = self.get_object()
+        
+        # Unset other defaults for this event
+        WhatsAppTemplate.objects.filter(event=template.event, is_default=True).exclude(id=template.id).update(is_default=False)
+        
+        # Set this template as default
+        template.is_default = True
+        template.save(update_fields=['is_default'])
+        
+        return Response(WhatsAppTemplateSerializer(template).data)
+    
+    @action(detail=True, methods=['post'], url_path='preview-with-guest')
+    def preview_with_guest(self, request, id=None):
+        """Preview template with specific guest data"""
+        template = self.get_object()
+        guest_id = request.data.get('guest_id')
+        
+        if not guest_id:
+            return Response({'error': 'guest_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            guest = Guest.objects.get(id=guest_id, event=template.event)
+        except Guest.DoesNotExist:
+            return Response({'error': 'Guest not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get base URL from request
+        base_url = request.build_absolute_uri('/').rstrip('/')
+        
+        # Render template with guest data
+        from .utils import render_template_with_guest
+        rendered_message, warnings = render_template_with_guest(
+            template.template_text,
+            template.event,
+            guest,
+            base_url
+        )
+        
+        return Response({
+            'preview': rendered_message,
+            'warnings': warnings,
+            'template': WhatsAppTemplateSerializer(template).data,
+            'guest': GuestSerializer(guest).data,
+        })
+
+
+# Standalone view functions for WhatsApp template actions
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_template_preview(request, id):
+    """Preview template with sample data"""
+    try:
+        template = WhatsAppTemplate.objects.get(id=id)
+        # Verify ownership
+        if template.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        
+        sample_data = request.data.get('sample_data', {})
+        preview_text = template.get_preview(sample_data)
+        return Response({
+            'preview': preview_text,
+            'template': WhatsAppTemplateSerializer(template).data
+        })
+    except WhatsAppTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_template_duplicate(request, id):
+    """Duplicate a template"""
+    try:
+        template = WhatsAppTemplate.objects.get(id=id)
+        # Verify ownership
+        if template.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        
+        new_name = request.data.get('name') or f"{template.name} (Copy)"
+        
+        # Check if name already exists
+        if WhatsAppTemplate.objects.filter(event=template.event, name=new_name).exists():
+            return Response(
+                {'error': f'A template with the name "{new_name}" already exists for this event.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        new_template = WhatsAppTemplate.objects.create(
+            event=template.event,
+            name=new_name,
+            message_type=template.message_type,
+            template_text=template.template_text,
+            description=template.description,
+            is_active=True,
+            usage_count=0,
+            last_used_at=None
+        )
+        
+        return Response(
+            WhatsAppTemplateSerializer(new_template).data,
+            status=status.HTTP_201_CREATED
+        )
+    except WhatsAppTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_template_archive(request, id):
+    """Archive a template"""
+    try:
+        template = WhatsAppTemplate.objects.get(id=id)
+        # Verify ownership
+        if template.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        
+        template.is_active = False
+        template.save(update_fields=['is_active'])
+        return Response(WhatsAppTemplateSerializer(template).data)
+    except WhatsAppTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_template_activate(request, id):
+    """Activate a template"""
+    try:
+        template = WhatsAppTemplate.objects.get(id=id)
+        # Verify ownership
+        if template.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        
+        template.is_active = True
+        template.save(update_fields=['is_active'])
+        return Response(WhatsAppTemplateSerializer(template).data)
+    except WhatsAppTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_template_increment_usage(request, id):
+    """Increment template usage"""
+    try:
+        template = WhatsAppTemplate.objects.get(id=id)
+        # Verify ownership
+        if template.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        
+        template.increment_usage()
+        return Response(WhatsAppTemplateSerializer(template).data)
+    except WhatsAppTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+
+

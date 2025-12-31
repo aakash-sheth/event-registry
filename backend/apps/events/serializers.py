@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, WhatsAppTemplate
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code
 
@@ -12,7 +12,7 @@ class EventSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'is_expired', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'is_expired', 'created_at', 'updated_at')
         read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
     
     def get_country_code(self, obj):
@@ -179,7 +179,7 @@ class GuestSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Guest
-        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'guest_token', 'sub_event_invites', 'created_at')
+        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'guest_token', 'sub_event_invites', 'custom_fields', 'created_at')
         read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'country_code', 'local_number', 'guest_token', 'sub_event_invites')
     
     def get_sub_event_invites(self, obj):
@@ -308,4 +308,101 @@ class GuestSubEventInviteSerializer(serializers.ModelSerializer):
         model = GuestSubEventInvite
         fields = ('id', 'guest', 'guest_name', 'sub_event', 'sub_event_title', 'created_at')
         read_only_fields = ('id', 'guest_name', 'sub_event_title', 'created_at')
+
+
+class WhatsAppTemplateSerializer(serializers.ModelSerializer):
+    """Serializer for WhatsAppTemplate"""
+    preview = serializers.SerializerMethodField()
+    available_variables = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = WhatsAppTemplate
+        fields = ('id', 'event', 'name', 'message_type', 'template_text', 'description', 'usage_count', 'is_active', 'last_used_at', 'is_default', 'is_system_default', 'created_by', 'created_at', 'updated_at', 'preview', 'available_variables')
+        read_only_fields = ('id', 'usage_count', 'last_used_at', 'created_at', 'updated_at', 'is_system_default', 'created_by', 'available_variables')
+    
+    def get_preview(self, obj):
+        """Generate preview with sample data"""
+        return obj.get_preview()
+    
+    def get_available_variables(self, obj):
+        """Get list of available variables for this event (default + custom from CSV)"""
+        variables = []
+        
+        # Default variables
+        default_vars = [
+            {'key': '[name]', 'label': 'Guest Name', 'description': 'Name of the guest', 'example': 'Sarah'},
+            {'key': '[event_title]', 'label': 'Event Title', 'description': 'Title of the event', 'example': obj.event.title},
+            {'key': '[event_date]', 'label': 'Event Date', 'description': 'Date of the event', 'example': obj.event.date.strftime('%B %d, %Y') if obj.event.date else 'TBD'},
+            {'key': '[event_url]', 'label': 'Event URL', 'description': 'Link to the event invitation', 'example': f'https://example.com/invite/{obj.event.slug}'},
+            {'key': '[host_name]', 'label': 'Host Name', 'description': 'Name of the event host', 'example': obj.event.host.name or 'Host'},
+            {'key': '[event_location]', 'label': 'Event Location', 'description': 'Location of the event', 'example': obj.event.city or 'Location TBD'},
+            {'key': '[map_direction]', 'label': 'Map Direction Link', 'description': 'Google Maps link to event location', 'example': 'https://maps.google.com/?q=Location'},
+        ]
+        variables.extend(default_vars)
+        
+        # Custom variables from CSV imports
+        custom_metadata = obj.event.custom_fields_metadata or {}
+        for normalized_key, metadata in custom_metadata.items():
+            if isinstance(metadata, dict):
+                display_label = metadata.get('display_label', normalized_key)
+                example = metadata.get('example', '—')
+            else:
+                # Backward compatibility: if metadata is just a string (old format)
+                display_label = metadata
+                example = '—'
+            
+            variables.append({
+                'key': f'[{normalized_key}]',
+                'label': display_label,
+                'description': f'Custom field from CSV: {display_label}',
+                'example': example,
+                'is_custom': True,
+            })
+        
+        return variables
+    
+    def validate(self, data):
+        """Validate that only one default template per event"""
+        instance = self.instance
+        event = data.get('event') or (instance.event if instance else None)
+        is_default = data.get('is_default', False)
+        
+        if is_default and event:
+            # Check if another template is already default for this event
+            existing_default = WhatsAppTemplate.objects.filter(
+                event=event,
+                is_default=True
+            ).exclude(id=instance.id if instance else None)
+            
+            if existing_default.exists():
+                # Unset other defaults
+                existing_default.update(is_default=False)
+        
+        return data
+    
+    def validate_template_text(self, value):
+        """Validate template text is not empty"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Template text cannot be empty.")
+        
+        # Check for valid variables (optional - just warn, don't fail)
+        valid_variables = ['[name]', '[event_title]', '[event_date]', '[event_url]', '[host_name]', '[event_location]', '[map_direction]']
+        # We don't enforce variables, just allow any text
+        
+        # Check length (WhatsApp limit is 4096 characters)
+        if len(value) > 4096:
+            raise serializers.ValidationError("Template text cannot exceed 4096 characters (WhatsApp limit).")
+        
+        # Warn if extremely long (but allow)
+        if len(value) > 3000:
+            # We'll allow it but the frontend should show a warning
+            pass
+        
+        return value
+    
+    def validate_name(self, value):
+        """Validate name is not empty"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Template name cannot be empty.")
+        return value.strip()
 

@@ -13,8 +13,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/components/ui/toast'
 import { getCountryCode, formatPhoneWithCountryCode } from '@/lib/countryCodesFull'
 import CountryCodeSelector from '@/components/CountryCodeSelector'
-import { generateWhatsAppLink, generateGuestMessage, openWhatsApp } from '@/lib/whatsapp'
+import { generateWhatsAppLink, generateGuestMessage, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
 import { logError } from '@/lib/error-handler'
+import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
+import dynamic from 'next/dynamic'
+
+const TemplateSelector = dynamic(() => import('@/components/communications/TemplateSelector'), {
+  ssr: false,
+  loading: () => null
+})
 
 const guestSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -43,6 +50,7 @@ interface Guest {
   is_removed?: boolean
   created_at?: string
   guest_token?: string | null
+  custom_fields?: Record<string, string>
 }
 
 interface OtherGuest {
@@ -102,6 +110,8 @@ export default function GuestsPage() {
   const [importErrors, setImportErrors] = useState<string[] | null>(null)
   const [importSummary, setImportSummary] = useState<{created: number, errors: number} | null>(null)
   const [sharingWhatsApp, setSharingWhatsApp] = useState<number | null>(null)
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false)
+  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
   const [rsvpFilter, setRsvpFilter] = useState<'all' | 'unconfirmed' | 'confirmed' | 'no'>('all')
   const [showImportExportMenu, setShowImportExportMenu] = useState(false)
   const [showImportInstructions, setShowImportInstructions] = useState(false)
@@ -488,33 +498,74 @@ export default function GuestsPage() {
     }
   }
 
-  const handleShareWhatsApp = async (guest: Guest) => {
+  const handleShareWhatsApp = (guest: Guest) => {
     if (!event) return
+    setSelectedGuest(guest)
+    setShowTemplateSelector(true)
+  }
+
+  const handleTemplateSelected = async (template: WhatsAppTemplate | null) => {
+    if (!event || !selectedGuest) return
     
-    setSharingWhatsApp(guest.id)
+    setShowTemplateSelector(false)
+    setSharingWhatsApp(selectedGuest.id)
+    
     try {
       const eventUrl = typeof window !== 'undefined' 
         ? `${window.location.origin}/invite/${event.slug || eventId}` 
         : ''
       
-      const message = generateGuestMessage(
-        guest.name,
-        event.title || 'Event',
-        event.date,
-        eventUrl,
-        undefined, // Host name
-        event.city || '', // Event location
-        (event as any).whatsapp_message_template // Custom template
-      )
+      let message: string
       
-      const whatsappUrl = generateWhatsAppLink(guest.phone, message)
+      if (template) {
+        // Use selected template
+        let mapDirection: string | undefined
+        if (event.city) {
+          const encodedLocation = encodeURIComponent(event.city)
+          mapDirection = `https://maps.google.com/?q=${encodedLocation}`
+        }
+        
+        const result = replaceTemplateVariables(template.template_text, {
+          name: selectedGuest.name,
+          event_title: event.title || 'Event',
+          event_date: event.date,
+          event_location: event.city || '',
+          event_url: eventUrl,
+          host_name: undefined,
+          map_direction: mapDirection,
+          custom_fields: (selectedGuest as any).custom_fields || {},
+        })
+        message = result.message
+        
+        // Increment usage count
+        try {
+          await incrementWhatsAppTemplateUsage(template.id)
+        } catch (error) {
+          // Silently fail - usage tracking is not critical
+          logError('Failed to increment template usage:', error)
+        }
+      } else {
+        // Use event default template
+        message = generateGuestMessage(
+          selectedGuest.name,
+          event.title || 'Event',
+          event.date,
+          eventUrl,
+          undefined, // Host name
+          event.city || '', // Event location
+          (event as any).whatsapp_message_template // Custom template
+        )
+      }
+      
+      const whatsappUrl = generateWhatsAppLink(selectedGuest.phone, message)
       openWhatsApp(whatsappUrl)
-      showToast(`Opening WhatsApp to ${guest.name}...`, 'success')
+      showToast(`Opening WhatsApp to ${selectedGuest.name}...`, 'success')
     } catch (error: any) {
       logError('Failed to share on WhatsApp:', error)
       showToast('Failed to open WhatsApp', 'error')
     } finally {
       setSharingWhatsApp(null)
+      setSelectedGuest(null)
     }
   }
 
@@ -1317,6 +1368,26 @@ export default function GuestsPage() {
           </div>
         )}
       </div>
+
+      {/* Template Selector Modal */}
+      {showTemplateSelector && event && selectedGuest && (
+        <TemplateSelector
+          eventId={parseInt(eventId)}
+          eventTitle={event.title}
+          eventDate={event.date}
+          eventUrl={typeof window !== 'undefined' ? `${window.location.origin}/invite/${event.slug || eventId}` : ''}
+          hostName={undefined}
+          eventLocation={event.city}
+          guestName={selectedGuest.name}
+          guestId={selectedGuest.id}
+          guestCustomFields={selectedGuest.custom_fields || {}}
+          onSelect={handleTemplateSelected}
+          onCancel={() => {
+            setShowTemplateSelector(false)
+            setSelectedGuest(null)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -94,11 +94,11 @@ if [ "$USE_CUSTOM_FRONTEND" = "y" ] || [ "$USE_CUSTOM_FRONTEND" = "Y" ]; then
   echo "✅ Using FRONTEND_URL: $FRONTEND_URL"
 else
   # Legacy behavior: construct from ALB_DNS
-  ALB_URL="https://${ALB_DNS}"
-  create_param "${PARAM_PREFIX}/NEXT_PUBLIC_API_BASE" "String" "$ALB_URL" "Frontend API base URL"
-  create_param "${PARAM_PREFIX}/ALLOWED_HOSTS" "String" "$ALB_DNS" "Django ALLOWED_HOSTS"
-  create_param "${PARAM_PREFIX}/CORS_ALLOWED_ORIGINS" "String" "$ALB_URL" "CORS allowed origins"
-  create_param "${PARAM_PREFIX}/FRONTEND_ORIGIN" "String" "$ALB_URL" "Frontend origin URL"
+ALB_URL="https://${ALB_DNS}"
+create_param "${PARAM_PREFIX}/NEXT_PUBLIC_API_BASE" "String" "$ALB_URL" "Frontend API base URL"
+create_param "${PARAM_PREFIX}/ALLOWED_HOSTS" "String" "$ALB_DNS" "Django ALLOWED_HOSTS"
+create_param "${PARAM_PREFIX}/CORS_ALLOWED_ORIGINS" "String" "$ALB_URL" "CORS allowed origins"
+create_param "${PARAM_PREFIX}/FRONTEND_ORIGIN" "String" "$ALB_URL" "Frontend origin URL"
   
   echo "✅ Using ALB URL: $ALB_URL"
 fi

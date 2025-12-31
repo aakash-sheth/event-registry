@@ -3,7 +3,10 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp,
     InvitePageViewSet, PublicInviteViewSet, upload_image,
-    SubEventViewSet, GuestInviteViewSet
+    SubEventViewSet, GuestInviteViewSet, WhatsAppTemplateViewSet,
+    whatsapp_template_preview, whatsapp_template_duplicate,
+    whatsapp_template_archive, whatsapp_template_activate,
+    whatsapp_template_increment_usage
 )
 
 router = DefaultRouter()
@@ -33,5 +36,20 @@ urlpatterns = [
     # Guest invite management endpoints
     path('envelopes/<int:event_id>/guests/', GuestInviteViewSet.as_view({'get': 'by_event'}), name='envelope-guests'),
     path('guests/<int:guest_id>/invites/', GuestInviteViewSet.as_view({'put': 'update_guest_invites'}), name='guest-invites-update'),
+    # WhatsApp template endpoints
+    # Nested route for list/create (requires event_id in URL)
+    path('<int:event_id>/whatsapp-templates/', WhatsAppTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='event-whatsapp-templates'),
+    # Event-level template endpoints
+    path('<int:id>/whatsapp-templates/available-variables/', EventViewSet.as_view({'get': 'get_available_variables'}), name='event-available-variables'),
+    path('<int:id>/whatsapp-preview/', EventViewSet.as_view({'post': 'whatsapp_preview'}), name='event-whatsapp-preview'),
+    path('<int:id>/system-default-template/', EventViewSet.as_view({'get': 'get_system_default_template'}), name='event-system-default-template'),
+    # Action routes - using standalone view functions for better routing
+    path('whatsapp-templates/<int:id>/preview/', whatsapp_template_preview, name='whatsapp-template-preview'),
+    path('whatsapp-templates/<int:id>/duplicate/', whatsapp_template_duplicate, name='whatsapp-template-duplicate'),
+    path('whatsapp-templates/<int:id>/archive/', whatsapp_template_archive, name='whatsapp-template-archive'),
+    path('whatsapp-templates/<int:id>/activate/', whatsapp_template_activate, name='whatsapp-template-activate'),
+    path('whatsapp-templates/<int:id>/increment-usage/', whatsapp_template_increment_usage, name='whatsapp-template-increment-usage'),
+    # Detail route (must come after action routes)
+    path('whatsapp-templates/<int:id>/', WhatsAppTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='whatsapp-template-detail'),
     path('', include(router.urls)),
 ]
