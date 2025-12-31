@@ -129,6 +129,25 @@ export default function InvitePageClient({
     fetchInvite()
   }, [slug, initialConfig, fetchInvite])
 
+  // Compute backgroundColor early (before early returns) so we can use it in useEffect
+  const backgroundColor = config?.customColors?.backgroundColor || '#ffffff'
+
+  // Set body background to match page background
+  // This MUST be called before any early returns to follow React hooks rules
+  useEffect(() => {
+    document.body.style.setProperty('background-color', backgroundColor, 'important')
+    document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
+    document.body.style.setProperty('background', backgroundColor, 'important')
+    document.documentElement.style.setProperty('background', backgroundColor, 'important')
+
+    return () => {
+      document.body.style.removeProperty('background-color')
+      document.body.style.removeProperty('background')
+      document.documentElement.style.removeProperty('background-color')
+      document.documentElement.style.removeProperty('background')
+    }
+  }, [backgroundColor])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -149,23 +168,6 @@ export default function InvitePageClient({
       </div>
     )
   }
-
-  const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
-
-  // Set body background to match page background
-  useEffect(() => {
-    document.body.style.setProperty('background-color', backgroundColor, 'important')
-    document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
-    document.body.style.setProperty('background', backgroundColor, 'important')
-    document.documentElement.style.setProperty('background', backgroundColor, 'important')
-
-    return () => {
-      document.body.style.removeProperty('background-color')
-      document.body.style.removeProperty('background')
-      document.documentElement.style.removeProperty('background-color')
-      document.documentElement.style.removeProperty('background')
-    }
-  }, [backgroundColor])
 
   // If we have SSR content, filter out those tiles from config
   const configForClient = heroSSR || eventDetailsSSR ? {
