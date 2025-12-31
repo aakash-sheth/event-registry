@@ -35,77 +35,186 @@ function getFrontendUrl(): string {
 }
 
 // Fetch invite page data (supports guest token)
-async function fetchInviteData(slug: string, guestToken?: string): Promise<any | null> {
-  try {
-    const apiBase = getApiBase()
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
-    
-    const url = guestToken 
-      ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
-      : `${apiBase}/api/events/invite/${slug}/`
-    
-    const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      // Use cache: 'no-store' for development, or next: { revalidate } for production
-      ...(process.env.NODE_ENV === 'development' 
-        ? { cache: 'no-store' as RequestCache }
-        : { next: { revalidate: 3600 } }
-      ),
-    })
-    
-    clearTimeout(timeoutId)
+// Retries on network errors or 5xx status codes
+async function fetchInviteData(slug: string, guestToken?: string, retries: number = 2): Promise<any | null> {
+  const apiBase = getApiBase()
+  const url = guestToken 
+    ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+    : `${apiBase}/api/events/invite/${slug}/`
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController()
+      // Increased timeout: 10 seconds for production (was 3 seconds)
+      const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
+      const timeoutId = setTimeout(() => controller.abort(), timeout)
+      
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+        // Use cache: 'no-store' for development, or next: { revalidate } for production
+        ...(process.env.NODE_ENV === 'development' 
+          ? { cache: 'no-store' as RequestCache }
+          : { next: { revalidate: 3600 } }
+        ),
+      })
+      
+      clearTimeout(timeoutId)
 
-    if (!response.ok) {
+      if (response.ok) {
+        const data = await response.json()
+        if (attempt > 0) {
+          console.log(`[InvitePage SSR] Successfully fetched invite data for ${slug} on attempt ${attempt + 1}`)
+        }
+        return data
+      }
+
+      // Log the error for debugging
+      const errorText = await response.text().catch(() => 'Unable to read error response')
+      const status = response.status
+      
+      // Don't retry on 4xx errors (client errors) - these are permanent
+      if (status >= 400 && status < 500) {
+        console.error(`[InvitePage SSR] Client error fetching invite data for ${slug}:`, {
+          status,
+          statusText: response.statusText,
+          url,
+          error: errorText.substring(0, 200),
+        })
+        return null
+      }
+
+      // Retry on 5xx errors (server errors) or network errors
+      if (status >= 500 || attempt < retries) {
+        console.warn(`[InvitePage SSR] Server error fetching invite data for ${slug} (attempt ${attempt + 1}/${retries + 1}):`, {
+          status,
+          statusText: response.statusText,
+          url,
+        })
+        
+        // Wait before retrying (exponential backoff)
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+          continue
+        }
+      }
+
+      // If we get here, it's a 5xx error and we've exhausted retries
+      console.error(`[InvitePage SSR] Failed to fetch invite data for ${slug} after ${retries + 1} attempts:`, {
+        status,
+        statusText: response.statusText,
+        url,
+        error: errorText.substring(0, 200),
+      })
+      return null
+    } catch (error: any) {
+      // Retry on network errors (AbortError is timeout, others are network issues)
+      if (error.name === 'AbortError') {
+        if (attempt < retries) {
+          console.warn(`[InvitePage SSR] Timeout fetching invite data for ${slug} (attempt ${attempt + 1}/${retries + 1}), retrying...`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+          continue
+        } else {
+          console.error(`[InvitePage SSR] Timeout fetching invite data for ${slug} after ${retries + 1} attempts`)
+        }
+      } else {
+        if (attempt < retries) {
+          console.warn(`[InvitePage SSR] Network error fetching invite data for ${slug} (attempt ${attempt + 1}/${retries + 1}):`, {
+            error: error.message,
+          })
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+          continue
+        } else {
+          console.error('[InvitePage SSR] Network error fetching invite data:', {
+            slug,
+            guestToken: guestToken ? 'present' : 'none',
+            error: error.message,
+            stack: error.stack?.substring(0, 200),
+          })
+        }
+      }
       return null
     }
-
-    const data = await response.json()
-    return data
-  } catch (error: any) {
-    if (error.name !== 'AbortError') {
-      console.error('Failed to fetch invite data:', error)
-    }
-    return null
   }
+  
+  return null
 }
 
-// Fetch event data on the server
-async function fetchEventData(slug: string): Promise<Event | null> {
-  try {
-    const apiBase = getApiBase()
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
-    
-    const response = await fetch(`${apiBase}/api/registry/${slug}/`, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      // Cache for 1 hour to reduce API calls (matches page revalidation)
-      // But add cache-busting for development to see latest data
-      next: { revalidate: process.env.NODE_ENV === 'development' ? 0 : 3600 },
-      cache: process.env.NODE_ENV === 'development' ? 'no-store' : 'default',
-    })
-    
-    clearTimeout(timeoutId)
+// Fetch event data on the server (fallback when invite endpoint fails)
+async function fetchEventData(slug: string, retries: number = 1): Promise<Event | null> {
+  const apiBase = getApiBase()
+  const url = `${apiBase}/api/registry/${slug}/`
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController()
+      // Increased timeout: 10 seconds for production
+      const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
+      const timeoutId = setTimeout(() => controller.abort(), timeout)
+      
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+        // Cache for 1 hour to reduce API calls (matches page revalidation)
+        // But add cache-busting for development to see latest data
+        next: { revalidate: process.env.NODE_ENV === 'development' ? 0 : 3600 },
+        cache: process.env.NODE_ENV === 'development' ? 'no-store' : 'default',
+      })
+      
+      clearTimeout(timeoutId)
 
-    if (!response.ok) {
+      if (response.ok) {
+        const data = await response.json()
+        return data
+      }
+
+      // Don't retry on 4xx errors
+      if (response.status >= 400 && response.status < 500) {
+        console.error(`[InvitePage SSR] Client error fetching event data for ${slug}:`, {
+          status: response.status,
+          statusText: response.statusText,
+        })
+        return null
+      }
+
+      // Retry on 5xx errors
+      if (response.status >= 500 && attempt < retries) {
+        console.warn(`[InvitePage SSR] Server error fetching event data for ${slug} (attempt ${attempt + 1}/${retries + 1}), retrying...`)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        continue
+      }
+
+      return null
+    } catch (error: any) {
+      // Retry on network errors
+      if (attempt < retries) {
+        if (error.name === 'AbortError') {
+          console.warn(`[InvitePage SSR] Timeout fetching event data for ${slug} (attempt ${attempt + 1}/${retries + 1}), retrying...`)
+        } else {
+          console.warn(`[InvitePage SSR] Network error fetching event data for ${slug} (attempt ${attempt + 1}/${retries + 1}):`, {
+            error: error.message,
+          })
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        continue
+      }
+      
+      // Only log non-timeout errors on final attempt
+      if (error.name !== 'AbortError') {
+        console.error('[InvitePage SSR] Failed to fetch event data:', {
+          slug,
+          error: error.message,
+        })
+      }
       return null
     }
-
-    const data = await response.json()
-    return data
-  } catch (error: any) {
-    // Only log non-timeout errors (timeouts are expected in slow network conditions)
-    if (error.name !== 'AbortError') {
-      console.error('Failed to fetch event data for metadata:', error)
-    }
-    return null
   }
+  
+  return null
 }
 
 // Generate metadata for Open Graph and Twitter Cards
@@ -232,11 +341,6 @@ export default async function InvitePage({
   params: { slug: string }
   searchParams: { g?: string }
 }) {
-  // Handle demo route
-  if (params.slug === 'aakash-alisha') {
-    return <InvitePageClient slug={params.slug} />
-  }
-
   // Fetch invite page data (supports guest token via ?g= parameter)
   const inviteData = await fetchInviteData(params.slug, searchParams.g)
   
@@ -248,20 +352,34 @@ export default async function InvitePage({
       keys: Object.keys(inviteData),
     })
   } else {
-    console.log('[InvitePage SSR] inviteData is null!')
+    console.log('[InvitePage SSR] inviteData is null, falling back to event data fetch')
   }
   
-  // Extract event data from invite response
-  const event = inviteData ? {
-    id: inviteData.event || 0,
-    title: inviteData.event_slug || params.slug,
-    date: undefined,
-    description: undefined,
-    banner_image: inviteData.background_url,
-    page_config: inviteData.config,
-    has_rsvp: true,
-    has_registry: true,
-  } : await fetchEventData(params.slug)
+  // Extract event data from invite response or fallback to event endpoint
+  let event: Event | null = null
+  
+  if (inviteData) {
+    // Use data from invite endpoint
+    event = {
+      id: inviteData.event || 0,
+      title: inviteData.event_slug || params.slug,
+      date: undefined,
+      description: undefined,
+      banner_image: inviteData.background_url,
+      page_config: inviteData.config,
+      has_rsvp: true,
+      has_registry: true,
+    }
+  } else {
+    // Fallback: try to get event data from registry endpoint
+    // This handles cases where invite page doesn't exist yet but event does
+    console.log('[InvitePage SSR] Attempting fallback to event data for slug:', params.slug)
+    event = await fetchEventData(params.slug)
+    
+    if (!event) {
+      console.error('[InvitePage SSR] Both invite and event endpoints failed for slug:', params.slug)
+    }
+  }
 
   // If event not found, render error page
   if (!event) {

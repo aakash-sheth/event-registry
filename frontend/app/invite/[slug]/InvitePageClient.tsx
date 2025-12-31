@@ -1,9 +1,8 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { InviteConfig } from '@/lib/invite/schema'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
-import { DEMO } from '@/lib/invite/loadConfig'
 import { logError, logDebug } from '@/lib/error-handler'
 import api from '@/lib/api'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
@@ -40,16 +39,7 @@ export default function InvitePageClient({
   const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
   
 
-  useEffect(() => {
-    // If we have initial data from server, skip fetching
-    if (initialConfig) {
-      return
-    }
-    
-    fetchInvite()
-  }, [slug])
-
-  const fetchInvite = async () => {
+  const fetchInvite = useCallback(async () => {
     try {
       // Extract guest token from URL
       const urlParams = new URLSearchParams(window.location.search)
@@ -125,14 +115,19 @@ export default function InvitePageClient({
       }
     } catch (error: any) {
       logError('Failed to fetch invite:', error)
-      // For demo route, use DEMO config
-      if (slug === 'aakash-alisha') {
-        setConfig(DEMO)
-      }
     } finally {
       setLoading(false)
     }
-  }
+  }, [slug])
+
+  useEffect(() => {
+    // If we have initial data from server, skip fetching
+    if (initialConfig) {
+      return
+    }
+    
+    fetchInvite()
+  }, [slug, initialConfig, fetchInvite])
 
   if (loading) {
     return (
