@@ -9,6 +9,16 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 function getApiBase(): string {
   let apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
   
+  // Log API base for debugging
+  if (typeof window !== 'undefined') {
+    console.log('[API] API Base URL:', {
+      fromEnv: process.env.NEXT_PUBLIC_API_BASE,
+      resolved: apiBase,
+      currentOrigin: window.location.origin,
+      nodeEnv: process.env.NODE_ENV,
+    })
+  }
+  
   // Runtime override: Fix mixed content issues
   if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
     const currentOrigin = window.location.origin
@@ -20,6 +30,20 @@ function getApiBase(): string {
     if (isPageHTTPS && isApiHTTP) {
       apiBase = currentOrigin
       console.warn('[API] Auto-fixing mixed content: Using HTTPS origin:', apiBase)
+    }
+  }
+  
+  // Validate API base URL
+  if (!apiBase || (!apiBase.startsWith('http://') && !apiBase.startsWith('https://'))) {
+    console.error('[API] Invalid API base URL:', apiBase)
+    // Fallback to localhost in development
+    if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+      apiBase = 'http://localhost:8000'
+      console.warn('[API] Using fallback API base:', apiBase)
+    } else {
+      // In production, use current origin
+      apiBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000'
+      console.warn('[API] Using current origin as API base:', apiBase)
     }
   }
   

@@ -45,10 +45,18 @@ export default function InvitePageClient({
       const urlParams = new URLSearchParams(window.location.search)
       const guestToken = urlParams.get('g')
       
-              // Fetch from invite endpoint (supports guest token)
-              const inviteUrl = guestToken 
-                ? `/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
-                : `/api/events/invite/${slug}/`
+      // Fetch from invite endpoint (supports guest token)
+      const inviteUrl = guestToken 
+        ? `/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+        : `/api/events/invite/${slug}/`
+      
+      console.log('[InvitePageClient] Fetching invite data:', {
+        slug,
+        inviteUrl,
+        apiBase: api.defaults.baseURL,
+        fullUrl: `${api.defaults.baseURL}${inviteUrl}`,
+        guestToken: guestToken ? 'present' : 'none',
+      })
       
       const response = await api.get(inviteUrl)
       const inviteData = response.data
@@ -114,7 +122,54 @@ export default function InvitePageClient({
         setConfig(fallbackConfig)
       }
     } catch (error: any) {
+      console.error('[InvitePageClient] Failed to fetch invite:', {
+        slug,
+        error: error.message,
+        code: error.code,
+        response: error.response?.status,
+        apiBase: api.defaults.baseURL,
+        url: error.config?.url,
+        fullUrl: error.config ? `${error.config.baseURL}${error.config.url}` : 'unknown',
+      })
       logError('Failed to fetch invite:', error)
+      
+      // If connection error, try fallback to registry endpoint
+      if (error.code === 'ERR_CONNECTION_RESET' || error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
+        console.log('[InvitePageClient] Connection error, trying fallback to registry endpoint')
+        try {
+          const fallbackResponse = await api.get(`/api/registry/${slug}/`)
+          const eventData = {
+            ...fallbackResponse.data,
+            page_config: fallbackResponse.data.page_config,
+          }
+          
+          const fallbackConfig: InviteConfig = {
+            themeId: 'classic-noir',
+            hero: {
+              title: eventData.title || 'Event',
+              subtitle: eventData.description ? eventData.description.substring(0, 100) : undefined,
+              showTimer: !!eventData.date,
+              eventDate: eventData.date,
+              buttons: [
+                { label: 'Save the Date', action: 'calendar' },
+                ...(eventData.has_rsvp
+                  ? [{ label: 'RSVP' as const, action: 'rsvp' as const, href: `/event/${slug}/rsvp` }]
+                  : []),
+                ...(eventData.has_registry
+                  ? [{ label: 'Registry' as const, action: 'registry' as const, href: `/registry/${slug}` }]
+                  : []),
+              ],
+            },
+            descriptionMarkdown: eventData.description || undefined,
+          }
+          setEvent(eventData)
+          setConfig(fallbackConfig)
+          setLoading(false)
+          return
+        } catch (fallbackError: any) {
+          console.error('[InvitePageClient] Fallback also failed:', fallbackError)
+        }
+      }
     } finally {
       setLoading(false)
     }
