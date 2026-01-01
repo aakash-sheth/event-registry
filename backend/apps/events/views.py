@@ -1197,46 +1197,88 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             event = invite_page.event
             logger.info(f"[PublicInviteViewSet] Found invite page for slug: {slug}, event_id: {event.id}")
         except InvitePage.DoesNotExist:
-            logger.info(f"[PublicInviteViewSet] Invite page not found for slug: {slug}, trying event lookup")
-            # If invite page doesn't exist, try to find event by slug (case-insensitive)
+            # Try case-insensitive match as fallback
             try:
-                # Try exact match first
-                event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug=slug)
-            except Event.DoesNotExist:
-                # Try case-insensitive match as fallback
+                invite_page = InvitePage.objects.select_related('event').get(slug__iexact=slug, is_published=True)
+                event = invite_page.event
+                logger.info(f"[PublicInviteViewSet] Found invite page with case-insensitive match: {invite_page.slug} (requested: {slug}), event_id: {event.id}")
+            except InvitePage.DoesNotExist:
+                # Try exact match without is_published check (might be unpublished)
                 try:
-                    event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug__iexact=slug)
-                    logger.info(f"[PublicInviteViewSet] Found event with case-insensitive match: {event.slug} (requested: {slug})")
-                except Event.DoesNotExist:
-                    logger.warning(f"[PublicInviteViewSet] Event not found for slug: {slug} (exact or case-insensitive)")
-                    from rest_framework.exceptions import NotFound
-                    raise NotFound(f"Invite page or event not found for slug: {slug}")
-            
-            # Create a default invite page if it doesn't exist (optimized query)
-            invite_page, created = InvitePage.objects.get_or_create(
-                event=event,
-                defaults={
-                    'slug': event.slug,  # Use event slug as invite page slug
-                    'is_published': True,  # Auto-publish if created
-                    'config': event.page_config if event.page_config else {}  # Use event's page_config if available
-                }
-            )
-            if created:
-                logger.info(f"[PublicInviteViewSet] Created new invite page for event: {event.slug}")
-            # If it already existed but wasn't published, publish it
-            if not created and not invite_page.is_published:
-                invite_page.is_published = True
-                invite_page.save(update_fields=['is_published'])
-                logger.info(f"[PublicInviteViewSet] Published existing invite page for event: {event.slug}")
-            # Always sync config from event.page_config if it exists and is more complete
-            # This ensures invite page always has the latest design settings
-            # NOTE: Removed complex config comparison logic to improve performance
-            # Config sync should be handled by admin/API, not during public page loads
-            if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
-                if not invite_page.config or not isinstance(invite_page.config, dict) or len(invite_page.config) == 0:
-                    invite_page.config = event.page_config
-                    invite_page.save(update_fields=['config'])
-                    logger.info(f"[PublicInviteViewSet] Synced config from event to invite page for: {event.slug}")
+                    invite_page = InvitePage.objects.select_related('event').get(slug=slug)
+                    event = invite_page.event
+                    if not invite_page.is_published:
+                        logger.warning(f"[PublicInviteViewSet] Found unpublished invite page for slug: {slug}, event_id: {event.id}. Publishing...")
+                        invite_page.is_published = True
+                        invite_page.save(update_fields=['is_published'])
+                    logger.info(f"[PublicInviteViewSet] Found invite page for slug: {slug}, event_id: {event.id}")
+                except InvitePage.DoesNotExist:
+                    # Try case-insensitive match without is_published check
+                    try:
+                        invite_page = InvitePage.objects.select_related('event').get(slug__iexact=slug)
+                        event = invite_page.event
+                        if not invite_page.is_published:
+                            logger.warning(f"[PublicInviteViewSet] Found unpublished invite page with case-insensitive match: {invite_page.slug} (requested: {slug}), event_id: {event.id}. Publishing...")
+                            invite_page.is_published = True
+                            invite_page.save(update_fields=['is_published'])
+                        logger.info(f"[PublicInviteViewSet] Found invite page with case-insensitive match: {invite_page.slug} (requested: {slug}), event_id: {event.id}")
+                    except InvitePage.DoesNotExist:
+                        logger.info(f"[PublicInviteViewSet] Invite page not found for slug: {slug} (tried exact and case-insensitive), trying event lookup")
+                        # If invite page doesn't exist, try to find event by slug (case-insensitive)
+                        try:
+                            # Try exact match first
+                            event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug=slug)
+                        except Event.DoesNotExist:
+                            # Try case-insensitive match as fallback
+                            try:
+                                event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug__iexact=slug)
+                                logger.info(f"[PublicInviteViewSet] Found event with case-insensitive match: {event.slug} (requested: {slug})")
+                            except Event.DoesNotExist:
+                                logger.warning(f"[PublicInviteViewSet] Event not found for slug: {slug} (exact or case-insensitive)")
+                                from rest_framework.exceptions import NotFound
+                                raise NotFound(f"Invite page or event not found for slug: {slug}")
+                        
+                        # Create a default invite page if it doesn't exist (optimized query)
+                        try:
+                            invite_page, created = InvitePage.objects.get_or_create(
+                                event=event,
+                                defaults={
+                                    'slug': event.slug,  # Use event slug as invite page slug
+                                    'is_published': True,  # Auto-publish if created
+                                    'config': event.page_config if event.page_config else {}  # Use event's page_config if available
+                                }
+                            )
+                            if created:
+                                logger.info(f"[PublicInviteViewSet] Created new invite page for event: {event.slug}, slug: {invite_page.slug}, published: {invite_page.is_published}")
+                            else:
+                                logger.info(f"[PublicInviteViewSet] Found existing invite page for event: {event.slug}, slug: {invite_page.slug}, published: {invite_page.is_published}")
+                            
+                            # If it already existed but wasn't published, publish it
+                            if not created and not invite_page.is_published:
+                                invite_page.is_published = True
+                                invite_page.save(update_fields=['is_published'])
+                                logger.info(f"[PublicInviteViewSet] Published existing invite page for event: {event.slug}")
+                            
+                            # Ensure slug matches event slug (in case it was auto-generated differently)
+                            if invite_page.slug != event.slug:
+                                logger.warning(f"[PublicInviteViewSet] Slug mismatch detected: invite_page.slug={invite_page.slug}, event.slug={event.slug}. Updating...")
+                                invite_page.slug = event.slug
+                                invite_page.save(update_fields=['slug'])
+                                logger.info(f"[PublicInviteViewSet] Updated invite page slug to match event slug: {event.slug}")
+                            
+                            # Always sync config from event.page_config if it exists and is more complete
+                            # This ensures invite page always has the latest design settings
+                            # NOTE: Removed complex config comparison logic to improve performance
+                            # Config sync should be handled by admin/API, not during public page loads
+                            if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
+                                if not invite_page.config or not isinstance(invite_page.config, dict) or len(invite_page.config) == 0:
+                                    invite_page.config = event.page_config
+                                    invite_page.save(update_fields=['config'])
+                                    logger.info(f"[PublicInviteViewSet] Synced config from event to invite page for: {event.slug}")
+                        except Exception as e:
+                            logger.error(f"[PublicInviteViewSet] Error creating/updating invite page for event {event.slug}: {e}", exc_info=True)
+                            # Re-raise to return proper error to client
+                            raise
         
         # Extract guest token from query params
         guest_token = request.query_params.get('g', '').strip()
