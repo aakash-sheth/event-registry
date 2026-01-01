@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django.conf import settings
+from django.utils import timezone
 import csv
 from urllib.parse import quote
 from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, WhatsAppTemplate
@@ -1184,15 +1185,15 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         """Retrieve invite page with guest-scoped sub-events if token provided"""
         slug = kwargs.get('slug')
         
-        # Try to get invite page by slug
+        # Try to get invite page by slug with optimized query
         try:
-            invite_page = InvitePage.objects.get(slug=slug, is_published=True)
+            invite_page = InvitePage.objects.select_related('event').get(slug=slug, is_published=True)
             event = invite_page.event
         except InvitePage.DoesNotExist:
-            # If invite page doesn't exist, try to find event by slug and create/use a default invite page
+            # If invite page doesn't exist, try to find event by slug
             try:
-                event = Event.objects.get(slug=slug)
-                # Create a default invite page if it doesn't exist
+                event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug=slug)
+                # Create a default invite page if it doesn't exist (optimized query)
                 invite_page, created = InvitePage.objects.get_or_create(
                     event=event,
                     defaults={
@@ -1207,27 +1208,10 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     invite_page.save(update_fields=['is_published'])
                 # Always sync config from event.page_config if it exists and is more complete
                 # This ensures invite page always has the latest design settings
+                # NOTE: Removed complex config comparison logic to improve performance
+                # Config sync should be handled by admin/API, not during public page loads
                 if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
-                    # Update if current config is empty, or if event.page_config has more tiles/settings
-                    should_update = False
-                    if not invite_page.config or not isinstance(invite_page.config, dict):
-                        should_update = True
-                    else:
-                        # Compare tile counts - if event has more tiles, it's likely more recent
-                        event_tiles = event.page_config.get('tiles', [])
-                        invite_tiles = invite_page.config.get('tiles', [])
-                        if len(event_tiles) > len(invite_tiles):
-                            should_update = True
-                        # Also check if event has event-carousel tile with more settings
-                        event_carousel = next((t for t in event_tiles if t.get('type') == 'event-carousel'), None)
-                        invite_carousel = next((t for t in invite_tiles if t.get('type') == 'event-carousel'), None)
-                        if event_carousel and invite_carousel:
-                            event_settings_keys = len(event_carousel.get('settings', {}).keys())
-                            invite_settings_keys = len(invite_carousel.get('settings', {}).keys())
-                            if event_settings_keys > invite_settings_keys:
-                                should_update = True
-                    
-                    if should_update:
+                    if not invite_page.config or not isinstance(invite_page.config, dict) or len(invite_page.config) == 0:
                         invite_page.config = event.page_config
                         invite_page.save(update_fields=['config'])
             except Event.DoesNotExist:
@@ -1240,31 +1224,38 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         allowed_sub_events = []
         
         if guest_token:
-            # Resolve guest token
+            # Resolve guest token with optimized query
             try:
-                guest = Guest.objects.get(guest_token=guest_token, event=event, is_removed=False)
-                # Get allowed sub-events via join table
+                guest = Guest.objects.only('id', 'name', 'event_id', 'guest_token').get(
+                    guest_token=guest_token, 
+                    event=event, 
+                    is_removed=False
+                )
+                # Get allowed sub-events via join table with optimized query
                 allowed_sub_events = SubEvent.objects.filter(
                     guest_invites__guest=guest,
                     is_removed=False
-                ).order_by('start_at')
+                ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
             except Guest.DoesNotExist:
                 # Invalid token - return empty sub-events (guest won't see any)
                 allowed_sub_events = []
         else:
-            # Public link - only show public-visible sub-events
-            # Check if event has sub-events (even if structure is still SIMPLE, it might have been upgraded)
-            # This handles the case where sub-events exist but event_structure hasn't been updated yet
+            # Public link - only show public-visible sub-events with optimized query
             allowed_sub_events = SubEvent.objects.filter(
                 event=event,
                 is_public_visible=True,
                 is_removed=False
-            ).order_by('start_at')
+            ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
             
             # If we found sub-events but event structure is still SIMPLE, upgrade it
+            # Use update() for better performance (single query instead of get + save)
             if allowed_sub_events.exists() and event.event_structure == 'SIMPLE':
-                event.event_structure = 'ENVELOPE'
-                event.save(update_fields=['event_structure', 'updated_at'])
+                Event.objects.filter(id=event.id, event_structure='SIMPLE').update(
+                    event_structure='ENVELOPE',
+                    updated_at=timezone.now()
+                )
+                # Refresh event object for serializer
+                event.refresh_from_db(fields=['event_structure', 'updated_at'])
         
         # Serialize sub-events
         serialized_sub_events = SubEventSerializer(allowed_sub_events, many=True).data
