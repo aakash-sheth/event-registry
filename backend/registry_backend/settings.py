@@ -83,13 +83,18 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_PASSWORD', 'postgres'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Reuse database connections for 10 minutes (reduces connection overhead)
     }
 }
 
 # Parse DATABASE_URL if provided
 if 'DATABASE_URL' in os.environ:
     import dj_database_url
-    DATABASES['default'] = dj_database_url.parse(os.environ['DATABASE_URL'])
+    db_config = dj_database_url.parse(os.environ['DATABASE_URL'])
+    # Force CONN_MAX_AGE to 600 (10 minutes) for connection pooling
+    # dj_database_url may set it to 0, so we override it
+    db_config['CONN_MAX_AGE'] = 600
+    DATABASES['default'] = db_config
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

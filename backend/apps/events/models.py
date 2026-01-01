@@ -80,6 +80,12 @@ class Event(models.Model):
                 self.event_structure = 'ENVELOPE'
                 self.save(update_fields=['event_structure', 'updated_at'])
     
+    def save(self, *args, **kwargs):
+        """Normalize slug to lowercase before saving"""
+        if self.slug:
+            self.slug = self.slug.lower()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
         return f"{self.title} ({self.slug})"
 
@@ -108,6 +114,9 @@ class InvitePage(models.Model):
         if not self.slug:
             # Use event slug directly (not {event-slug}-invite)
             self.slug = self.event.slug
+        # Always normalize slug to lowercase
+        if self.slug:
+            self.slug = self.slug.lower()
         super().save(*args, **kwargs)
 
 

@@ -804,7 +804,7 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
         }
         [contenteditable] p:empty:before,
         [contenteditable] div:empty:before {
-          content: '\\200B';
+          content: "\\200B";
           color: transparent;
         }
       `}</style>

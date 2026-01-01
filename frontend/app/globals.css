@@ -41,9 +41,44 @@ body {
   }
 }
 
+@layer base {
+  /* Fix for text-size-adjust compatibility - ensure standard property is present */
+  html,
+  :host {
+    text-size-adjust: 100%;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  
+  /* Fix for backdrop-filter Safari compatibility */
+  /* Tailwind generates backdrop-filter with CSS variables, but Safari needs -webkit-backdrop-filter */
+  /* This adds the webkit prefix for all backdrop-blur utilities to support Safari */
+  /* Match Tailwind's backdrop-blur values */
+  [class*="backdrop-blur-sm"] {
+    -webkit-backdrop-filter: blur(4px);
+  }
+  [class*="backdrop-blur-md"] {
+    -webkit-backdrop-filter: blur(12px);
+  }
+  [class*="backdrop-blur-lg"] {
+    -webkit-backdrop-filter: blur(16px);
+  }
+  [class*="backdrop-blur-xl"] {
+    -webkit-backdrop-filter: blur(24px);
+  }
+  [class*="backdrop-blur-2xl"] {
+    -webkit-backdrop-filter: blur(40px);
+  }
+  [class*="backdrop-blur-3xl"] {
+    -webkit-backdrop-filter: blur(64px);
+  }
+  /* Fallback for any other backdrop-blur classes */
+  [class*="backdrop-blur"]:not([class*="backdrop-blur-sm"]):not([class*="backdrop-blur-md"]):not([class*="backdrop-blur-lg"]):not([class*="backdrop-blur-xl"]):not([class*="backdrop-blur-2xl"]):not([class*="backdrop-blur-3xl"]) {
+    -webkit-backdrop-filter: blur(12px); /* Default to md value */
   }
 }
 

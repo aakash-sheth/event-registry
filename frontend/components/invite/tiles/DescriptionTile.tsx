@@ -22,21 +22,22 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
   const isHTML = /<[a-z][\s\S]*>/i.test(settings.content)
 
   if (preview) {
+    const styleContent = `
+      .description-content p:empty,
+      .description-content div:empty {
+        min-height: 1.5em;
+        margin: 0.5em 0;
+        display: block;
+      }
+      .description-content p:empty:before,
+      .description-content div:empty:before {
+        content: "\\200B";
+        color: transparent;
+      }
+    `
     return (
       <>
-        <style>{`
-          .description-content p:empty,
-          .description-content div:empty {
-            min-height: 1.5em;
-            margin: 0.5em 0;
-            display: block;
-          }
-          .description-content p:empty:before,
-          .description-content div:empty:before {
-            content: '\\200B';
-            color: transparent;
-          }
-        `}</style>
+        <style dangerouslySetInnerHTML={{ __html: styleContent }} />
         <div className="w-full py-8 pr-4 pl-4 md:pl-8 lg:pl-12 xl:pl-16" style={{ backgroundColor: 'transparent' }}>
           {isHTML ? (
             <div 
@@ -54,21 +55,23 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
     )
   }
 
+  const styleContent = `
+    .description-content p:empty,
+    .description-content div:empty {
+      min-height: 1.5em;
+      margin: 0.5em 0;
+      display: block;
+    }
+    .description-content p:empty:before,
+    .description-content div:empty:before {
+      content: "\\200B";
+      color: transparent;
+    }
+  `
+  
   return (
     <>
-      <style>{`
-        .description-content p:empty,
-        .description-content div:empty {
-          min-height: 1.5em;
-          margin: 0.5em 0;
-          display: block;
-        }
-        .description-content p:empty:before,
-        .description-content div:empty:before {
-          content: '\\200B';
-          color: transparent;
-        }
-      `}</style>
+      <style dangerouslySetInnerHTML={{ __html: styleContent }} />
       <div className="w-full py-4 pr-4 pl-4 md:pl-8 lg:pl-12 border rounded">
         {isHTML ? (
           <div 

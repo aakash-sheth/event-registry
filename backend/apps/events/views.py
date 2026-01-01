@@ -1205,151 +1205,94 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             if log_to_stdout or level in ['WARNING', 'ERROR']:
                 print(log_msg, file=sys.stdout, flush=True)
         
+        # Normalize slug to lowercase (all slugs are stored in lowercase)
+        slug = slug.lower() if slug else ''
+        
         debug_log(f"🔍 START: Retrieving invite page for slug: {slug}")
         debug_log(f"Request method: {request.method}, Path: {request.path}")
         debug_log(f"Query params: {dict(request.query_params)}")
         
-        # Try to get invite page by slug with optimized query (case-insensitive)
+        # Simplified lookup: Try invite page first, then event, then 404
         query_start = time.time()
+        invite_page = None
+        event = None
+        
+        # Step 1: Try to find published invite page (most common case)
         debug_log(f"Step 1: Looking up InvitePage with slug='{slug}' and is_published=True")
         try:
-            # Try exact match first (most common case)
             invite_page = InvitePage.objects.select_related('event').get(slug=slug, is_published=True)
             event = invite_page.event
             query_time = time.time() - query_start
-            debug_log(f"✅ Step 1 SUCCESS: Found invite page (query took {query_time:.3f}s)")
-            debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
+            debug_log(f"✅ Step 1 SUCCESS: Found published invite page (query took {query_time:.3f}s)")
+            debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}")
             debug_log(f"   Event ID: {event.id}, Event Slug: {event.slug}, Title: {event.title}")
         except InvitePage.DoesNotExist:
             query_time = time.time() - query_start
-            debug_log(f"❌ Step 1 FAILED: No exact match found (query took {query_time:.3f}s)")
-            debug_log(f"Step 2: Trying case-insensitive match with slug__iexact='{slug}'")
+            debug_log(f"❌ Step 1 FAILED: Published invite page not found (query took {query_time:.3f}s)")
+            
+            # Step 2: Try unpublished invite page (auto-publish if found)
+            debug_log(f"Step 2: Trying unpublished InvitePage with slug='{slug}'")
             query_start = time.time()
             try:
-                invite_page = InvitePage.objects.select_related('event').get(slug__iexact=slug, is_published=True)
+                invite_page = InvitePage.objects.select_related('event').get(slug=slug)
                 event = invite_page.event
                 query_time = time.time() - query_start
-                debug_log(f"✅ Step 2 SUCCESS: Found with case-insensitive match (query took {query_time:.3f}s)")
-                debug_log(f"   InvitePage Slug: {invite_page.slug} (requested: {slug})")
+                debug_log(f"✅ Step 2 SUCCESS: Found unpublished invite page (query took {query_time:.3f}s)")
+                debug_log(f"   InvitePage ID: {invite_page.id}, Published: {invite_page.is_published}")
+                
+                # Auto-publish if unpublished
+                if not invite_page.is_published:
+                    debug_log(f"⚠️  Auto-publishing invite page...")
+                    publish_start = time.time()
+                    invite_page.is_published = True
+                    invite_page.save(update_fields=['is_published'])
+                    publish_time = time.time() - publish_start
+                    debug_log(f"✅ Published (took {publish_time:.3f}s)")
+                
                 debug_log(f"   Event ID: {event.id}, Event Slug: {event.slug}")
             except InvitePage.DoesNotExist:
                 query_time = time.time() - query_start
-                debug_log(f"❌ Step 2 FAILED: No case-insensitive match found (query took {query_time:.3f}s)")
-                debug_log(f"Step 3: Trying exact match without is_published check")
+                debug_log(f"❌ Step 2 FAILED: InvitePage not found (query took {query_time:.3f}s)")
+                
+                # Step 3: Try to find event (for auto-creating invite page)
+                debug_log(f"Step 3: Trying Event lookup with slug='{slug}'")
                 query_start = time.time()
                 try:
-                    invite_page = InvitePage.objects.select_related('event').get(slug=slug)
-                    event = invite_page.event
+                    event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug=slug)
                     query_time = time.time() - query_start
-                    debug_log(f"✅ Step 3 SUCCESS: Found unpublished invite page (query took {query_time:.3f}s)")
-                    debug_log(f"   InvitePage ID: {invite_page.id}, Published: {invite_page.is_published}")
-                    if not invite_page.is_published:
-                        debug_log(f"⚠️  Publishing invite page...")
-                        publish_start = time.time()
-                        invite_page.is_published = True
-                        invite_page.save(update_fields=['is_published'])
-                        publish_time = time.time() - publish_start
-                        debug_log(f"✅ Published (took {publish_time:.3f}s)")
-                    debug_log(f"   Event ID: {event.id}, Event Slug: {event.slug}")
-                except InvitePage.DoesNotExist:
-                    query_time = time.time() - query_start
-                    debug_log(f"❌ Step 3 FAILED: No exact match without published check (query took {query_time:.3f}s)")
-                    debug_log(f"Step 4: Trying case-insensitive match without is_published check")
-                    query_start = time.time()
+                    debug_log(f"✅ Step 3 SUCCESS: Found event (query took {query_time:.3f}s)")
+                    debug_log(f"   Event ID: {event.id}, Slug: {event.slug}, Title: {event.title}")
+                    
+                    # Create invite page if it doesn't exist
+                    debug_log(f"Step 4: Creating/getting InvitePage for event_id={event.id}")
+                    create_start = time.time()
                     try:
-                        invite_page = InvitePage.objects.select_related('event').get(slug__iexact=slug)
-                        event = invite_page.event
-                        query_time = time.time() - query_start
-                        debug_log(f"✅ Step 4 SUCCESS: Found unpublished with case-insensitive (query took {query_time:.3f}s)")
-                        debug_log(f"   InvitePage Slug: {invite_page.slug} (requested: {slug}), Published: {invite_page.is_published}")
-                        if not invite_page.is_published:
-                            debug_log(f"⚠️  Publishing invite page...")
-                            publish_start = time.time()
-                            invite_page.is_published = True
-                            invite_page.save(update_fields=['is_published'])
-                            publish_time = time.time() - publish_start
-                            debug_log(f"✅ Published (took {publish_time:.3f}s)")
-                        debug_log(f"   Event ID: {event.id}, Event Slug: {event.slug}")
-                    except InvitePage.DoesNotExist:
-                        query_time = time.time() - query_start
-                        debug_log(f"❌ Step 4 FAILED: No case-insensitive match without published check (query took {query_time:.3f}s)")
-                        debug_log(f"Step 5: InvitePage not found, trying Event lookup with slug='{slug}'")
-                        query_start = time.time()
-                        # If invite page doesn't exist, try to find event by slug (case-insensitive)
-                        try:
-                            # Try exact match first
-                            event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug=slug)
-                            query_time = time.time() - query_start
-                            debug_log(f"✅ Step 5 SUCCESS: Found event (query took {query_time:.3f}s)")
-                            debug_log(f"   Event ID: {event.id}, Slug: {event.slug}, Title: {event.title}")
-                        except Event.DoesNotExist:
-                            query_time = time.time() - query_start
-                            debug_log(f"❌ Step 5 FAILED: No exact event match (query took {query_time:.3f}s)")
-                            debug_log(f"Step 6: Trying case-insensitive event match")
-                            query_start = time.time()
-                            try:
-                                event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug__iexact=slug)
-                                query_time = time.time() - query_start
-                                debug_log(f"✅ Step 6 SUCCESS: Found event with case-insensitive match (query took {query_time:.3f}s)")
-                                debug_log(f"   Event Slug: {event.slug} (requested: {slug})")
-                            except Event.DoesNotExist:
-                                query_time = time.time() - query_start
-                                debug_log(f"❌ Step 6 FAILED: Event not found (query took {query_time:.3f}s)", 'ERROR')
-                                debug_log(f"❌ FINAL ERROR: Event not found for slug: {slug} (exact or case-insensitive)", 'ERROR')
-                                
-                                # Log 404 to CloudWatch with full request details for alerting
-                                full_url = request.build_absolute_uri()
-                                logger.error(
-                                    f"INVITE_404: Invite page or event not found",
-                                    extra={
-                                        'event_type': 'invite_404',
-                                        'slug': slug,
-                                        'full_url': full_url,
-                                        'path': request.path,
-                                        'query_params': dict(request.query_params),
-                                        'user_agent': request.META.get('HTTP_USER_AGENT', ''),
-                                        'referer': request.META.get('HTTP_REFERER', ''),
-                                        'remote_addr': request.META.get('REMOTE_ADDR', ''),
-                                        'request_method': request.method,
-                                    }
-                                )
-                                
-                                from rest_framework.exceptions import NotFound
-                                raise NotFound(f"Invite page or event not found for slug: {slug}")
-                        
-                        # Create a default invite page if it doesn't exist (optimized query)
-                        debug_log(f"Step 7: Creating/getting InvitePage for event_id={event.id}")
-                        create_start = time.time()
-                        try:
-                            invite_page, created = InvitePage.objects.get_or_create(
-                                event=event,
-                                defaults={
-                                    'slug': event.slug,  # Use event slug as invite page slug
-                                    'is_published': True,  # Auto-publish if created
-                                    'config': event.page_config if event.page_config else {}  # Use event's page_config if available
-                                }
-                            )
-                            create_time = time.time() - create_start
-                            if created:
-                                debug_log(f"✅ Step 7 SUCCESS: Created new invite page (took {create_time:.3f}s)")
-                                debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
-                            else:
-                                debug_log(f"✅ Step 7 SUCCESS: Found existing invite page (took {create_time:.3f}s)")
-                                debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
+                        invite_page, created = InvitePage.objects.get_or_create(
+                            event=event,
+                            defaults={
+                                'slug': event.slug.lower(),  # Ensure lowercase
+                                'is_published': True,  # Auto-publish if created
+                                'config': event.page_config if event.page_config else {}
+                            }
+                        )
+                        create_time = time.time() - create_start
+                        if created:
+                            debug_log(f"✅ Step 4 SUCCESS: Created new invite page (took {create_time:.3f}s)")
+                            debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
+                        else:
+                            debug_log(f"✅ Step 4 SUCCESS: Found existing invite page (took {create_time:.3f}s)")
+                            debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
                             
-                            # If it already existed but wasn't published, publish it
-                            if not created and not invite_page.is_published:
-                                debug_log(f"⚠️  Publishing existing invite page...")
+                            # Auto-publish if it exists but wasn't published
+                            if not invite_page.is_published:
+                                debug_log(f"⚠️  Auto-publishing existing invite page...")
                                 publish_start = time.time()
                                 invite_page.is_published = True
                                 invite_page.save(update_fields=['is_published'])
                                 publish_time = time.time() - publish_start
                                 debug_log(f"✅ Published (took {publish_time:.3f}s)")
                             
-                            # Always sync config from event.page_config if it exists and is more complete
-                            # This ensures invite page always has the latest design settings
-                            # NOTE: Removed complex config comparison logic to improve performance
-                            # Config sync should be handled by admin/API, not during public page loads
+                            # Sync config if invite page has no config but event does
                             if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
                                 if not invite_page.config or not isinstance(invite_page.config, dict) or len(invite_page.config) == 0:
                                     debug_log(f"⚠️  Syncing config from event to invite page...")
@@ -1358,11 +1301,34 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                                     invite_page.save(update_fields=['config'])
                                     sync_time = time.time() - sync_start
                                     debug_log(f"✅ Config synced (took {sync_time:.3f}s)")
-                        except Exception as e:
-                            debug_log(f"❌ ERROR creating/updating invite page for event {event.slug}: {e}", 'ERROR')
-                            logger.error(f"[PublicInviteViewSet] Error creating/updating invite page for event {event.slug}: {e}", exc_info=True)
-                            # Re-raise to return proper error to client
-                            raise
+                    except Exception as e:
+                        debug_log(f"❌ ERROR creating/updating invite page for event {event.slug}: {e}", 'ERROR')
+                        logger.error(f"[PublicInviteViewSet] Error creating/updating invite page for event {event.slug}: {e}", exc_info=True)
+                        raise
+                except Event.DoesNotExist:
+                    query_time = time.time() - query_start
+                    debug_log(f"❌ Step 3 FAILED: Event not found (query took {query_time:.3f}s)", 'ERROR')
+                    debug_log(f"❌ FINAL ERROR: Invite page or event not found for slug: {slug}", 'ERROR')
+                    
+                    # Log 404 to CloudWatch with full request details for alerting
+                    full_url = request.build_absolute_uri()
+                    logger.error(
+                        f"INVITE_404: Invite page or event not found",
+                        extra={
+                            'event_type': 'invite_404',
+                            'slug': slug,
+                            'full_url': full_url,
+                            'path': request.path,
+                            'query_params': dict(request.query_params),
+                            'user_agent': request.META.get('HTTP_USER_AGENT', ''),
+                            'referer': request.META.get('HTTP_REFERER', ''),
+                            'remote_addr': request.META.get('REMOTE_ADDR', ''),
+                            'request_method': request.method,
+                        }
+                    )
+                    
+                    from rest_framework.exceptions import NotFound
+                    raise NotFound(f"Invite page or event not found for slug: {slug}")
         
         # Extract guest token from query params
         debug_log(f"Step 8: Processing guest token and sub-events")
@@ -1371,49 +1337,57 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         guest = None
         allowed_sub_events = []
         
-        if guest_token:
-            debug_log(f"   Guest token provided: {guest_token[:10]}...")
-            # Resolve guest token with optimized query
-            try:
-                guest_query_start = time.time()
-                guest = Guest.objects.only('id', 'name', 'event_id', 'guest_token').get(
-                    guest_token=guest_token, 
-                    event=event, 
-                    is_removed=False
-                )
-                guest_query_time = time.time() - guest_query_start
-                debug_log(f"✅ Guest found (query took {guest_query_time:.3f}s): ID={guest.id}, Name={guest.name}")
-                # Get allowed sub-events via join table with optimized query
+        # Optimization: Skip sub-events query for SIMPLE events without guest tokens
+        # SIMPLE events don't have sub-events, so no need to query
+        if event.event_structure == 'SIMPLE' and not guest_token:
+            debug_log(f"   Event is SIMPLE and no guest token - skipping sub-events query")
+            allowed_sub_events = SubEvent.objects.none()
+            sub_events_list = []
+            has_sub_events = False
+        else:
+            if guest_token:
+                debug_log(f"   Guest token provided: {guest_token[:10]}...")
+                # Resolve guest token with optimized query
+                try:
+                    guest_query_start = time.time()
+                    guest = Guest.objects.only('id', 'name', 'event_id', 'guest_token').get(
+                        guest_token=guest_token, 
+                        event=event, 
+                        is_removed=False
+                    )
+                    guest_query_time = time.time() - guest_query_start
+                    debug_log(f"✅ Guest found (query took {guest_query_time:.3f}s): ID={guest.id}, Name={guest.name}")
+                    # Get allowed sub-events via join table with optimized query
+                    sub_events_query_start = time.time()
+                    allowed_sub_events = SubEvent.objects.filter(
+                        guest_invites__guest=guest,
+                        is_removed=False
+                    ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
+                    sub_events_query_time = time.time() - sub_events_query_start
+                    debug_log(f"✅ Sub-events query completed (took {sub_events_query_time:.3f}s)")
+                except Guest.DoesNotExist:
+                    debug_log(f"❌ Guest not found for token", 'WARNING')
+                    # Invalid token - return empty sub-events (guest won't see any)
+                    allowed_sub_events = SubEvent.objects.none()
+                    guest = None
+            else:
+                debug_log(f"   No guest token - using public sub-events")
+                # Public link - only show public-visible sub-events with optimized query
                 sub_events_query_start = time.time()
                 allowed_sub_events = SubEvent.objects.filter(
-                    guest_invites__guest=guest,
+                    event=event,
+                    is_public_visible=True,
                     is_removed=False
                 ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
                 sub_events_query_time = time.time() - sub_events_query_start
-                debug_log(f"✅ Sub-events query completed (took {sub_events_query_time:.3f}s)")
-            except Guest.DoesNotExist:
-                debug_log(f"❌ Guest not found for token", 'WARNING')
-                # Invalid token - return empty sub-events (guest won't see any)
-                allowed_sub_events = SubEvent.objects.none()
-                guest = None
-        else:
-            debug_log(f"   No guest token - using public sub-events")
-            # Public link - only show public-visible sub-events with optimized query
-            sub_events_query_start = time.time()
-            allowed_sub_events = SubEvent.objects.filter(
-                event=event,
-                is_public_visible=True,
-                is_removed=False
-            ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
-            sub_events_query_time = time.time() - sub_events_query_start
-            debug_log(f"✅ Public sub-events query completed (took {sub_events_query_time:.3f}s)")
-        
-        # Convert to list early to evaluate queryset and check count efficiently
-        list_start = time.time()
-        sub_events_list = list(allowed_sub_events)
-        list_time = time.time() - list_start
-        has_sub_events = len(sub_events_list) > 0
-        debug_log(f"✅ Converted sub-events to list (took {list_time:.3f}s): {len(sub_events_list)} sub-events")
+                debug_log(f"✅ Public sub-events query completed (took {sub_events_query_time:.3f}s)")
+            
+            # Convert to list early to evaluate queryset and check count efficiently
+            list_start = time.time()
+            sub_events_list = list(allowed_sub_events)
+            list_time = time.time() - list_start
+            has_sub_events = len(sub_events_list) > 0
+            debug_log(f"✅ Converted sub-events to list (took {list_time:.3f}s): {len(sub_events_list)} sub-events")
             
             # If we found sub-events but event structure is still SIMPLE, upgrade it
         # Use update() for better performance (single query instead of get + save)
