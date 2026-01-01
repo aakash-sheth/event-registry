@@ -925,6 +925,10 @@ class EventViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='system-default-template')
     def get_system_default_template(self, request, id=None):
         """Get the system default template"""
+        # Verify event ownership (required by permission_classes)
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
         # System default template is global, not event-specific
         try:
             system_template = WhatsAppTemplate.objects.filter(is_system_default=True).first()
