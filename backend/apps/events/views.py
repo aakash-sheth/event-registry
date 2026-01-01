@@ -1287,7 +1287,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                             debug_log(f"❌ Step 5 FAILED: No exact event match (query took {query_time:.3f}s)")
                             debug_log(f"Step 6: Trying case-insensitive event match")
                             query_start = time.time()
-            try:
+                            try:
                                 event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug__iexact=slug)
                                 query_time = time.time() - query_start
                                 debug_log(f"✅ Step 6 SUCCESS: Found event with case-insensitive match (query took {query_time:.3f}s)")
@@ -1321,14 +1321,14 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                         debug_log(f"Step 7: Creating/getting InvitePage for event_id={event.id}")
                         create_start = time.time()
                         try:
-                invite_page, created = InvitePage.objects.get_or_create(
-                    event=event,
-                    defaults={
-                        'slug': event.slug,  # Use event slug as invite page slug
-                        'is_published': True,  # Auto-publish if created
-                        'config': event.page_config if event.page_config else {}  # Use event's page_config if available
-                    }
-                )
+                            invite_page, created = InvitePage.objects.get_or_create(
+                                event=event,
+                                defaults={
+                                    'slug': event.slug,  # Use event slug as invite page slug
+                                    'is_published': True,  # Auto-publish if created
+                                    'config': event.page_config if event.page_config else {}  # Use event's page_config if available
+                                }
+                            )
                             create_time = time.time() - create_start
                             if created:
                                 debug_log(f"✅ Step 7 SUCCESS: Created new invite page (took {create_time:.3f}s)")
@@ -1337,25 +1337,25 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                                 debug_log(f"✅ Step 7 SUCCESS: Found existing invite page (took {create_time:.3f}s)")
                                 debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
                             
-                # If it already existed but wasn't published, publish it
-                if not created and not invite_page.is_published:
+                            # If it already existed but wasn't published, publish it
+                            if not created and not invite_page.is_published:
                                 debug_log(f"⚠️  Publishing existing invite page...")
                                 publish_start = time.time()
-                    invite_page.is_published = True
-                    invite_page.save(update_fields=['is_published'])
+                                invite_page.is_published = True
+                                invite_page.save(update_fields=['is_published'])
                                 publish_time = time.time() - publish_start
                                 debug_log(f"✅ Published (took {publish_time:.3f}s)")
                             
-                # Always sync config from event.page_config if it exists and is more complete
-                # This ensures invite page always has the latest design settings
+                            # Always sync config from event.page_config if it exists and is more complete
+                            # This ensures invite page always has the latest design settings
                             # NOTE: Removed complex config comparison logic to improve performance
                             # Config sync should be handled by admin/API, not during public page loads
-                if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
+                            if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
                                 if not invite_page.config or not isinstance(invite_page.config, dict) or len(invite_page.config) == 0:
                                     debug_log(f"⚠️  Syncing config from event to invite page...")
                                     sync_start = time.time()
-                        invite_page.config = event.page_config
-                        invite_page.save(update_fields=['config'])
+                                    invite_page.config = event.page_config
+                                    invite_page.save(update_fields=['config'])
                                     sync_time = time.time() - sync_start
                                     debug_log(f"✅ Config synced (took {sync_time:.3f}s)")
                         except Exception as e:
