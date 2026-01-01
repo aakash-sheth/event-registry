@@ -1188,6 +1188,8 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         start_time = time.time()
         
         # Log to both logger and stdout for visibility
+        # Only log to stdout in production if LOG_LEVEL is DEBUG to reduce overhead
+        log_to_stdout = os.environ.get('LOG_LEVEL', 'INFO') == 'DEBUG'
         def debug_log(msg, level='INFO'):
             """Log to both logger and stdout for debugging"""
             log_msg = f"[PublicInviteViewSet] {msg}"
@@ -1199,8 +1201,9 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 logger.error(log_msg)
             elif level == 'DEBUG':
                 logger.debug(log_msg)
-            # Also print to stdout (will be captured by ECS/CloudWatch)
-            print(log_msg, file=sys.stdout, flush=True)
+            # Only print to stdout if explicitly enabled (reduces overhead in production)
+            if log_to_stdout or level in ['WARNING', 'ERROR']:
+                print(log_msg, file=sys.stdout, flush=True)
         
         debug_log(f"🔍 START: Retrieving invite page for slug: {slug}")
         debug_log(f"Request method: {request.method}, Path: {request.path}")
