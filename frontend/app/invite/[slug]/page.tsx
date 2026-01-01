@@ -36,8 +36,7 @@ function getFrontendUrl(): string {
 
 // Fetch invite page data (supports guest token)
 // Retries on network errors or 5xx status codes
-// Reduced retries for SSR to stay under CloudFront's 30s origin timeout
-async function fetchInviteData(slug: string, guestToken?: string, retries: number = 1): Promise<any | null> {
+async function fetchInviteData(slug: string, guestToken?: string, retries: number = 2): Promise<any | null> {
   const apiBase = getApiBase()
   const url = guestToken 
     ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
@@ -46,9 +45,8 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController()
-      // Timeout: 5 seconds for production (CloudFront origin timeout is 30s, but we need buffer)
-      // With retries, total time could be up to 15 seconds (3 attempts × 5s)
-      const timeout = process.env.NODE_ENV === 'production' ? 5000 : 3000
+      // Increased timeout: 10 seconds for production (was 3 seconds)
+      const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
       const timeoutId = setTimeout(() => controller.abort(), timeout)
       
       const response = await fetch(url, {
@@ -96,9 +94,9 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
           url,
         })
         
-        // Wait before retrying (shorter backoff for SSR - need to stay under CloudFront timeout)
+        // Wait before retrying (exponential backoff)
         if (attempt < retries) {
-          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))) // Reduced from 1000ms
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
           continue
         }
       }
@@ -116,7 +114,7 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
       if (error.name === 'AbortError') {
         if (attempt < retries) {
           console.warn(`[InvitePage SSR] Timeout fetching invite data for ${slug} (attempt ${attempt + 1}/${retries + 1}), retrying...`)
-          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))) // Reduced from 1000ms
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
           continue
         } else {
           console.error(`[InvitePage SSR] Timeout fetching invite data for ${slug} after ${retries + 1} attempts`)
@@ -126,7 +124,7 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
           console.warn(`[InvitePage SSR] Network error fetching invite data for ${slug} (attempt ${attempt + 1}/${retries + 1}):`, {
             error: error.message,
           })
-          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))) // Reduced from 1000ms
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
           continue
         } else {
           console.error('[InvitePage SSR] Network error fetching invite data:', {
@@ -145,16 +143,15 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
 }
 
 // Fetch event data on the server (fallback when invite endpoint fails)
-// No retries for fallback - must be fast to avoid CloudFront timeout
-async function fetchEventData(slug: string, retries: number = 0): Promise<Event | null> {
+async function fetchEventData(slug: string, retries: number = 1): Promise<Event | null> {
   const apiBase = getApiBase()
   const url = `${apiBase}/api/registry/${slug}/`
   
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController()
-      // Timeout: 5 seconds for production (must stay well under CloudFront's 30s origin timeout)
-      const timeout = process.env.NODE_ENV === 'production' ? 5000 : 3000
+      // Increased timeout: 10 seconds for production
+      const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
       const timeoutId = setTimeout(() => controller.abort(), timeout)
       
       const response = await fetch(url, {
@@ -187,7 +184,7 @@ async function fetchEventData(slug: string, retries: number = 0): Promise<Event 
       // Retry on 5xx errors
       if (response.status >= 500 && attempt < retries) {
         console.warn(`[InvitePage SSR] Server error fetching event data for ${slug} (attempt ${attempt + 1}/${retries + 1}), retrying...`)
-        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))) // Reduced from 1000ms
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
         continue
       }
 
@@ -202,7 +199,7 @@ async function fetchEventData(slug: string, retries: number = 0): Promise<Event 
             error: error.message,
           })
         }
-        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))) // Reduced from 1000ms
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
         continue
       }
       
@@ -386,11 +383,19 @@ export default async function InvitePage({
 
   // If event not found, render error page
   if (!event) {
+    // Log for debugging
+    console.error(`[InvitePage SSR] Event not found for slug: ${params.slug}`, {
+      inviteDataReceived: !!inviteData,
+      inviteDataKeys: inviteData ? Object.keys(inviteData) : [],
+      fallbackAttempted: !inviteData,
+    })
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <h1 className="text-2xl font-semibold text-gray-900 mb-2">Invite not found</h1>
-          <p className="text-gray-600">The invitation you're looking for doesn't exist or has been removed.</p>
+          <p className="text-gray-600 mb-4">The invitation you're looking for doesn't exist or has been removed.</p>
+          <p className="text-sm text-gray-500">Slug: {params.slug}</p>
         </div>
       </div>
     )
