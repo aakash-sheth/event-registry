@@ -18,7 +18,12 @@
         }
       ],
       "environment": [],
-      "secrets": [],
+      "secrets": [
+        {
+          "name": "BACKEND_API_BASE",
+          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/BACKEND_API_BASE"
+        }
+      ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
