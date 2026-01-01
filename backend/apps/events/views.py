@@ -1179,13 +1179,17 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
     
     def retrieve(self, request, *args, **kwargs):
         """Retrieve invite page with guest-scoped sub-events if token provided"""
-        slug = kwargs.get('slug')
-        
-        # DEBUG: Comprehensive logging for production investigation
+        # CRITICAL: Log immediately to stdout to catch any issues
         import logging
         import time
         import sys
         logger = logging.getLogger(__name__)
+        
+        # Force immediate logging to ensure we see requests
+        slug = kwargs.get('slug', '')
+        print(f"[PublicInviteViewSet] RETRIEVE CALLED - slug={slug}, path={request.path}", file=sys.stdout, flush=True)
+        logger.error(f"[PublicInviteViewSet] RETRIEVE CALLED - slug={slug}, path={request.path}")
+        
         start_time = time.time()
         
         # Log to both logger and stdout for visibility
