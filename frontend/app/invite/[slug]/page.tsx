@@ -36,17 +36,28 @@ function getFrontendUrl(): string {
 
 // Fetch invite page data (supports guest token)
 // Retries on network errors or 5xx status codes
-async function fetchInviteData(slug: string, guestToken?: string, retries: number = 2): Promise<any | null> {
+// Reduced retries to 2 (from 3) to stay under CloudFront's 30s timeout limit
+async function fetchInviteData(slug: string, guestToken?: string, retries: number = 1): Promise<any | null> {
     const apiBase = getApiBase()
     const url = guestToken 
       ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
       : `${apiBase}/api/events/invite/${slug}/`
+    
+    console.log('[InvitePage SSR] fetchInviteData starting:', {
+      slug,
+      apiBase,
+      url,
+      guestToken: guestToken ? 'present' : 'none',
+      retries,
+    })
   
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      console.log(`[InvitePage SSR] fetchInviteData attempt ${attempt + 1}/${retries + 1} for slug: ${slug}`)
       const controller = new AbortController()
-      // Increased timeout: 10 seconds for production (was 3 seconds)
-      const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
+      // Reduced timeout: 5 seconds for production to stay under CloudFront's 30s limit
+      // CloudFront origin timeout is 30s, so we need: (timeout × retries) + rendering < 30s
+      const timeout = process.env.NODE_ENV === 'production' ? 5000 : 3000
       const timeoutId = setTimeout(() => controller.abort(), timeout)
     
     const response = await fetch(url, {
@@ -65,9 +76,13 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
 
       if (response.ok) {
         const data = await response.json()
-        if (attempt > 0) {
-          console.log(`[InvitePage SSR] Successfully fetched invite data for ${slug} on attempt ${attempt + 1}`)
-        }
+        console.log(`[InvitePage SSR] Successfully fetched invite data for ${slug}${attempt > 0 ? ` on attempt ${attempt + 1}` : ''}:`, {
+          status: response.status,
+          hasConfig: !!data.config,
+          hasEvent: !!data.event,
+          eventId: data.event,
+          keys: Object.keys(data),
+        })
         return data
       }
 
@@ -143,12 +158,21 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
 }
 
 // Fetch event data on the server (fallback when invite endpoint fails)
+// Reduced timeout to stay under CloudFront's 30s limit
 async function fetchEventData(slug: string, retries: number = 1): Promise<Event | null> {
     const apiBase = getApiBase()
   const url = `${apiBase}/api/registry/${slug}/`
   
+  console.log('[InvitePage SSR] fetchEventData starting:', {
+    slug,
+    apiBase,
+    url,
+    retries,
+  })
+  
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      console.log(`[InvitePage SSR] fetchEventData attempt ${attempt + 1}/${retries + 1} for slug: ${slug}`)
     const controller = new AbortController()
       // Increased timeout: 10 seconds for production
       const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
@@ -169,6 +193,14 @@ async function fetchEventData(slug: string, retries: number = 1): Promise<Event 
 
       if (response.ok) {
         const data = await response.json()
+        console.log(`[InvitePage SSR] Successfully fetched event data for ${slug}${attempt > 0 ? ` on attempt ${attempt + 1}` : ''}:`, {
+          status: response.status,
+          eventId: data.id,
+          eventSlug: data.slug,
+          eventTitle: data.title,
+          hasRegistry: data.has_registry,
+          hasRsvp: data.has_rsvp,
+        })
         return data
       }
 

@@ -1178,7 +1178,12 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     logger.debug(log_msg)
             
             # Normalize slug to lowercase (all slugs are stored in lowercase)
-            slug = kwargs.get('slug', '').lower() if kwargs.get('slug') else ''
+            original_slug = kwargs.get('slug', '')
+            slug = original_slug.lower() if original_slug else ''
+            if original_slug != slug:
+                logger.info(f"[PublicInviteViewSet.retrieve] Slug normalized: '{original_slug}' -> '{slug}'")
+            else:
+                logger.info(f"[PublicInviteViewSet.retrieve] Request received - Slug: '{slug}'")
             
             # Simplified lookup: Try invite page first, then event, then 404
             query_start = time.time()
@@ -1186,17 +1191,24 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             event = None
             
             # Step 1: Try to find published invite page (most common case)
+            logger.info(f"[PublicInviteViewSet.retrieve] Step 1: Looking for published invite page with slug: '{slug}'")
             try:
                 invite_page = InvitePage.objects.select_related('event').get(slug=slug, is_published=True)
                 event = invite_page.event
+                query_time = time.time() - query_start
+                logger.info(f"[PublicInviteViewSet.retrieve] Step 1 SUCCESS - Found published invite page (ID: {invite_page.id}, Event ID: {event.id}, Query time: {query_time:.3f}s)")
             except InvitePage.DoesNotExist:
+                query_time = time.time() - query_start
+                logger.info(f"[PublicInviteViewSet.retrieve] Step 1 FAILED: Published invite page not found (Query time: {query_time:.3f}s)")
                 
                 # Step 2: Try unpublished invite page (security: do NOT auto-publish)
                 query_start = time.time()
+                logger.info(f"[PublicInviteViewSet.retrieve] Step 2: Looking for unpublished invite page with slug: '{slug}'")
                 try:
                     invite_page = InvitePage.objects.select_related('event').get(slug=slug)
                     event = invite_page.event
                     query_time = time.time() - query_start
+                    logger.info(f"[PublicInviteViewSet.retrieve] Step 2: Found invite page (ID: {invite_page.id}, Published: {invite_page.is_published}, Query time: {query_time:.3f}s)")
                     
                     # Security fix: If invite page exists but is unpublished, return 404
                     # Do NOT auto-publish - this is a privacy/security issue
@@ -1215,24 +1227,26 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                         raise NotFound(f"Invite page not found for slug: {slug}")
                     
                     # Invite page is published, proceed normally
+                    logger.info(f"[PublicInviteViewSet.retrieve] Step 2 SUCCESS - Using published invite page")
                 except InvitePage.DoesNotExist:
                     query_time = time.time() - query_start
-                    debug_log(f"❌ Step 2 FAILED: InvitePage not found (query took {query_time:.3f}s)")
+                    logger.info(f"[PublicInviteViewSet.retrieve] Step 2 FAILED: InvitePage not found (Query time: {query_time:.3f}s)")
                     
                     # Step 3: Event not found or no invite page - return 404
                     # SECURITY FIX: Do NOT auto-create invite pages in public GET endpoint
                     # This violates REST idempotency and can be abused for DoS
                     # Invite pages must be created through authenticated admin endpoints
                     query_start = time.time()
+                    logger.info(f"[PublicInviteViewSet.retrieve] Step 3: Looking for event with slug: '{slug}'")
                     try:
                         event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug=slug)
                         # Event exists but no invite page - return 404
                         # This is intentional: invite pages must be explicitly created
                         query_time = time.time() - query_start
-                        debug_log(f"❌ Step 3: Event found but no invite page (query took {query_time:.3f}s)")
+                        logger.warning(f"[PublicInviteViewSet.retrieve] Step 3: Event found (ID: {event.id}, Title: '{event.title}') but no invite page (Query time: {query_time:.3f}s)")
                     except Event.DoesNotExist:
                         query_time = time.time() - query_start
-                        debug_log(f"❌ Step 3: Event not found (query took {query_time:.3f}s)")
+                        logger.warning(f"[PublicInviteViewSet.retrieve] Step 3: Event not found for slug: '{slug}' (Query time: {query_time:.3f}s)")
                     
                     # Log 404 to CloudWatch with full request details for alerting
                     full_url = request.build_absolute_uri()
@@ -1397,10 +1411,56 @@ class PublicEventViewSet(viewsets.ReadOnlyModelViewSet):
             # Use select_related to avoid N+1 queries when accessing host.name
             return Event.objects.select_related('host').all()
         
+        def retrieve(self, request, *args, **kwargs):
+            """Override retrieve to normalize slug to lowercase before lookup"""
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # Log original slug from URL
+            original_slug = kwargs.get('slug', '')
+            logger.info(f"[PublicEventViewSet.retrieve] Request received - Original slug: '{original_slug}'")
+            
+            # Normalize slug to lowercase (all slugs are stored in lowercase)
+            if 'slug' in kwargs:
+                normalized_slug = kwargs['slug'].lower() if kwargs['slug'] else ''
+                kwargs['slug'] = normalized_slug
+                if original_slug != normalized_slug:
+                    logger.info(f"[PublicEventViewSet.retrieve] Slug normalized: '{original_slug}' -> '{normalized_slug}'")
+            
+            try:
+                result = super().retrieve(request, *args, **kwargs)
+                logger.info(f"[PublicEventViewSet.retrieve] Success - Slug: '{normalized_slug}', Status: {result.status_code}")
+                return result
+            except Exception as e:
+                logger.error(f"[PublicEventViewSet.retrieve] Error - Slug: '{normalized_slug}', Error: {str(e)}", exc_info=True)
+                raise
+        
         @action(detail=True, methods=['get'])
         def items(self, request, slug=None):
             """Get active items for public registry - no private data exposed"""
-            event = get_object_or_404(Event, slug=slug)
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            original_slug = slug
+            logger.info(f"[PublicEventViewSet.items] Request received - Original slug: '{original_slug}'")
+            
+            # Normalize slug to lowercase (all slugs are stored in lowercase)
+            if slug:
+                normalized_slug = slug.lower()
+                if original_slug != normalized_slug:
+                    logger.info(f"[PublicEventViewSet.items] Slug normalized: '{original_slug}' -> '{normalized_slug}'")
+                slug = normalized_slug
+            else:
+                logger.warning(f"[PublicEventViewSet.items] No slug provided in request")
+                normalized_slug = None
+            
+            try:
+                logger.info(f"[PublicEventViewSet.items] Querying database for slug: '{normalized_slug}'")
+                event = get_object_or_404(Event, slug=slug)
+                logger.info(f"[PublicEventViewSet.items] Event found - ID: {event.id}, Title: '{event.title}', Slug: '{event.slug}', HasRegistry: {event.has_registry}, IsPublic: {event.is_public}")
+            except Exception as e:
+                logger.error(f"[PublicEventViewSet.items] Database query failed - Slug: '{normalized_slug}', Error: {str(e)}", exc_info=True)
+                raise
             
             # For private events, verify user is in guest list
             if not event.is_public:
@@ -1451,13 +1511,17 @@ class PublicEventViewSet(viewsets.ReadOnlyModelViewSet):
             
             # Check if registry is enabled for this event
             if not event.has_registry:
+                logger.warning(f"[PublicEventViewSet.items] Registry disabled for event ID: {event.id}, Slug: '{event.slug}'")
                 return Response(
                     {'error': 'Gift registry is not available for this event'},
                     status=status.HTTP_403_FORBIDDEN
                 )
             
             # Only return active items - no guest list, no RSVPs, no order details
+            logger.info(f"[PublicEventViewSet.items] Fetching active items for event ID: {event.id}")
             items = RegistryItem.objects.filter(event=event, status='active').order_by('priority_rank', 'name')
+            items_count = items.count()
+            logger.info(f"[PublicEventViewSet.items] Found {items_count} active items")
             
             # Calculate remaining quantities
             items_data = []
@@ -1467,10 +1531,12 @@ class PublicEventViewSet(viewsets.ReadOnlyModelViewSet):
                 item_dict['remaining'] = remaining
                 items_data.append(item_dict)
             
-            return Response({
+            response_data = {
                 'event': EventSerializer(event).data,
                 'items': items_data,
-            })
+            }
+            logger.info(f"[PublicEventViewSet.items] Success - Event ID: {event.id}, Items returned: {len(items_data)}")
+            return Response(response_data)
 
 
 @api_view(['GET'])
