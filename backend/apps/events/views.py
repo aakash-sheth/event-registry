@@ -8,6 +8,7 @@ from django.http import HttpResponse
 from django.conf import settings
 from django.utils import timezone
 import csv
+import os
 from urllib.parse import quote
 from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, WhatsAppTemplate
 from .serializers import (
