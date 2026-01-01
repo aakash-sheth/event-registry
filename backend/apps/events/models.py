@@ -166,6 +166,10 @@ class SubEvent(models.Model):
     class Meta:
         db_table = 'sub_events'
         ordering = ['start_at']
+        indexes = [
+            models.Index(fields=['event', 'is_public_visible', 'is_removed'], name='sub_events_event_visible_idx'),
+            models.Index(fields=['event', 'is_removed', 'start_at'], name='sub_events_event_order_idx'),
+        ]
     
     def __str__(self):
         return f"{self.title} - {self.event.title}"
