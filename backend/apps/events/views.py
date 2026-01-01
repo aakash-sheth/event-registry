@@ -1448,14 +1448,18 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         
         elapsed_time = time.time() - start_time
         sub_events_total_time = time.time() - sub_events_start
-        debug_log(f"📊 TIMING SUMMARY:")
-        debug_log(f"   Total request time: {elapsed_time:.3f}s")
-        debug_log(f"   Sub-events processing: {sub_events_total_time:.3f}s")
+        
+        # Always log timing summary for slow requests (important for debugging 504s)
         if elapsed_time > 1.0:
-            debug_log(f"⚠️  SLOW REQUEST: {elapsed_time:.2f}s", 'WARNING')
-        else:
-            debug_log(f"✅ Request completed successfully")
-        debug_log(f"🏁 END: Returning response for slug: {slug}")
+            debug_log(f"⚠️  SLOW REQUEST: {elapsed_time:.2f}s (sub-events: {sub_events_total_time:.2f}s)", 'WARNING')
+        elif elapsed_time > 0.5:
+            debug_log(f"📊 Request completed: {elapsed_time:.2f}s (sub-events: {sub_events_total_time:.2f}s)")
+        # Only log detailed summary if DEBUG mode or slow request
+        if log_to_stdout or elapsed_time > 1.0:
+            debug_log(f"📊 TIMING SUMMARY:")
+            debug_log(f"   Total request time: {elapsed_time:.3f}s")
+            debug_log(f"   Sub-events processing: {sub_events_total_time:.3f}s")
+            debug_log(f"🏁 END: Returning response for slug: {slug}")
         
         return Response(serializer.data)
     
