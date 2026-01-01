@@ -106,8 +106,8 @@ class InvitePage(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.slug:
-            # Generate slug from event slug
-            self.slug = f"{self.event.slug}-invite"
+            # Use event slug directly (not {event-slug}-invite)
+            self.slug = self.event.slug
         super().save(*args, **kwargs)
 
 

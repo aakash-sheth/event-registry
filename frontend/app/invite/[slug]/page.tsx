@@ -383,19 +383,35 @@ export default async function InvitePage({
 
   // If event not found, render error page
   if (!event) {
-    // Log for debugging
-    console.error(`[InvitePage SSR] Event not found for slug: ${params.slug}`, {
+    // Log 404 for debugging (server-side logs go to CloudWatch via ECS)
+    // Backend already logs detailed 404 info to CloudWatch before returning 404
+    const fullUrl = typeof window !== 'undefined' 
+      ? window.location.href 
+      : `https://eventregistry.com/invite/${params.slug}${searchParams.g ? `?g=${searchParams.g}` : ''}`
+    
+    console.error(`[InvitePage SSR] INVITE_404: Event not found for slug: ${params.slug}`, {
+      event_type: 'invite_404',
+      slug: params.slug,
+      full_url: fullUrl,
       inviteDataReceived: !!inviteData,
       inviteDataKeys: inviteData ? Object.keys(inviteData) : [],
       fallbackAttempted: !inviteData,
+      guestToken: searchParams.g ? 'present' : 'none',
     })
     
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Invite not found</h1>
-          <p className="text-gray-600 mb-4">The invitation you're looking for doesn't exist or has been removed.</p>
-          <p className="text-sm text-gray-500">Slug: {params.slug}</p>
+        <div className="text-center px-4">
+          <div className="text-6xl mb-4">♻️</div>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-4">
+            This invite has vanished like paper in a recycling bin
+          </h1>
+          <p className="text-gray-600 mb-2">
+            Double-check the link and try again.
+          </p>
+          <p className="text-sm text-gray-500 mt-4">
+            Event: {params.slug}
+          </p>
         </div>
       </div>
     )

@@ -1287,7 +1287,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                             debug_log(f"❌ Step 5 FAILED: No exact event match (query took {query_time:.3f}s)")
                             debug_log(f"Step 6: Trying case-insensitive event match")
                             query_start = time.time()
-                            try:
+            try:
                                 event = Event.objects.only('id', 'slug', 'page_config', 'event_structure', 'title', 'description', 'date', 'has_rsvp', 'has_registry').get(slug__iexact=slug)
                                 query_time = time.time() - query_start
                                 debug_log(f"✅ Step 6 SUCCESS: Found event with case-insensitive match (query took {query_time:.3f}s)")
@@ -1296,6 +1296,24 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                                 query_time = time.time() - query_start
                                 debug_log(f"❌ Step 6 FAILED: Event not found (query took {query_time:.3f}s)", 'ERROR')
                                 debug_log(f"❌ FINAL ERROR: Event not found for slug: {slug} (exact or case-insensitive)", 'ERROR')
+                                
+                                # Log 404 to CloudWatch with full request details for alerting
+                                full_url = request.build_absolute_uri()
+                                logger.error(
+                                    f"INVITE_404: Invite page or event not found",
+                                    extra={
+                                        'event_type': 'invite_404',
+                                        'slug': slug,
+                                        'full_url': full_url,
+                                        'path': request.path,
+                                        'query_params': dict(request.query_params),
+                                        'user_agent': request.META.get('HTTP_USER_AGENT', ''),
+                                        'referer': request.META.get('HTTP_REFERER', ''),
+                                        'remote_addr': request.META.get('REMOTE_ADDR', ''),
+                                        'request_method': request.method,
+                                    }
+                                )
+                                
                                 from rest_framework.exceptions import NotFound
                                 raise NotFound(f"Invite page or event not found for slug: {slug}")
                         
@@ -1303,14 +1321,14 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                         debug_log(f"Step 7: Creating/getting InvitePage for event_id={event.id}")
                         create_start = time.time()
                         try:
-                            invite_page, created = InvitePage.objects.get_or_create(
-                                event=event,
-                                defaults={
-                                    'slug': event.slug,  # Use event slug as invite page slug
-                                    'is_published': True,  # Auto-publish if created
-                                    'config': event.page_config if event.page_config else {}  # Use event's page_config if available
-                                }
-                            )
+                invite_page, created = InvitePage.objects.get_or_create(
+                    event=event,
+                    defaults={
+                        'slug': event.slug,  # Use event slug as invite page slug
+                        'is_published': True,  # Auto-publish if created
+                        'config': event.page_config if event.page_config else {}  # Use event's page_config if available
+                    }
+                )
                             create_time = time.time() - create_start
                             if created:
                                 debug_log(f"✅ Step 7 SUCCESS: Created new invite page (took {create_time:.3f}s)")
@@ -1319,34 +1337,25 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                                 debug_log(f"✅ Step 7 SUCCESS: Found existing invite page (took {create_time:.3f}s)")
                                 debug_log(f"   InvitePage ID: {invite_page.id}, Slug: {invite_page.slug}, Published: {invite_page.is_published}")
                             
-                            # If it already existed but wasn't published, publish it
-                            if not created and not invite_page.is_published:
+                # If it already existed but wasn't published, publish it
+                if not created and not invite_page.is_published:
                                 debug_log(f"⚠️  Publishing existing invite page...")
                                 publish_start = time.time()
-                                invite_page.is_published = True
-                                invite_page.save(update_fields=['is_published'])
+                    invite_page.is_published = True
+                    invite_page.save(update_fields=['is_published'])
                                 publish_time = time.time() - publish_start
                                 debug_log(f"✅ Published (took {publish_time:.3f}s)")
                             
-                            # Ensure slug matches event slug (in case it was auto-generated differently)
-                            if invite_page.slug != event.slug:
-                                debug_log(f"⚠️  Slug mismatch: invite_page.slug={invite_page.slug}, event.slug={event.slug}. Updating...", 'WARNING')
-                                update_start = time.time()
-                                invite_page.slug = event.slug
-                                invite_page.save(update_fields=['slug'])
-                                update_time = time.time() - update_start
-                                debug_log(f"✅ Updated slug (took {update_time:.3f}s)")
-                            
-                            # Always sync config from event.page_config if it exists and is more complete
-                            # This ensures invite page always has the latest design settings
+                # Always sync config from event.page_config if it exists and is more complete
+                # This ensures invite page always has the latest design settings
                             # NOTE: Removed complex config comparison logic to improve performance
                             # Config sync should be handled by admin/API, not during public page loads
-                            if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
+                if event.page_config and isinstance(event.page_config, dict) and len(event.page_config) > 0:
                                 if not invite_page.config or not isinstance(invite_page.config, dict) or len(invite_page.config) == 0:
                                     debug_log(f"⚠️  Syncing config from event to invite page...")
                                     sync_start = time.time()
-                                    invite_page.config = event.page_config
-                                    invite_page.save(update_fields=['config'])
+                        invite_page.config = event.page_config
+                        invite_page.save(update_fields=['config'])
                                     sync_time = time.time() - sync_start
                                     debug_log(f"✅ Config synced (took {sync_time:.3f}s)")
                         except Exception as e:
@@ -1405,8 +1414,8 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         list_time = time.time() - list_start
         has_sub_events = len(sub_events_list) > 0
         debug_log(f"✅ Converted sub-events to list (took {list_time:.3f}s): {len(sub_events_list)} sub-events")
-        
-        # If we found sub-events but event structure is still SIMPLE, upgrade it
+            
+            # If we found sub-events but event structure is still SIMPLE, upgrade it
         # Use update() for better performance (single query instead of get + save)
         # Only do this for public links (not guest tokens) to avoid unnecessary writes
         if has_sub_events and not guest_token and event.event_structure == 'SIMPLE':
