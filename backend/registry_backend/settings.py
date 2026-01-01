@@ -211,3 +211,54 @@ if not DEBUG:
     # SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     # SECURE_HSTS_PRELOAD = True
 
+# Logging Configuration
+# Logs go to stdout/stderr which are captured by ECS and sent to CloudWatch
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] {asctime} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'stream': 'ext://sys.stdout',  # Explicitly use stdout
+        },
+        'console_stderr': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'stream': 'ext://sys.stderr',  # Errors go to stderr
+            'level': 'ERROR',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'console_stderr'],
+        'level': os.environ.get('LOG_LEVEL', 'INFO'),
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'console_stderr'],
+            'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'apps': {
+            'handlers': ['console', 'console_stderr'],
+            'level': os.environ.get('APP_LOG_LEVEL', 'DEBUG'),  # More verbose for apps
+            'propagate': False,
+        },
+        'apps.events': {
+            'handlers': ['console', 'console_stderr'],
+            'level': 'DEBUG',  # Very verbose for events app during investigation
+            'propagate': False,
+        },
+    },
+}
+
