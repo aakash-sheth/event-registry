@@ -938,15 +938,6 @@ class EventViewSet(viewsets.ModelViewSet):
             return Response(WhatsAppTemplateSerializer(system_template).data)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            # Generate links for multiple guests
-            if not guest_ids:
-                return Response({'error': 'guest_ids array is required for bulk sharing'}, status=status.HTTP_400_BAD_REQUEST)
-            
-            guests = Guest.objects.filter(id__in=guest_ids, event=event)
-            if guests.count() != len(guest_ids):
-                return Response({'error': 'Some guests not found'}, status=status.HTTP_404_NOT_FOUND)
-            
-            links = []
             for guest in guests:
                 phone = guest.phone.replace('+', '').replace(' ', '').replace('-', '')
                 personalized_message = custom_message.replace('Hey!', f"Hey {guest.name}!")
