@@ -37,10 +37,10 @@ function getFrontendUrl(): string {
 // Fetch invite page data (supports guest token)
 // Retries on network errors or 5xx status codes
 async function fetchInviteData(slug: string, guestToken?: string, retries: number = 2): Promise<any | null> {
-  const apiBase = getApiBase()
-  const url = guestToken 
-    ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
-    : `${apiBase}/api/events/invite/${slug}/`
+    const apiBase = getApiBase()
+    const url = guestToken 
+      ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+      : `${apiBase}/api/events/invite/${slug}/`
   
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -48,20 +48,20 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
       // Increased timeout: 10 seconds for production (was 3 seconds)
       const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
       const timeoutId = setTimeout(() => controller.abort(), timeout)
-      
-      const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-        // Use cache: 'no-store' for development, or next: { revalidate } for production
-        ...(process.env.NODE_ENV === 'development' 
-          ? { cache: 'no-store' as RequestCache }
-          : { next: { revalidate: 3600 } }
-        ),
-      })
-      
-      clearTimeout(timeoutId)
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      // Use cache: 'no-store' for development, or next: { revalidate } for production
+      ...(process.env.NODE_ENV === 'development' 
+        ? { cache: 'no-store' as RequestCache }
+        : { next: { revalidate: 3600 } }
+      ),
+    })
+    
+    clearTimeout(timeoutId)
 
       if (response.ok) {
         const data = await response.json()
@@ -83,8 +83,8 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
           url,
           error: errorText.substring(0, 200),
         })
-        return null
-      }
+      return null
+    }
 
       // Retry on 5xx errors (server errors) or network errors
       if (status >= 500 || attempt < retries) {
@@ -109,7 +109,7 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
         error: errorText.substring(0, 200),
       })
       return null
-    } catch (error: any) {
+  } catch (error: any) {
       // Retry on network errors (AbortError is timeout, others are network issues)
       if (error.name === 'AbortError') {
         if (attempt < retries) {
@@ -134,38 +134,38 @@ async function fetchInviteData(slug: string, guestToken?: string, retries: numbe
             stack: error.stack?.substring(0, 200),
           })
         }
-      }
-      return null
     }
+    return null
   }
-  
+}
+
   return null
 }
 
 // Fetch event data on the server (fallback when invite endpoint fails)
 async function fetchEventData(slug: string, retries: number = 1): Promise<Event | null> {
-  const apiBase = getApiBase()
+    const apiBase = getApiBase()
   const url = `${apiBase}/api/registry/${slug}/`
   
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const controller = new AbortController()
+    const controller = new AbortController()
       // Increased timeout: 10 seconds for production
       const timeout = process.env.NODE_ENV === 'production' ? 10000 : 3000
       const timeoutId = setTimeout(() => controller.abort(), timeout)
-      
+    
       const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-        // Cache for 1 hour to reduce API calls (matches page revalidation)
-        // But add cache-busting for development to see latest data
-        next: { revalidate: process.env.NODE_ENV === 'development' ? 0 : 3600 },
-        cache: process.env.NODE_ENV === 'development' ? 'no-store' : 'default',
-      })
-      
-      clearTimeout(timeoutId)
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      // Cache for 1 hour to reduce API calls (matches page revalidation)
+      // But add cache-busting for development to see latest data
+      next: { revalidate: process.env.NODE_ENV === 'development' ? 0 : 3600 },
+      cache: process.env.NODE_ENV === 'development' ? 'no-store' : 'default',
+    })
+    
+    clearTimeout(timeoutId)
 
       if (response.ok) {
         const data = await response.json()
@@ -204,14 +204,14 @@ async function fetchEventData(slug: string, retries: number = 1): Promise<Event 
       }
       
       // Only log non-timeout errors on final attempt
-      if (error.name !== 'AbortError') {
+    if (error.name !== 'AbortError') {
         console.error('[InvitePage SSR] Failed to fetch event data:', {
           slug,
           error: error.message,
         })
-      }
-      return null
     }
+    return null
+  }
   }
   
   return null
@@ -361,14 +361,14 @@ export default async function InvitePage({
   if (inviteData) {
     // Use data from invite endpoint
     event = {
-      id: inviteData.event || 0,
-      title: inviteData.event_slug || params.slug,
-      date: undefined,
-      description: undefined,
-      banner_image: inviteData.background_url,
-      page_config: inviteData.config,
-      has_rsvp: true,
-      has_registry: true,
+    id: inviteData.event || 0,
+    title: inviteData.event_slug || params.slug,
+    date: undefined,
+    description: undefined,
+    banner_image: inviteData.background_url,
+    page_config: inviteData.config,
+    has_rsvp: true,
+    has_registry: true,
     }
   } else {
     // Fallback: try to get event data from registry endpoint
