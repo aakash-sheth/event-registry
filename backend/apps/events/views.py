@@ -1185,9 +1185,11 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         """Retrieve invite page with guest-scoped sub-events if token provided"""
         slug = kwargs.get('slug')
         
-        # Log the request for debugging
+        # Log the request for debugging (minimal logging to reduce overhead)
         import logging
         logger = logging.getLogger(__name__)
+        import time
+        start_time = time.time()
         logger.info(f"[PublicInviteViewSet] Retrieving invite page for slug: {slug}")
         
         # Try to get invite page by slug with optimized query (case-insensitive)
@@ -1294,13 +1296,15 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     is_removed=False
                 )
                 # Get allowed sub-events via join table with optimized query
+                # Use prefetch_related to avoid N+1 queries if serializer accesses related fields
                 allowed_sub_events = SubEvent.objects.filter(
                     guest_invites__guest=guest,
                     is_removed=False
                 ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
             except Guest.DoesNotExist:
                 # Invalid token - return empty sub-events (guest won't see any)
-                allowed_sub_events = []
+                allowed_sub_events = SubEvent.objects.none()
+                guest = None
         else:
             # Public link - only show public-visible sub-events with optimized query
             allowed_sub_events = SubEvent.objects.filter(
@@ -1308,27 +1312,41 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 is_public_visible=True,
                 is_removed=False
             ).only('id', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled').order_by('start_at')
-            
-            # If we found sub-events but event structure is still SIMPLE, upgrade it
-            # Use update() for better performance (single query instead of get + save)
-            if allowed_sub_events.exists() and event.event_structure == 'SIMPLE':
-                Event.objects.filter(id=event.id, event_structure='SIMPLE').update(
-                    event_structure='ENVELOPE',
-                    updated_at=timezone.now()
-                )
-                # Refresh event object for serializer
-                event.refresh_from_db(fields=['event_structure', 'updated_at'])
         
-        # Serialize sub-events
-        serialized_sub_events = SubEventSerializer(allowed_sub_events, many=True).data
+        # Convert to list early to evaluate queryset and check count efficiently
+        sub_events_list = list(allowed_sub_events)
+        has_sub_events = len(sub_events_list) > 0
         
-        # Debug logging
-        import logging
+        # If we found sub-events but event structure is still SIMPLE, upgrade it
+        # Use update() for better performance (single query instead of get + save)
+        # Only do this for public links (not guest tokens) to avoid unnecessary writes
+        if has_sub_events and not guest_token and event.event_structure == 'SIMPLE':
+            Event.objects.filter(id=event.id, event_structure='SIMPLE').update(
+                event_structure='ENVELOPE',
+                updated_at=timezone.now()
+            )
+            # Refresh event object for serializer
+            event.refresh_from_db(fields=['event_structure', 'updated_at'])
+        
+        # Serialize sub-events (use list to avoid re-evaluating queryset)
+        serialized_sub_events = SubEventSerializer(sub_events_list, many=True).data
+        
+        # Serialize guest context only if guest exists (avoid unnecessary serialization)
+        guest_context = None
+        if guest:
+            guest_context = GuestSerializer(guest).data
+        
         # Serialize with context
         serializer = self.get_serializer(invite_page, context={
             'allowed_sub_events': serialized_sub_events,
-            'guest_context': GuestSerializer(guest).data if guest else None
+            'guest_context': guest_context
         })
+        
+        elapsed_time = time.time() - start_time
+        if elapsed_time > 1.0:  # Log if request takes more than 1 second
+            logger.warning(f"[PublicInviteViewSet] Slow request for slug {slug}: {elapsed_time:.2f}s")
+        else:
+            logger.info(f"[PublicInviteViewSet] Request completed for slug {slug}: {elapsed_time:.2f}s")
         
         return Response(serializer.data)
     
