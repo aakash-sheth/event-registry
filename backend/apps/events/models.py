@@ -97,6 +97,9 @@ class InvitePage(models.Model):
     class Meta:
         db_table = 'invite_pages'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['slug', 'is_published'], name='invite_slug_pub_idx'),
+        ]
     
     def __str__(self):
         return f"Invite for {self.event.title} ({self.slug})"
