@@ -862,10 +862,10 @@ export default function DesignInvitationPage(): JSX.Element {
                       </>
                     ) : (
                       <>
-                        👁️ <span className="hidden sm:inline">Preview</span>
+              👁️ <span className="hidden sm:inline">Preview</span>
                       </>
                     )}
-                  </Button>
+            </Button>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>

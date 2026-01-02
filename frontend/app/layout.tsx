@@ -2,7 +2,17 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { ToastProvider } from '@/components/ui/toast'
 
+// Get frontend URL for metadata base (used for resolving relative URLs in Open Graph images)
+function getMetadataBase(): string {
+  const frontendUrl = process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || 
+                      process.env.NEXT_PUBLIC_API_BASE || 
+                      'http://localhost:3000'
+  // Remove /api suffix if present
+  return frontendUrl.replace('/api', '')
+}
+
 export const metadata: Metadata = {
+  metadataBase: new URL(getMetadataBase()),
   title: 'Event Registry',
   description: 'Event Registry - Invitations, RSVP, and Gift Registry for any celebration',
 }

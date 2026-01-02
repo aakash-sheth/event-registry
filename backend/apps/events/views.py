@@ -544,7 +544,7 @@ class InvitePageViewSet(viewsets.ModelViewSet):
             # Handle slug-based lookup (from /api/events/invite/<slug>/publish/)
             # Get slug from kwargs if not passed as parameter
             if not slug:
-                slug = self.kwargs.get('slug')
+                Sslug = self.kwargs.get('slug')
             
             if slug:
                 slug = slug.lower()
@@ -678,16 +678,16 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     else:
                         # Not the host or not authenticated - block access (security)
                         logger.error(
-                            "INVITE_404: Unpublished invite page accessed",
-                            extra={
-                                'event_type': 'invite_404_unpublished',
-                                'slug': slug,
-                                'invite_page_id': invite_page.id,
-                                'path': request.path,
+                        "INVITE_404: Unpublished invite page accessed",
+                        extra={
+                            'event_type': 'invite_404_unpublished',
+                            'slug': slug,
+                            'invite_page_id': invite_page.id,
+                            'path': request.path,
                                 'user_id': request.user.id if request.user.is_authenticated else None,
-                            }
-                        )
-                        raise NotFound(f"Invite page not found for slug: {slug}")
+                        }
+                    )
+                    raise NotFound(f"Invite page not found for slug: {slug}")
 
                 logger.info("[PublicInviteViewSet.retrieve] Step 2 SUCCESS - Using invite page")
 
