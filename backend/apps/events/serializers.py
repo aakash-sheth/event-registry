@@ -27,7 +27,7 @@ class InvitePageSerializer(serializers.ModelSerializer):
     guest_context = serializers.SerializerMethodField()
     event_structure = serializers.CharField(source='event.event_structure', read_only=True)
     rsvp_mode = serializers.CharField(source='event.rsvp_mode', read_only=True)
-    state = serializers.CharField(source='state', read_only=True)  # Fix 5: Expose state property
+    state = serializers.SerializerMethodField()  # Expose state property using method field
     
     class Meta:
         model = InvitePage
@@ -43,6 +43,10 @@ class InvitePageSerializer(serializers.ModelSerializer):
         """Get guest context if guest token was provided"""
         # This will be set by the view using context
         return self.context.get('guest_context', None)
+    
+    def get_state(self, obj):
+        """Get the state property from the InvitePage model"""
+        return obj.state
     
     def validate_config(self, value):
         """Validate config structure"""

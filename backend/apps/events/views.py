@@ -189,6 +189,127 @@ class EventViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED if created else status.HTTP_400_BAD_REQUEST
         )
 
+    # -------------------------
+    # DESIGN / PAGE CONFIG
+    # -------------------------
+    @action(detail=True, methods=['put', 'patch'])
+    def update_design(self, request, id=None):
+        """Update event page_config and sync to InvitePage if it exists"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        try:
+            page_config = request.data.get('page_config')
+            if page_config is None:
+                return Response(
+                    {'error': 'page_config is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update event's page_config
+            event.page_config = page_config
+            event.save(update_fields=['page_config', 'updated_at'])
+            
+            # Sync to InvitePage if it exists, or create one
+            invite_page_created = False
+            invite_page = None
+            try:
+                invite_page = InvitePage.objects.get(event=event)
+                # Update invite page config
+                invite_page.config = page_config
+                invite_page.save(update_fields=['config', 'updated_at'])
+                logger.info(f"Updated InvitePage config for event {event.id}")
+            except InvitePage.DoesNotExist:
+                # Auto-create InvitePage if it doesn't exist
+                if event.slug:
+                    invite_page = InvitePage.objects.create(
+                        event=event,
+                        slug=event.slug.lower(),
+                        config=page_config,
+                        background_url=event.banner_image or '',
+                        is_published=False
+                    )
+                    invite_page_created = True
+                    logger.info(f"Auto-created InvitePage for event {event.id}")
+                else:
+                    logger.warning(f"Cannot create InvitePage: event {event.id} has no slug")
+            
+            # Return updated event data
+            serializer = self.get_serializer(event)
+            response_data = serializer.data
+            response_data['invite_page_created'] = invite_page_created
+            if invite_page:
+                response_data['is_published'] = invite_page.is_published
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error updating design for event {event.id}: {str(e)}", exc_info=True)
+            return Response(
+                {'error': f'Failed to update design: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# Helper function to handle invite page operations by event_id
+@api_view(['GET', 'POST', 'PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def invite_page_by_event(request, event_id):
+    """Handle invite page operations by event_id - wrapper for InvitePageViewSet"""
+    from django.http import Http404
+    from rest_framework.exceptions import PermissionDenied
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Verify event exists and user owns it
+    try:
+        event = get_object_or_404(Event, id=event_id, host=request.user)
+    except Http404:
+        raise Http404("Event not found or you do not have permission")
+    
+    # Get or create invite page
+    try:
+        invite_page = InvitePage.objects.select_related('event').get(event=event)
+    except InvitePage.DoesNotExist:
+        # For GET requests, return 404 if invite page doesn't exist
+        if request.method == 'GET':
+            raise Http404("Invite page not found for this event")
+        # For POST, create a new invite page
+        if request.method == 'POST':
+            # Create will be handled by the ViewSet
+            pass
+        else:
+            raise Http404("Invite page not found for this event")
+    
+    # Create ViewSet instance and set up properly
+    viewset = InvitePageViewSet()
+    viewset.request = request
+    viewset.format_kwarg = None
+    viewset.kwargs = {'event_id': event_id}
+    
+    # Set action based on method
+    if request.method == 'GET':
+        viewset.action = 'retrieve'
+        # Manually call get_object with event_id
+        viewset.kwargs['event_id'] = event_id
+        return viewset.retrieve(request)
+    elif request.method == 'POST':
+        viewset.action = 'create'
+        viewset.kwargs['event_id'] = event_id
+        return viewset.create(request)
+    elif request.method == 'PUT':
+        viewset.action = 'update'
+        viewset.kwargs['event_id'] = event_id
+        return viewset.update(request)
+    elif request.method == 'PATCH':
+        viewset.action = 'partial_update'
+        viewset.kwargs['event_id'] = event_id
+        return viewset.partial_update(request)
+
 
 class InvitePageViewSet(viewsets.ModelViewSet):
     """
@@ -414,14 +535,17 @@ class InvitePageViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=['post'], url_path='publish')
-    def publish(self, request, id=None):
+    def publish(self, request, id=None, slug=None):
         """Publish/unpublish invite page"""
         import logging
         logger = logging.getLogger(__name__)
 
         try:
             # Handle slug-based lookup (from /api/events/invite/<slug>/publish/)
-            slug = self.kwargs.get('slug')
+            # Get slug from kwargs if not passed as parameter
+            if not slug:
+                slug = self.kwargs.get('slug')
+            
             if slug:
                 slug = slug.lower()
                 try:
@@ -541,20 +665,31 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     f"(ID: {invite_page.id}, Published: {invite_page.is_published}, Query time: {query_time:.3f}s)"
                 )
 
-                # Security fix: If invite page exists but is unpublished, return 404
+                # ENHANCEMENT: Allow authenticated hosts to preview their own draft pages
                 if not invite_page.is_published:
-                    logger.error(
-                        "INVITE_404: Unpublished invite page accessed",
-                        extra={
-                            'event_type': 'invite_404_unpublished',
-                            'slug': slug,
-                            'invite_page_id': invite_page.id,
-                            'path': request.path,
-                        }
-                    )
-                    raise NotFound(f"Invite page not found for slug: {slug}")
+                    # Check if user is authenticated and is the event host
+                    if request.user.is_authenticated and event.host == request.user:
+                        # Host is previewing their own draft - allow access
+                        logger.info(
+                            f"[PublicInviteViewSet.retrieve] Host preview of draft page - "
+                            f"User: {request.user.id}, Event: {event.id}, Slug: {slug}"
+                        )
+                        # Continue to return the invite page (bypass the 404 below)
+                    else:
+                        # Not the host or not authenticated - block access (security)
+                        logger.error(
+                            "INVITE_404: Unpublished invite page accessed",
+                            extra={
+                                'event_type': 'invite_404_unpublished',
+                                'slug': slug,
+                                'invite_page_id': invite_page.id,
+                                'path': request.path,
+                                'user_id': request.user.id if request.user.is_authenticated else None,
+                            }
+                        )
+                        raise NotFound(f"Invite page not found for slug: {slug}")
 
-                logger.info("[PublicInviteViewSet.retrieve] Step 2 SUCCESS - Using published invite page")
+                logger.info("[PublicInviteViewSet.retrieve] Step 2 SUCCESS - Using invite page")
 
             except InvitePage.DoesNotExist:
                 query_time = time.time() - query_start

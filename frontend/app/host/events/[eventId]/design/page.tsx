@@ -847,7 +847,7 @@ export default function DesignInvitationPage(): JSX.Element {
               </TooltipProvider>
             ) : null}
             
-            {/* Fix 3: Preview button with validation */}
+            {/* Preview/View Site button - changes based on publish status */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -856,11 +856,23 @@ export default function DesignInvitationPage(): JSX.Element {
                     variant="outline" 
                     className="border-eco-green text-eco-green text-xs sm:text-sm px-3 sm:px-4 w-full sm:w-auto flex-1 sm:flex-none"
                   >
-              👁️ <span className="hidden sm:inline">Preview</span>
-            </Button>
+                    {invitePage?.is_published ? (
+                      <>
+                        👁️ <span className="hidden sm:inline">View Site</span>
+                      </>
+                    ) : (
+                      <>
+                        👁️ <span className="hidden sm:inline">Preview</span>
+                      </>
+                    )}
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Preview your invite page. It will be created automatically if needed.</p>
+                  <p>
+                    {invitePage?.is_published 
+                      ? 'View your published invite page as guests see it'
+                      : 'Preview your draft invite page (host only)'}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -901,11 +913,15 @@ export default function DesignInvitationPage(): JSX.Element {
                     disabled={isPublishing}
                     className="bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm px-3 sm:px-4 flex-1 sm:flex-none w-full sm:w-auto"
                   >
-                    {invitePage?.is_published ? 'Update Published' : 'Publish'}
+                    {invitePage?.is_published ? 'Unpublish' : 'Publish'}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Publish your invite page to make it publicly accessible</p>
+                  <p>
+                    {invitePage?.is_published 
+                      ? 'Unpublish your invite page and move it back to draft'
+                      : 'Publish your invite page to make it publicly accessible'}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -1222,6 +1238,7 @@ export default function DesignInvitationPage(): JSX.Element {
           isOpen={showPublishModal}
           onClose={() => setShowPublishModal(false)}
           slug={event?.slug || ''}
+          isPublished={invitePage?.is_published || false}  // Pass current publish status
           onPublishChange={(published) => {
             if (invitePage) {
               setInvitePage({ ...invitePage, is_published: published })
