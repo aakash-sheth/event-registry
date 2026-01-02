@@ -3,6 +3,7 @@ from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.exceptions import PermissionDenied, NotFound
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, Http404
 from django.conf import settings
@@ -1157,28 +1158,61 @@ class InvitePageViewSet(viewsets.ModelViewSet):
         @action(detail=True, methods=['post'], url_path='publish')
         def publish(self, request, id=None):
             """Publish/unpublish invite page"""
-            # Handle slug-based lookup (from /api/events/invite/<slug>/publish/)
-            slug = self.kwargs.get('slug')
-            if slug:
-                # Normalize slug to lowercase (all slugs are stored in lowercase)
-                slug = slug.lower()
-                try:
-                    invite_page = InvitePage.objects.select_related('event').get(slug=slug)
-                    # Verify ownership
-                    if invite_page.event.host != request.user:
-                        from rest_framework.exceptions import PermissionDenied
-                        raise PermissionDenied("You can only publish invite pages for your own events.")
-                except InvitePage.DoesNotExist:
-                    from rest_framework.exceptions import NotFound
-                    raise NotFound(f"Invite page not found for slug: {slug}")
-            else:
-                # Use default get_object() for event_id or id-based lookups
-                invite_page = self.get_object()
+            import logging
+            logger = logging.getLogger(__name__)
             
-            is_published = request.data.get('is_published', True)
-            invite_page.is_published = is_published
-            invite_page.save()
-            return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_200_OK)
+            try:
+                # Handle slug-based lookup (from /api/events/invite/<slug>/publish/)
+                slug = self.kwargs.get('slug')
+                if slug:
+                    # Normalize slug to lowercase (all slugs are stored in lowercase)
+                    slug = slug.lower()
+                    try:
+                        invite_page = InvitePage.objects.select_related('event').get(slug=slug)
+                        # Verify ownership
+                        if invite_page.event.host != request.user:
+                            raise PermissionDenied("You can only publish invite pages for your own events.")
+                    except InvitePage.DoesNotExist:
+                        raise NotFound(f"Invite page not found for slug: {slug}")
+                else:
+                    # Use default get_object() for event_id or id-based lookups
+                    invite_page = self.get_object()
+                
+                is_published = request.data.get('is_published', True)
+                logger.info(f"Publishing invite page: slug={invite_page.slug}, is_published={is_published}, user={request.user.id}")
+                
+                # Ensure slug exists before publishing
+                if not invite_page.slug and invite_page.event:
+                    # If slug is missing, sync it from event
+                    if invite_page.event.slug:
+                        invite_page.slug = invite_page.event.slug.lower()
+                        invite_page.save(update_fields=['slug', 'is_published', 'updated_at'])
+                    else:
+                        logger.error(f"Cannot publish invite page: event {invite_page.event.id} has no slug")
+                        return Response(
+                            {'error': 'Event slug is missing. Cannot publish invite page.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                else:
+                    # Update is_published field only
+                    invite_page.is_published = is_published
+                    # Use update_fields to avoid triggering slug sync unnecessarily
+                    invite_page.save(update_fields=['is_published', 'updated_at'])
+                
+                # Reload to get fresh data with relationships
+                invite_page.refresh_from_db()
+                
+                return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_200_OK)
+            except Exception as e:
+                logger.error(f"Error publishing invite page: {str(e)}", exc_info=True)
+                # Re-raise DRF exceptions as-is
+                if isinstance(e, (PermissionDenied, NotFound)):
+                    raise
+                # For other exceptions, return 500 with error message
+                return Response(
+                    {'error': f'Failed to publish invite page: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
 
 class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
