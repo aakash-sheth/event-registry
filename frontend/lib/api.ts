@@ -87,16 +87,29 @@ api.interceptors.request.use((config) => {
   
   // CRITICAL: Detect and warn about incorrect invite endpoint usage
   // Public invite pages should use /api/events/invite/{slug}/, NOT /api/events/{id}/invite/
+  // BUT: ID-based endpoints are OK for authenticated hosts (internal use)
   if (config.url && config.url.includes('/invite/')) {
     const isWrongPattern = /\/api\/events\/\d+\/invite\//.test(config.url)
     const isCorrectPattern = /\/api\/events\/invite\/[^/]+\//.test(config.url)
     
-    if (isWrongPattern && !isCorrectPattern) {
-      console.error('[API] ⚠️ WRONG INVITE ENDPOINT DETECTED:', {
+    // Check if request is authenticated (has auth token)
+    const isAuthenticated = config.headers && (
+      config.headers['Authorization'] || 
+      config.headers['authorization'] ||
+      (api.defaults.headers.common && api.defaults.headers.common['Authorization'])
+    )
+    
+    // Only warn if:
+    // 1. Using wrong pattern (ID-based)
+    // 2. NOT using correct pattern (slug-based)
+    // 3. Request is NOT authenticated (no auth token means it's a public request)
+    if (isWrongPattern && !isCorrectPattern && !isAuthenticated) {
+      console.error('[API] ⚠️ WRONG INVITE ENDPOINT DETECTED (public requests should use slug):', {
         url: config.url,
         method: config.method,
         correctPattern: '/api/events/invite/{slug}/',
         wrongPattern: '/api/events/{id}/invite/',
+        note: 'ID-based endpoints are OK for authenticated hosts, but public requests must use slug',
         stackTrace: new Error().stack,
       })
       // Don't block the request, but log it for debugging
