@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, WhatsAppTemplate
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code
 
@@ -311,13 +311,13 @@ class GuestSubEventInviteSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'guest_name', 'sub_event_title', 'created_at')
 
 
-class WhatsAppTemplateSerializer(serializers.ModelSerializer):
-    """Serializer for WhatsAppTemplate"""
+class MessageTemplateSerializer(serializers.ModelSerializer):
+    """Serializer for MessageTemplate"""
     preview = serializers.SerializerMethodField()
     available_variables = serializers.SerializerMethodField()
     
     class Meta:
-        model = WhatsAppTemplate
+        model = MessageTemplate
         fields = ('id', 'event', 'name', 'message_type', 'template_text', 'description', 'usage_count', 'is_active', 'last_used_at', 'is_default', 'is_system_default', 'created_by', 'created_at', 'updated_at', 'preview', 'available_variables')
         read_only_fields = ('id', 'usage_count', 'last_used_at', 'created_at', 'updated_at', 'is_system_default', 'created_by', 'available_variables')
     
@@ -370,7 +370,7 @@ class WhatsAppTemplateSerializer(serializers.ModelSerializer):
         
         if is_default and event:
             # Check if another template is already default for this event
-            existing_default = WhatsAppTemplate.objects.filter(
+            existing_default = MessageTemplate.objects.filter(
                 event=event,
                 is_default=True
             ).exclude(id=instance.id if instance else None)

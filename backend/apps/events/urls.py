@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp,
     InvitePageViewSet, PublicInviteViewSet, upload_image,
-    SubEventViewSet, GuestInviteViewSet, WhatsAppTemplateViewSet,
+    SubEventViewSet, GuestInviteViewSet, MessageTemplateViewSet,
     whatsapp_template_preview, whatsapp_template_duplicate,
     whatsapp_template_archive, whatsapp_template_activate,
     whatsapp_template_increment_usage
@@ -38,7 +38,7 @@ urlpatterns = [
     path('guests/<int:guest_id>/invites/', GuestInviteViewSet.as_view({'put': 'update_guest_invites'}), name='guest-invites-update'),
     # WhatsApp template endpoints
     # Nested route for list/create (requires event_id in URL)
-    path('<int:event_id>/whatsapp-templates/', WhatsAppTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='event-whatsapp-templates'),
+    path('<int:event_id>/whatsapp-templates/', MessageTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='event-whatsapp-templates'),
     # Event-level template endpoints
     path('<int:id>/whatsapp-templates/available-variables/', EventViewSet.as_view({'get': 'get_available_variables'}), name='event-available-variables'),
     path('<int:id>/whatsapp-preview/', EventViewSet.as_view({'post': 'whatsapp_preview'}), name='event-whatsapp-preview'),
@@ -50,6 +50,6 @@ urlpatterns = [
     path('whatsapp-templates/<int:id>/activate/', whatsapp_template_activate, name='whatsapp-template-activate'),
     path('whatsapp-templates/<int:id>/increment-usage/', whatsapp_template_increment_usage, name='whatsapp-template-increment-usage'),
     # Detail route (must come after action routes)
-    path('whatsapp-templates/<int:id>/', WhatsAppTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='whatsapp-template-detail'),
+    path('whatsapp-templates/<int:id>/', MessageTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='whatsapp-template-detail'),
     path('', include(router.urls)),
 ]

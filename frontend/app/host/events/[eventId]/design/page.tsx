@@ -562,7 +562,7 @@ export default function DesignInvitationPage(): JSX.Element {
           setInvitePage(invite)
           showToast('Invitation saved and invite page created!', 'success')
         } catch (error) {
-          showToast('Invitation saved successfully!', 'success')
+      showToast('Invitation saved successfully!', 'success')
         }
       } else {
         // Update invitePage state if it exists
@@ -797,8 +797,8 @@ export default function DesignInvitationPage(): JSX.Element {
                     variant="outline" 
                     className="border-eco-green text-eco-green text-xs sm:text-sm px-3 sm:px-4 w-full sm:w-auto flex-1 sm:flex-none"
                   >
-                    👁️ <span className="hidden sm:inline">Preview</span>
-                  </Button>
+              👁️ <span className="hidden sm:inline">Preview</span>
+            </Button>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Preview your invite page. It will be created automatically if needed.</p>
@@ -850,7 +850,7 @@ export default function DesignInvitationPage(): JSX.Element {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          </div>
+            </div>
           </div>
         </div>
       </div>

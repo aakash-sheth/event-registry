@@ -282,8 +282,8 @@ class RSVP(models.Model):
         return f"{self.name} - {self.event.title}{sub_event_str} - {self.will_attend}"
 
 
-class WhatsAppTemplate(models.Model):
-    """WhatsApp message templates for event updates - one event can have multiple templates"""
+class MessageTemplate(models.Model):
+    """Message templates for event updates - one event can have multiple templates"""
     
     MESSAGE_TYPE_CHOICES = [
         ('invitation', 'Initial Invitation'),
@@ -295,7 +295,7 @@ class WhatsAppTemplate(models.Model):
         ('custom', 'Custom Message'),
     ]
     
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='whatsapp_templates')
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='message_templates')
     name = models.CharField(max_length=100, help_text="Template name (e.g., 'Initial Invitation', 'Venue Change Update')")
     message_type = models.CharField(
         max_length=50,
@@ -336,7 +336,7 @@ class WhatsAppTemplate(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='created_whatsapp_templates',
+        related_name='created_message_templates',
         help_text="User who created this template"
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -372,11 +372,11 @@ class WhatsAppTemplate(models.Model):
         """Override save to ensure only one default per event and one system default globally"""
         if self.is_default:
             # Unset other defaults for this event
-            WhatsAppTemplate.objects.filter(event=self.event, is_default=True).exclude(id=self.id).update(is_default=False)
+            MessageTemplate.objects.filter(event=self.event, is_default=True).exclude(id=self.id).update(is_default=False)
         
         if self.is_system_default:
             # Unset other system defaults
-            WhatsAppTemplate.objects.filter(is_system_default=True).exclude(id=self.id).update(is_system_default=False)
+            MessageTemplate.objects.filter(is_system_default=True).exclude(id=self.id).update(is_system_default=False)
         
         super().save(*args, **kwargs)
     

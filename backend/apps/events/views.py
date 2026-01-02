@@ -11,7 +11,7 @@ from django.utils import timezone
 import csv
 import os
 from urllib.parse import quote
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, WhatsAppTemplate
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -19,7 +19,7 @@ from .serializers import (
     InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer,
     SubEventSerializer, SubEventCreateSerializer,
     GuestSubEventInviteSerializer,
-    WhatsAppTemplateSerializer
+    MessageTemplateSerializer
 )
 import re
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
@@ -865,9 +865,9 @@ class EventViewSet(viewsets.ModelViewSet):
             template_text = None
             if template_id:
                 try:
-                    template = WhatsAppTemplate.objects.get(id=template_id, event=event)
+                    template = MessageTemplate.objects.get(id=template_id, event=event)
                     template_text = template.template_text
-                except WhatsAppTemplate.DoesNotExist:
+                except MessageTemplate.DoesNotExist:
                     return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
             else:
                 template_text = raw_body
@@ -944,11 +944,11 @@ class EventViewSet(viewsets.ModelViewSet):
             
             # System default template is global, not event-specific
             try:
-                system_template = WhatsAppTemplate.objects.filter(is_system_default=True).first()
+                system_template = MessageTemplate.objects.filter(is_system_default=True).first()
                 if not system_template:
                     return Response({'error': 'System default template not found'}, status=status.HTTP_404_NOT_FOUND)
                 
-                return Response(WhatsAppTemplateSerializer(system_template).data)
+                return Response(MessageTemplateSerializer(system_template).data)
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
@@ -2357,16 +2357,16 @@ class GuestInviteViewSet(viewsets.ModelViewSet):
             })
 
 
-class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
+class MessageTemplateViewSet(viewsets.ModelViewSet):
         """ViewSet for managing WhatsApp templates per event"""
-        serializer_class = WhatsAppTemplateSerializer
+        serializer_class = MessageTemplateSerializer
         permission_classes = [IsAuthenticated]
         lookup_field = 'id'
         
         def get_queryset(self):
             """Filter templates by event and verify event ownership"""
             # Start with all templates owned by the user (allows detail operations without event_id)
-            queryset = WhatsAppTemplate.objects.filter(event__host=self.request.user)
+            queryset = MessageTemplate.objects.filter(event__host=self.request.user)
             
             # Filter by event_id if provided in URL kwargs (for nested list/create routes)
             event_id = self.kwargs.get('event_id') or self.request.query_params.get('event_id') or self.request.data.get('event_id')
@@ -2377,7 +2377,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
                     event = Event.objects.get(id=event_id, host=self.request.user)
                     queryset = queryset.filter(event=event)
                 except Event.DoesNotExist:
-                    return WhatsAppTemplate.objects.none()
+                    return MessageTemplate.objects.none()
             
             return queryset
         
@@ -2403,7 +2403,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
                 raise drf_serializers.ValidationError({'event': 'Event not found or you do not have permission.'})
             
             # Check for duplicate name
-            if WhatsAppTemplate.objects.filter(event=event, name=serializer.validated_data['name']).exists():
+            if MessageTemplate.objects.filter(event=event, name=serializer.validated_data['name']).exists():
                 raise drf_serializers.ValidationError({'name': 'A template with this name already exists for this event.'})
             
             # Set created_by
@@ -2412,7 +2412,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             # Handle is_default flag
             if serializer.validated_data.get('is_default', False):
                 # Unset other defaults for this event
-                WhatsAppTemplate.objects.filter(event=event, is_default=True).exclude(id=serializer.instance.id).update(is_default=False)
+                MessageTemplate.objects.filter(event=event, is_default=True).exclude(id=serializer.instance.id).update(is_default=False)
         
         def perform_update(self, serializer):
             """Ensure template update maintains event ownership"""
@@ -2427,7 +2427,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             # Use existing template.name if name not provided in PATCH request
             template = self.get_object()
             template_name = serializer.validated_data.get('name') or template.name
-            if WhatsAppTemplate.objects.filter(event=event, name=template_name).exclude(id=template.id).exists():
+            if MessageTemplate.objects.filter(event=event, name=template_name).exclude(id=template.id).exists():
                 raise drf_serializers.ValidationError({'name': 'A template with this name already exists for this event.'})
             
             serializer.save()
@@ -2435,7 +2435,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             # Handle is_default flag
             if serializer.validated_data.get('is_default', False):
                 # Unset other defaults for this event
-                WhatsAppTemplate.objects.filter(event=event, is_default=True).exclude(id=template.id).update(is_default=False)
+                MessageTemplate.objects.filter(event=event, is_default=True).exclude(id=template.id).update(is_default=False)
         
         @action(detail=True, methods=['post'])
         def preview(self, request, id=None):
@@ -2445,7 +2445,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             preview_text = template.get_preview(sample_data)
             return Response({
                 'preview': preview_text,
-                'template': WhatsAppTemplateSerializer(template).data
+                'template': MessageTemplateSerializer(template).data
             })
         
         @action(detail=True, methods=['post'])
@@ -2455,13 +2455,13 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             new_name = request.data.get('name') or f"{template.name} (Copy)"
             
             # Check if name already exists
-            if WhatsAppTemplate.objects.filter(event=template.event, name=new_name).exists():
+            if MessageTemplate.objects.filter(event=template.event, name=new_name).exists():
                 return Response(
                     {'error': f'A template with the name "{new_name}" already exists for this event.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            new_template = WhatsAppTemplate.objects.create(
+            new_template = MessageTemplate.objects.create(
                 event=template.event,
                 name=new_name,
                 message_type=template.message_type,
@@ -2473,7 +2473,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             )
             
             return Response(
-                WhatsAppTemplateSerializer(new_template).data,
+                MessageTemplateSerializer(new_template).data,
                 status=status.HTTP_201_CREATED
             )
         
@@ -2483,7 +2483,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             template = self.get_object()
             template.is_active = False
             template.save(update_fields=['is_active'])
-            return Response(WhatsAppTemplateSerializer(template).data)
+            return Response(MessageTemplateSerializer(template).data)
         
         @action(detail=True, methods=['post'])
         def activate(self, request, id=None):
@@ -2491,14 +2491,14 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             template = self.get_object()
             template.is_active = True
             template.save(update_fields=['is_active'])
-            return Response(WhatsAppTemplateSerializer(template).data)
+            return Response(MessageTemplateSerializer(template).data)
         
         @action(detail=True, methods=['post'])
         def increment_usage(self, request, id=None):
             """Increment usage count and update last_used_at"""
             template = self.get_object()
             template.increment_usage()
-            return Response(WhatsAppTemplateSerializer(template).data)
+            return Response(MessageTemplateSerializer(template).data)
         
         def perform_destroy(self, instance):
             """Prevent deletion of system default templates"""
@@ -2513,13 +2513,13 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             template = self.get_object()
             
             # Unset other defaults for this event
-            WhatsAppTemplate.objects.filter(event=template.event, is_default=True).exclude(id=template.id).update(is_default=False)
+            MessageTemplate.objects.filter(event=template.event, is_default=True).exclude(id=template.id).update(is_default=False)
             
             # Set this template as default
             template.is_default = True
             template.save(update_fields=['is_default'])
             
-            return Response(WhatsAppTemplateSerializer(template).data)
+            return Response(MessageTemplateSerializer(template).data)
         
         @action(detail=True, methods=['post'], url_path='preview-with-guest')
         def preview_with_guest(self, request, id=None):
@@ -2550,7 +2550,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
             return Response({
                 'preview': rendered_message,
                 'warnings': warnings,
-                'template': WhatsAppTemplateSerializer(template).data,
+                'template': MessageTemplateSerializer(template).data,
                 'guest': GuestSerializer(guest).data,
             })
 
@@ -2561,7 +2561,7 @@ class WhatsAppTemplateViewSet(viewsets.ModelViewSet):
 def whatsapp_template_preview(request, id):
         """Preview template with sample data"""
         try:
-            template = WhatsAppTemplate.objects.get(id=id)
+            template = MessageTemplate.objects.get(id=id)
             # Verify ownership
             if template.event.host != request.user:
                 from rest_framework.exceptions import PermissionDenied
@@ -2571,9 +2571,9 @@ def whatsapp_template_preview(request, id):
             preview_text = template.get_preview(sample_data)
             return Response({
                 'preview': preview_text,
-                'template': WhatsAppTemplateSerializer(template).data
+                'template': MessageTemplateSerializer(template).data
             })
-        except WhatsAppTemplate.DoesNotExist:
+        except MessageTemplate.DoesNotExist:
             return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
@@ -2582,7 +2582,7 @@ def whatsapp_template_preview(request, id):
 def whatsapp_template_duplicate(request, id):
         """Duplicate a template"""
         try:
-            template = WhatsAppTemplate.objects.get(id=id)
+            template = MessageTemplate.objects.get(id=id)
             # Verify ownership
             if template.event.host != request.user:
                 from rest_framework.exceptions import PermissionDenied
@@ -2591,13 +2591,13 @@ def whatsapp_template_duplicate(request, id):
             new_name = request.data.get('name') or f"{template.name} (Copy)"
             
             # Check if name already exists
-            if WhatsAppTemplate.objects.filter(event=template.event, name=new_name).exists():
+            if MessageTemplate.objects.filter(event=template.event, name=new_name).exists():
                 return Response(
                     {'error': f'A template with the name "{new_name}" already exists for this event.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            new_template = WhatsAppTemplate.objects.create(
+            new_template = MessageTemplate.objects.create(
                 event=template.event,
                 name=new_name,
                 message_type=template.message_type,
@@ -2609,10 +2609,10 @@ def whatsapp_template_duplicate(request, id):
             )
             
             return Response(
-                WhatsAppTemplateSerializer(new_template).data,
+                MessageTemplateSerializer(new_template).data,
                 status=status.HTTP_201_CREATED
             )
-        except WhatsAppTemplate.DoesNotExist:
+        except MessageTemplate.DoesNotExist:
             return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
@@ -2621,7 +2621,7 @@ def whatsapp_template_duplicate(request, id):
 def whatsapp_template_archive(request, id):
         """Archive a template"""
         try:
-            template = WhatsAppTemplate.objects.get(id=id)
+            template = MessageTemplate.objects.get(id=id)
             # Verify ownership
             if template.event.host != request.user:
                 from rest_framework.exceptions import PermissionDenied
@@ -2629,8 +2629,8 @@ def whatsapp_template_archive(request, id):
             
             template.is_active = False
             template.save(update_fields=['is_active'])
-            return Response(WhatsAppTemplateSerializer(template).data)
-        except WhatsAppTemplate.DoesNotExist:
+            return Response(MessageTemplateSerializer(template).data)
+        except MessageTemplate.DoesNotExist:
             return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
@@ -2639,7 +2639,7 @@ def whatsapp_template_archive(request, id):
 def whatsapp_template_activate(request, id):
         """Activate a template"""
         try:
-            template = WhatsAppTemplate.objects.get(id=id)
+            template = MessageTemplate.objects.get(id=id)
             # Verify ownership
             if template.event.host != request.user:
                 from rest_framework.exceptions import PermissionDenied
@@ -2647,8 +2647,8 @@ def whatsapp_template_activate(request, id):
             
             template.is_active = True
             template.save(update_fields=['is_active'])
-            return Response(WhatsAppTemplateSerializer(template).data)
-        except WhatsAppTemplate.DoesNotExist:
+            return Response(MessageTemplateSerializer(template).data)
+        except MessageTemplate.DoesNotExist:
             return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
@@ -2657,15 +2657,15 @@ def whatsapp_template_activate(request, id):
 def whatsapp_template_increment_usage(request, id):
         """Increment template usage"""
         try:
-            template = WhatsAppTemplate.objects.get(id=id)
+            template = MessageTemplate.objects.get(id=id)
             # Verify ownership
             if template.event.host != request.user:
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied("You can only access templates for your own events.")
             
             template.increment_usage()
-            return Response(WhatsAppTemplateSerializer(template).data)
-        except WhatsAppTemplate.DoesNotExist:
+            return Response(MessageTemplateSerializer(template).data)
+        except MessageTemplate.DoesNotExist:
             return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
 
 

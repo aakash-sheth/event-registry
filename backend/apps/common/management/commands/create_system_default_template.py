@@ -10,7 +10,7 @@ Usage:
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from apps.events.models import Event, WhatsAppTemplate
+from apps.events.models import Event, MessageTemplate
 
 User = get_user_model()
 
@@ -20,7 +20,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # Check if system default already exists
-        existing = WhatsAppTemplate.objects.filter(is_system_default=True).first()
+        existing = MessageTemplate.objects.filter(is_system_default=True).first()
         if existing:
             self.stdout.write(
                 self.style.WARNING(
@@ -30,7 +30,7 @@ class Command(BaseCommand):
             return
 
         # Get or create a dummy event for the system template
-        # We need an event because WhatsAppTemplate requires it
+        # We need an event because MessageTemplate requires it
         # We'll use a special system event or create one
         system_event, created = Event.objects.get_or_create(
             slug='system-default',
@@ -48,7 +48,7 @@ class Command(BaseCommand):
             )
 
         # Create system default template
-        template = WhatsAppTemplate.objects.create(
+        template = MessageTemplate.objects.create(
             event=system_event,
             name='System Default Invitation',
             message_type='invitation',

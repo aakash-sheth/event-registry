@@ -1,6 +1,6 @@
 from django.contrib import admin
 from apps.users.admin import admin_site
-from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvite
+from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
 
 
 class EventAdmin(admin.ModelAdmin):
@@ -45,6 +45,14 @@ class InvitePageAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
 
 
+class MessageTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'event', 'message_type', 'is_active', 'is_default', 'is_system_default', 'usage_count', 'created_at')
+    list_filter = ('message_type', 'is_active', 'is_default', 'is_system_default', 'created_at')
+    search_fields = ('name', 'event__title', 'template_text')
+    readonly_fields = ('usage_count', 'last_used_at', 'created_at', 'updated_at')
+    raw_id_fields = ('event', 'created_by')
+
+
 # Register with custom admin site
 admin_site.register(Event, EventAdmin)
 admin_site.register(Guest, GuestAdmin)
@@ -52,4 +60,5 @@ admin_site.register(RSVP, RSVPAdmin)
 admin_site.register(InvitePage, InvitePageAdmin)
 admin_site.register(SubEvent, SubEventAdmin)
 admin_site.register(GuestSubEventInvite, GuestSubEventInviteAdmin)
+admin_site.register(MessageTemplate, MessageTemplateAdmin)
 

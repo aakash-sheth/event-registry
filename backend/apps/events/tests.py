@@ -7,7 +7,7 @@ from django.utils import timezone
 from datetime import timedelta
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.events.models import Event, Guest, RSVP, InvitePage, WhatsAppTemplate, SubEvent
+from apps.events.models import Event, Guest, RSVP, InvitePage, MessageTemplate, SubEvent
 
 User = get_user_model()
 
@@ -68,7 +68,7 @@ class EventViewSetGuestsTestCase(TestCase):
         self.assertNotIn(removed_rsvp.id, other_guest_ids)
 
 
-class WhatsAppTemplateViewSetTestCase(TestCase):
+class MessageTemplateViewSetTestCase(TestCase):
     """Test fix B: perform_update() handles missing name in PATCH"""
     
     def setUp(self):
@@ -81,7 +81,7 @@ class WhatsAppTemplateViewSetTestCase(TestCase):
             title='Test Event',
             is_public=True
         )
-        self.template = WhatsAppTemplate.objects.create(
+        self.template = MessageTemplate.objects.create(
             event=self.event,
             name='Original Template',
             message_type='TEXT',
@@ -105,7 +105,7 @@ class WhatsAppTemplateViewSetTestCase(TestCase):
     def test_patch_without_name_still_checks_duplicates(self):
         """Test that duplicate name check still works when name not provided"""
         # Create another template
-        other_template = WhatsAppTemplate.objects.create(
+        other_template = MessageTemplate.objects.create(
             event=self.event,
             name='Other Template',
             message_type='TEXT',
