@@ -45,10 +45,18 @@ export default function PublishModal({
       showToast('Invite page published successfully!', 'success')
     } catch (error: any) {
       logError('Failed to publish invite page:', error)
+      // Provide more specific error messages
       if (error.response?.status === 404) {
         showToast('Invite page not found. Please save your design first.', 'error')
+      } else if (error.response?.status === 403 || error.response?.status === 401) {
+        showToast('You do not have permission to publish this invite page.', 'error')
+      } else if (error.response?.data?.error) {
+        // Show backend error message if available
+        showToast(error.response.data.error, 'error')
+      } else if (error.message) {
+        showToast(`Failed to publish: ${error.message}`, 'error')
       } else {
-        showToast('Failed to publish invite page', 'error')
+        showToast('Failed to publish invite page. Please try again.', 'error')
       }
     } finally {
       setIsPublishing(false)
