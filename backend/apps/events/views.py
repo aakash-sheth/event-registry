@@ -1147,7 +1147,24 @@ class InvitePageViewSet(viewsets.ModelViewSet):
         @action(detail=True, methods=['post'], url_path='publish')
         def publish(self, request, id=None):
             """Publish/unpublish invite page"""
-            invite_page = self.get_object()
+            # Handle slug-based lookup (from /api/events/invite/<slug>/publish/)
+            slug = self.kwargs.get('slug')
+            if slug:
+                # Normalize slug to lowercase (all slugs are stored in lowercase)
+                slug = slug.lower()
+                try:
+                    invite_page = InvitePage.objects.select_related('event').get(slug=slug)
+                    # Verify ownership
+                    if invite_page.event.host != request.user:
+                        from rest_framework.exceptions import PermissionDenied
+                        raise PermissionDenied("You can only publish invite pages for your own events.")
+                except InvitePage.DoesNotExist:
+                    from rest_framework.exceptions import NotFound
+                    raise NotFound(f"Invite page not found for slug: {slug}")
+            else:
+                # Use default get_object() for event_id or id-based lookups
+                invite_page = self.get_object()
+            
             is_published = request.data.get('is_published', True)
             invite_page.is_published = is_published
             invite_page.save()
