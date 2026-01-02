@@ -67,10 +67,24 @@ function getFrontendUrl(): string {
 // Fetch invite page data (supports guest token)
 // Single attempt - no retries for simple page rendering
 async function fetchInviteData(slug: string, guestToken?: string): Promise<any | null> {
+    // CRITICAL: Always use slug, never event ID for public invite pages
+    // The public endpoint is /api/events/invite/{slug}/, NOT /api/events/{id}/invite/
+    if (!slug || typeof slug !== 'string') {
+      console.error('[InvitePage SSR] Invalid slug:', slug)
+      return null
+    }
+    
     const apiBase = getApiBase()
+    // ALWAYS use the public invite endpoint with slug (never event ID)
     const url = guestToken 
       ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
       : `${apiBase}/api/events/invite/${slug}/`
+    
+    // Validate URL format - must use /api/events/invite/{slug}/ pattern
+    if (!url.includes('/api/events/invite/')) {
+      console.error('[InvitePage SSR] Invalid invite URL format:', url)
+      return null
+    }
   
   try {
     const controller = new AbortController()

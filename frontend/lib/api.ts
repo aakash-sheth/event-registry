@@ -85,6 +85,24 @@ api.interceptors.request.use((config) => {
     }
   }
   
+  // CRITICAL: Detect and warn about incorrect invite endpoint usage
+  // Public invite pages should use /api/events/invite/{slug}/, NOT /api/events/{id}/invite/
+  if (config.url && config.url.includes('/invite/')) {
+    const isWrongPattern = /\/api\/events\/\d+\/invite\//.test(config.url)
+    const isCorrectPattern = /\/api\/events\/invite\/[^/]+\//.test(config.url)
+    
+    if (isWrongPattern && !isCorrectPattern) {
+      console.error('[API] ⚠️ WRONG INVITE ENDPOINT DETECTED:', {
+        url: config.url,
+        method: config.method,
+        correctPattern: '/api/events/invite/{slug}/',
+        wrongPattern: '/api/events/{id}/invite/',
+        stackTrace: new Error().stack,
+      })
+      // Don't block the request, but log it for debugging
+    }
+  }
+  
   // Ensure trailing slash for POST/PUT/PATCH requests to Django
   if (config.url && ['post', 'put', 'patch'].includes(config.method?.toLowerCase() || '')) {
     if (!config.url.endsWith('/') && !config.url.includes('?')) {

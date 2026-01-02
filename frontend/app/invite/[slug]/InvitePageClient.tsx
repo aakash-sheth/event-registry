@@ -41,14 +41,27 @@ export default function InvitePageClient({
 
   const fetchInvite = useCallback(async () => {
     try {
+      // CRITICAL: Always use slug, never event ID for public invite pages
+      // The public endpoint is /api/events/invite/{slug}/, NOT /api/events/{id}/invite/
+      if (!slug || typeof slug !== 'string') {
+        console.error('[InvitePageClient] Invalid slug:', slug)
+        throw new Error('Invalid slug provided')
+      }
+      
       // Extract guest token from URL
       const urlParams = new URLSearchParams(window.location.search)
       const guestToken = urlParams.get('g')
       
-      // Fetch from invite endpoint (supports guest token)
+      // ALWAYS use the public invite endpoint with slug (never event ID)
       const inviteUrl = guestToken 
         ? `/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
         : `/api/events/invite/${slug}/`
+      
+      // Validate URL format - must use /api/events/invite/{slug}/ pattern
+      if (!inviteUrl.startsWith('/api/events/invite/')) {
+        console.error('[InvitePageClient] Invalid invite URL format:', inviteUrl)
+        throw new Error('Invalid invite URL format - must use /api/events/invite/{slug}/')
+      }
       
       console.log('[InvitePageClient] Fetching invite data:', {
         slug,
