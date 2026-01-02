@@ -1,4 +1,5 @@
 # Generated manually - Rename WhatsAppTemplate model to MessageTemplate
+from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
 
@@ -6,6 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ('events', '0027_sync_invite_page_slugs'),
     ]
 
@@ -30,10 +32,11 @@ class Migration(migrations.Migration):
             name='created_by',
             field=models.ForeignKey(
                 blank=True,
+                help_text='User who created this template',
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name='created_message_templates',
-                to='users.user'
+                to=settings.AUTH_USER_MODEL
             ),
         ),
         # Note: db_table stays as 'whatsapp_templates' to avoid breaking existing data
