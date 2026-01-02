@@ -1072,32 +1072,53 @@ class InvitePageViewSet(viewsets.ModelViewSet):
         
         def get_object(self):
             """Override to retrieve invite page by event_id instead of id"""
+            from django.http import Http404
+            from rest_framework.exceptions import PermissionDenied
+            
             # If event_id is in kwargs (from URL), get invite page by event
             event_id = self.kwargs.get('event_id')
             if event_id:
-                event = get_object_or_404(Event, id=event_id, host=self.request.user)
+                try:
+                    event = get_object_or_404(Event, id=event_id, host=self.request.user)
+                except Http404:
+                    # Event doesn't exist or user doesn't own it
+                    raise Http404("Event not found or you do not have permission")
+                except Exception as e:
+                    # Any other error accessing event
+                    raise Http404(f"Error accessing event: {str(e)}")
+                
                 try:
                     # Use select_related to load event relationship to avoid N+1 queries and serializer issues
                     invite_page = InvitePage.objects.select_related('event').get(event=event)
-                    # Verify ownership
+                    # Verify ownership (double-check)
                     if invite_page.event.host != self.request.user:
-                        from rest_framework.exceptions import PermissionDenied
                         raise PermissionDenied("You can only access invite pages for your own events.")
+                    # Ensure event relationship is fully loaded for serializer
+                    if not hasattr(invite_page, '_event_cache'):
+                        _ = invite_page.event
                     return invite_page
                 except InvitePage.DoesNotExist:
                     # Raise Http404 so DRF returns proper 404 response
-                    from django.http import Http404
                     raise Http404("Invite page not found for this event")
             
             # Otherwise, use default behavior (lookup by id)
-            obj = super().get_object()
+            try:
+                obj = super().get_object()
+            except Exception as e:
+                # If super().get_object() fails, re-raise as Http404
+                raise Http404(f"Invite page not found: {str(e)}")
+            
             # Ensure event relationship is loaded to avoid issues in serializer
-            if not hasattr(obj, '_event_cache'):
-                # Trigger relationship load by accessing it
-                _ = obj.event
-            if obj.event.host != self.request.user:
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("You can only access invite pages for your own events.")
+            try:
+                if not hasattr(obj, '_event_cache'):
+                    # Trigger relationship load by accessing it
+                    _ = obj.event
+                if obj.event.host != self.request.user:
+                    raise PermissionDenied("You can only access invite pages for your own events.")
+            except AttributeError as e:
+                # Event relationship doesn't exist or can't be accessed
+                raise Http404(f"Error accessing event relationship: {str(e)}")
+            
             return obj
         
         def get_serializer_class(self):
@@ -1157,23 +1178,49 @@ class InvitePageViewSet(viewsets.ModelViewSet):
         def retrieve(self, request, *args, **kwargs):
             """Retrieve invite page by event_id"""
             from django.http import Http404
+            from rest_framework.exceptions import PermissionDenied
             import logging
             logger = logging.getLogger(__name__)
             
             try:
                 instance = self.get_object()
-                # Ensure event relationship is loaded before serialization
-                if hasattr(instance, 'event'):
-                    _ = instance.event  # Trigger relationship load
+                
+                # Ensure event relationship is fully loaded before serialization
+                # This is critical because the serializer accesses event.slug, event.event_structure, etc.
+                try:
+                    if hasattr(instance, 'event'):
+                        # Force load the event relationship
+                        _ = instance.event
+                        # Also ensure event fields are accessible
+                        _ = instance.event.slug
+                        _ = instance.event.event_structure
+                        _ = instance.event.rsvp_mode
+                except AttributeError as e:
+                    logger.error(f"Error accessing event relationship: {str(e)}", exc_info=True)
+                    return Response(
+                        {'error': 'Error loading event data for invite page'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                
+                # Create serializer with proper context
                 serializer = self.get_serializer(instance)
                 return Response(serializer.data)
-            except Http404:
+                
+            except Http404 as e:
                 # get_object() raises Http404 when invite page doesn't exist
+                logger.info(f"Invite page not found: {str(e)}")
                 return Response(
                     {'error': 'Invite page not found for this event'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            except PermissionDenied as e:
+                logger.warning(f"Permission denied accessing invite page: {str(e)}")
+                return Response(
+                    {'error': str(e)},
+                    status=status.HTTP_403_FORBIDDEN
+                )
             except InvitePage.DoesNotExist:
+                logger.info("Invite page does not exist")
                 return Response(
                     {'error': 'Invite page not found for this event'},
                     status=status.HTTP_404_NOT_FOUND
