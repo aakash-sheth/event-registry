@@ -10,6 +10,62 @@ import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 // ISR: Revalidate every hour (3600 seconds)
 export const revalidate = 3600
 
+// Timing tracker for comprehensive request lifecycle logging
+class RequestLifecycleTracker {
+  private steps: Map<string, number> = new Map()
+  private startTime: number
+
+  constructor() {
+    this.startTime = Date.now()
+    this.step('INIT', 'Request lifecycle tracker initialized')
+  }
+
+  step(name: string, description?: string): number {
+    const now = Date.now()
+    const elapsed = now - this.startTime
+    const previousStep = Array.from(this.steps.entries()).pop()
+    const stepDuration = previousStep ? now - previousStep[1] : elapsed
+
+    this.steps.set(name, now)
+    
+    console.log(`[Lifecycle] STEP: ${name}`, {
+      description,
+      elapsed: `${elapsed}ms`,
+      stepDuration: `${stepDuration}ms`,
+      timestamp: new Date().toISOString(),
+    })
+
+    return elapsed
+  }
+
+  getSummary(): any {
+    const summary: any = {
+      totalDuration: Date.now() - this.startTime,
+      steps: [],
+    }
+
+    let prevTime = this.startTime
+    const stepsArray = Array.from(this.steps.entries())
+    for (const [name, time] of stepsArray) {
+      const stepDuration = time - prevTime
+      summary.steps.push({
+        name,
+        timestamp: time,
+        duration: stepDuration,
+        cumulative: time - this.startTime,
+      })
+      prevTime = time
+    }
+
+    return summary
+  }
+
+  logSummary(context: string) {
+    const summary = this.getSummary()
+    console.log(`[Lifecycle] ${context} - COMPLETE SUMMARY`, summary)
+  }
+}
+
 interface Event {
   id: number
   title: string
@@ -85,12 +141,91 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       console.error('[InvitePage SSR] Invalid invite URL format:', url)
       return null
     }
-  
+
+    // Detailed logging for diagnosis
+    const requestStartTime = Date.now()
+    const performanceTimings: any = {
+      requestStart: requestStartTime,
+      dnsLookup: null,
+      tcpConnection: null,
+      requestSent: null,
+      firstByte: null,
+      responseComplete: null,
+      totalDuration: null,
+    }
+
+    // Log request initiation
+    console.log('[InvitePage SSR] Starting fetch request', {
+      timestamp: new Date().toISOString(),
+      slug,
+      url,
+      apiBase,
+      hasGuestToken: !!guestToken,
+      timeout: 5000,
+      nodeEnv: process.env.NODE_ENV,
+      backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
+      publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
+    })
+
+    // Try to resolve DNS (if possible in Node.js environment)
+    let dnsResolved = false
+    try {
+      const urlObj = new URL(url)
+      const hostname = urlObj.hostname
+      // In Node.js, we can't easily test DNS without dns module, but we can log the hostname
+      console.log('[InvitePage SSR] DNS Info', {
+        hostname,
+        protocol: urlObj.protocol,
+        port: urlObj.port || (urlObj.protocol === 'https:' ? '443' : '80'),
+      })
+      dnsResolved = true
+    } catch (e) {
+      console.warn('[InvitePage SSR] Could not parse URL for DNS info:', e)
+    }
+
+    const dnsTime = Date.now()
+    performanceTimings.dnsLookup = dnsTime - requestStartTime
+
   try {
     const controller = new AbortController()
     const timeout = 5000 // 5 seconds max - should be plenty for a simple query
-    const timeoutId = setTimeout(() => controller.abort(), timeout)
-  
+    
+    // Log timeout setup
+    console.log('[InvitePage SSR] Setting up fetch with timeout', {
+      timeout,
+      url,
+      signalAborted: controller.signal.aborted,
+    })
+
+    const timeoutId = setTimeout(() => {
+      const elapsed = Date.now() - requestStartTime
+      console.error('[InvitePage SSR] ⚠️ TIMEOUT TRIGGERED', {
+        elapsed,
+        timeout,
+        url,
+        slug,
+        timings: performanceTimings,
+        signalAborted: controller.signal.aborted,
+      })
+      controller.abort()
+    }, timeout)
+
+    const tcpStartTime = Date.now()
+    performanceTimings.tcpConnection = tcpStartTime - dnsTime
+
+    // Log fetch initiation
+    console.log('[InvitePage SSR] Initiating fetch', {
+      url,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      hasSignal: !!controller.signal,
+    })
+
+    const requestSentTime = Date.now()
+    performanceTimings.requestSent = requestSentTime - tcpStartTime
+
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
@@ -99,33 +234,101 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       next: { revalidate: 3600 },
     })
     
+    const firstByteTime = Date.now()
+    performanceTimings.firstByte = firstByteTime - requestSentTime
+    
     clearTimeout(timeoutId)
 
+    // Log response received
+    console.log('[InvitePage SSR] Response received', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers.entries()),
+      firstByteTime: performanceTimings.firstByte,
+      elapsed: firstByteTime - requestStartTime,
+    })
+
     if (response.ok) {
-      return await response.json()
+      const jsonStartTime = Date.now()
+      const data = await response.json()
+      const jsonEndTime = Date.now()
+      performanceTimings.responseComplete = jsonEndTime - firstByteTime
+      performanceTimings.totalDuration = jsonEndTime - requestStartTime
+
+      console.log('[InvitePage SSR] ✅ Request successful', {
+        slug,
+        url,
+        status: response.status,
+        dataSize: JSON.stringify(data).length,
+        jsonParseTime: jsonEndTime - jsonStartTime,
+        totalDuration: performanceTimings.totalDuration,
+        timings: performanceTimings,
+      })
+
+      return data
     }
 
     // Get error response body for detailed error info
+    const errorBodyStartTime = Date.now()
     let errorBody = ''
     try {
       errorBody = await response.text()
     } catch (e) {
       errorBody = 'Could not read error response body'
+      console.error('[InvitePage SSR] Error reading response body:', e)
     }
+    const errorBodyTime = Date.now() - errorBodyStartTime
+
+    performanceTimings.responseComplete = errorBodyTime
+    performanceTimings.totalDuration = Date.now() - requestStartTime
+
+    // Log HTTP error
+    console.error('[InvitePage SSR] ❌ HTTP Error Response', {
+      status: response.status,
+      statusText: response.statusText,
+      url,
+      slug,
+      errorBodyLength: errorBody.length,
+      errorBodyPreview: errorBody.substring(0, 500),
+      errorBodyReadTime: errorBodyTime,
+      totalDuration: performanceTimings.totalDuration,
+      timings: performanceTimings,
+      headers: Object.fromEntries(response.headers.entries()),
+    })
 
     // Throw error with full details for display
     const errorDetails = {
       type: 'HTTP_ERROR',
-        status: response.status,
-        statusText: response.statusText,
+      status: response.status,
+      statusText: response.statusText,
       url,
       slug,
       responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
       message: `Invite endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
+      timings: performanceTimings,
     }
 
     throw new Error(JSON.stringify(errorDetails, null, 2))
   } catch (error: any) {
+    const errorTime = Date.now()
+    performanceTimings.totalDuration = errorTime - requestStartTime
+
+    // Enhanced error logging
+    console.error('[InvitePage SSR] ❌ Fetch Error', {
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack,
+      url,
+      slug,
+      elapsed: performanceTimings.totalDuration,
+      timings: performanceTimings,
+      signalAborted: error.name === 'AbortError' ? true : undefined,
+      isTimeout: error.name === 'AbortError',
+      isNetworkError: error.message?.includes('fetch') || error.message?.includes('network'),
+      errorType: error.constructor?.name,
+    })
+
     // Re-throw with enhanced error details
     if (error.name === 'AbortError') {
       const timeoutError = {
@@ -134,7 +337,14 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
         url,
         slug,
         errorName: error.name,
+        elapsed: performanceTimings.totalDuration,
+        timings: performanceTimings,
+        dnsResolved,
+        apiBase,
+        backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
+        publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
       }
+      console.error('[InvitePage SSR] ⚠️ TIMEOUT ERROR DETAILS', timeoutError)
       throw new Error(JSON.stringify(timeoutError, null, 2))
     }
     
@@ -151,7 +361,14 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       slug,
       errorName: error.name,
       errorStack: error.stack,
+      elapsed: performanceTimings.totalDuration,
+      timings: performanceTimings,
+      dnsResolved,
+      apiBase,
+      backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
+      publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
     }
+    console.error('[InvitePage SSR] ⚠️ NETWORK ERROR DETAILS', networkError)
     throw new Error(JSON.stringify(networkError, null, 2))
   }
 }
@@ -237,7 +454,24 @@ export async function generateMetadata({
 }: { 
   params: { slug: string } 
 }): Promise<Metadata> {
+  const tracker = new RequestLifecycleTracker()
+  tracker.step('METADATA_START', 'generateMetadata called')
+  
+  console.log('[InvitePage Metadata] ====== METADATA GENERATION START ======', {
+    slug: params.slug,
+    timestamp: new Date().toISOString(),
+  })
+
+  const fetchStart = Date.now()
   const event = await fetchEventData(params.slug)
+  const fetchEnd = Date.now()
+  
+  tracker.step('METADATA_FETCH_COMPLETE', 'Event data fetched for metadata')
+  console.log('[InvitePage Metadata] Event data fetch', {
+    slug: params.slug,
+    duration: `${fetchEnd - fetchStart}ms`,
+    eventFound: !!event,
+  })
 
   // Get frontend URL for absolute URL conversion
   const frontendUrl = getFrontendUrl()
@@ -344,6 +578,14 @@ export async function generateMetadata({
     },
   }
 
+  tracker.step('METADATA_COMPLETE', 'Metadata object created')
+  tracker.logSummary('METADATA GENERATION')
+  
+  console.log('[InvitePage Metadata] ====== METADATA GENERATION COMPLETE ======', {
+    slug: params.slug,
+    totalDuration: tracker.getSummary().totalDuration,
+  })
+
   return metadata
 }
 
@@ -355,34 +597,73 @@ export default async function InvitePage({
   params: { slug: string }
   searchParams: { g?: string }
 }) {
+  const tracker = new RequestLifecycleTracker()
   const startTime = Date.now()
   const slug = params.slug
   
+  // STEP 1: Route Entry - Next.js calls this component
+  tracker.step('ROUTE_ENTRY', 'Next.js route handler called')
+  console.log('[InvitePage SSR] ====== PAGE RENDER START ======', {
+    timestamp: new Date().toISOString(),
+    slug,
+    hasGuestToken: !!searchParams.g,
+    guestToken: searchParams.g ? 'present' : 'none',
+    nodeEnv: process.env.NODE_ENV,
+    apiBase: getApiBase(),
+    backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
+    publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
+    processUptime: process.uptime(),
+  })
+  
   try {
-    // Log SSR start for production debugging
-    if (process.env.NODE_ENV === 'production') {
-      console.log(`[InvitePage SSR] Starting SSR for slug: ${slug}`, {
-        slug,
-        hasGuestToken: !!searchParams.g,
-        apiBase: getApiBase(),
-      })
-    }
+    // STEP 2: Initialization
+    tracker.step('INIT', 'Component initialization')
+    console.log(`[InvitePage SSR] Component initialized for slug: ${slug}`, {
+      slug,
+      hasGuestToken: !!searchParams.g,
+      apiBase: getApiBase(),
+    })
     
-    // Fetch invite page data (supports guest token via ?g= parameter)
-    // TEMPORARILY: No fallback - show main error immediately
+    // STEP 3: Fetch invite page data (supports guest token via ?g= parameter)
+    tracker.step('FETCH_START', 'Starting backend API call')
     let inviteData: any = null
     let inviteError: any = null
+    
     try {
+      console.log('[InvitePage SSR] 📡 COMMUNICATION: Initiating backend API call', {
+        slug,
+        timestamp: new Date().toISOString(),
+        apiBase: getApiBase(),
+        endpoint: `/api/events/invite/${slug}/`,
+        hasGuestToken: !!searchParams.g,
+      })
+      
       inviteData = await fetchInviteData(slug, searchParams.g)
-      if (process.env.NODE_ENV === 'production') {
-        console.log(`[InvitePage SSR] Invite data fetch ${inviteData ? 'succeeded' : 'returned null'} for slug: ${slug}`)
+      
+      tracker.step('FETCH_COMPLETE', 'Backend API call completed successfully')
+      console.log('[InvitePage SSR] ✅ COMMUNICATION: Backend API call succeeded', {
+        slug,
+        hasData: !!inviteData,
+        dataSize: inviteData ? JSON.stringify(inviteData).length : 0,
+      })
+      
+      // Log if fetch took too long
+      const fetchStep = tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_COMPLETE')
+      if (fetchStep && fetchStep.duration > 3000) {
+        console.warn('[InvitePage SSR] ⚠️ Slow backend communication detected', {
+          slug,
+          duration: fetchStep.duration,
+          threshold: 3000,
+        })
       }
     } catch (error: any) {
+      tracker.step('FETCH_ERROR', 'Backend API call failed')
       inviteError = error
-      console.error(`[InvitePage SSR] Exception fetching invite data for slug: ${slug}`, {
+      console.error(`[InvitePage SSR] ❌ COMMUNICATION: Backend API call failed for slug: ${slug}`, {
         error: error.message,
         errorType: error.name,
         stack: error.stack,
+        elapsed: tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_ERROR')?.duration || 0,
       })
       // TEMPORARILY: Show error immediately instead of trying fallback
       // If invite data fetch fails, show error right away
@@ -475,13 +756,18 @@ export default async function InvitePage({
     }
     */
     
-    // TEMPORARILY: Use invite data directly if available, otherwise show error
-    // For now, we need event data to render, so if we don't have it, show error
-    // But first check if inviteData has what we need
+    // STEP 4: Data Processing - Transform invite data to event format
+    tracker.step('DATA_PROCESSING_START', 'Processing and transforming data')
     let event: Event | null = null
     
     // Try to construct event from inviteData if it has the necessary fields
     if (inviteData) {
+      console.log('[InvitePage SSR] 🔄 DATA PROCESSING: Transforming invite data to event format', {
+        slug,
+        hasInviteData: !!inviteData,
+        inviteDataKeys: inviteData ? Object.keys(inviteData) : [],
+      })
+      
       // If inviteData has event info, use it
       if (inviteData.event_slug || inviteData.slug) {
         event = {
@@ -494,12 +780,35 @@ export default async function InvitePage({
           has_rsvp: inviteData.has_rsvp,
           has_registry: inviteData.has_registry,
         } as Event
+        
+        tracker.step('DATA_PROCESSING_COMPLETE', 'Event object constructed from invite data')
+        console.log('[InvitePage SSR] ✅ DATA PROCESSING: Event object created', {
+          slug,
+          eventId: event.id,
+          hasConfig: !!event.page_config,
+        })
+      } else {
+        tracker.step('DATA_PROCESSING_WARNING', 'Invite data missing event info')
+        console.warn('[InvitePage SSR] ⚠️ DATA PROCESSING: Invite data missing event_slug or slug', {
+          slug,
+          inviteDataKeys: Object.keys(inviteData),
+        })
       }
+    } else {
+      tracker.step('DATA_PROCESSING_ERROR', 'No invite data to process')
+      console.error('[InvitePage SSR] ❌ DATA PROCESSING: No invite data available', {
+        slug,
+      })
     }
 
-  // If event not found, render error page with FULL error details
-  // TEMPORARILY: Only show invite error (fallback commented out)
+  // STEP 5: Error Handling - If event not found, render error page
   if (!event) {
+    tracker.step('ERROR_RENDER_START', 'Rendering error page')
+    console.log('[InvitePage SSR] ⚠️ RENDERING: Error page (event not found)', {
+      slug,
+      hasInviteData: !!inviteData,
+      hasInviteError: !!inviteError,
+    })
     // Parse error messages to extract JSON details
     let inviteErrorDetails: any = null
     
@@ -569,7 +878,13 @@ export default async function InvitePage({
     )
   }
 
-  // Prepare initial config if event data is available
+  // STEP 6: Config Preparation - Prepare invite configuration
+  tracker.step('CONFIG_PREP_START', 'Preparing invite configuration')
+  console.log('[InvitePage SSR] ⚙️ CONFIG: Preparing invite configuration', {
+    slug,
+    hasPageConfig: !!event.page_config,
+  })
+  
   let initialConfig: InviteConfig | null = null
   // Check if page_config exists and has meaningful content (not just empty object)
   const pageConfig = event.page_config
@@ -609,7 +924,22 @@ export default async function InvitePage({
       descriptionMarkdown: event.description || undefined,
     }
   }
+  
+  tracker.step('CONFIG_PREP_COMPLETE', 'Invite configuration prepared')
+  console.log('[InvitePage SSR] ✅ CONFIG: Configuration prepared', {
+    slug,
+    hasConfig: !!initialConfig,
+    configType: initialConfig?.themeId || 'fallback',
+  })
 
+  // STEP 7: SSR Rendering - Render server-side components
+  tracker.step('SSR_RENDER_START', 'Rendering server-side components')
+  console.log('[InvitePage SSR] 🎨 SSR RENDERING: Starting server-side component rendering', {
+    slug,
+    hasConfig: !!initialConfig,
+    hasTiles: !!(initialConfig?.tiles && initialConfig.tiles.length > 0),
+  })
+  
   // Extract hero tiles (image + title overlay if exists) and event details for SSR
   let heroSSR: React.ReactNode = null
   let eventDetailsSSR: React.ReactNode = null
@@ -662,10 +992,40 @@ export default async function InvitePage({
       )
     }
   }
+  
+  tracker.step('SSR_RENDER_COMPLETE', 'Server-side components rendered')
+  console.log('[InvitePage SSR] ✅ SSR RENDERING: Server-side rendering complete', {
+    slug,
+    hasHeroSSR: !!heroSSR,
+    hasEventDetailsSSR: !!eventDetailsSSR,
+  })
 
+    // STEP 8: Final Assembly - Prepare props for client component
+    tracker.step('FINAL_ASSEMBLY_START', 'Assembling final component props')
+    console.log('[InvitePage SSR] 📦 FINAL ASSEMBLY: Preparing client component props', {
+      slug,
+      hasEvent: !!event,
+      hasConfig: !!initialConfig,
+    })
+    
     // Extract allowed_sub_events from invite data
     const allowedSubEvents = inviteData?.allowed_sub_events || []
     
+    tracker.step('FINAL_ASSEMBLY_COMPLETE', 'Client component props ready')
+    tracker.step('RENDER_COMPLETE', 'Server-side render complete, returning JSX')
+    
+    // STEP 9: Final Render - Return JSX to Next.js
+    console.log('[InvitePage SSR] 🎯 RENDERING: Returning JSX to Next.js', {
+      slug,
+      totalSteps: tracker.getSummary().steps.length,
+    })
+    
+    tracker.logSummary('PAGE RENDER')
+    console.log('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
+      slug,
+      totalDuration: tracker.getSummary().totalDuration,
+      timestamp: new Date().toISOString(),
+    })
 
     // Render client component with SSR content
     return (
@@ -679,8 +1039,17 @@ export default async function InvitePage({
       />
     )
   } catch (error: any) {
-    // Catch any unexpected errors during SSR and show FULL error details
-    console.error('[InvitePage SSR] Unexpected error:', error)
+    // STEP X: Unexpected Error - Catch any unexpected errors during SSR
+    tracker.step('UNEXPECTED_ERROR', 'Unexpected error caught')
+    console.error('[InvitePage SSR] 💥 UNEXPECTED ERROR: Exception during SSR', {
+      slug,
+      error: error.message,
+      errorType: error.name,
+      stack: error.stack,
+      elapsed: tracker.getSummary().totalDuration,
+    })
+    
+    tracker.logSummary('PAGE RENDER (ERROR)')
     
     // Try to parse error message if it's JSON
     let errorDetails: any = null
@@ -720,8 +1089,9 @@ export default async function InvitePage({
             <div className="space-y-2 text-sm">
               <p><strong>Slug:</strong> {params.slug}</p>
               <p><strong>API Base:</strong> {getApiBase()}</p>
-              <p><strong>Duration:</strong> {Date.now() - startTime}ms</p>
+              <p><strong>Duration:</strong> {tracker.getSummary().totalDuration}ms</p>
               <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
+              <p><strong>Lifecycle Steps:</strong> {tracker.getSummary().steps.length}</p>
             </div>
           </div>
         </div>

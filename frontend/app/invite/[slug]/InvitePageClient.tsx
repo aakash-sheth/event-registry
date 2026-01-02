@@ -33,14 +33,47 @@ export default function InvitePageClient({
   eventDetailsSSR = null,
   allowedSubEvents = [],
 }: InvitePageClientProps) {
+  // Client-side lifecycle tracking
+  const clientStartTime = typeof window !== 'undefined' ? Date.now() : 0
+  
+  // Log component mount/hydration
+  if (typeof window !== 'undefined') {
+    console.log('[InvitePageClient] ====== CLIENT COMPONENT MOUNT ======', {
+      timestamp: new Date().toISOString(),
+      slug,
+      hasInitialEvent: !!initialEvent,
+      hasInitialConfig: !!initialConfig,
+      hasHeroSSR: !!heroSSR,
+      hasEventDetailsSSR: !!eventDetailsSSR,
+      allowedSubEventsCount: allowedSubEvents.length,
+      windowLocation: window.location.href,
+    })
+  }
+  
   const [event, setEvent] = useState<Event | null>(initialEvent)
   const [config, setConfig] = useState<InviteConfig | null>(initialConfig)
   const [loading, setLoading] = useState(!initialConfig)
   const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
   const [error, setError] = useState<any>(null)
   
+  // Log initial state
+  if (typeof window !== 'undefined') {
+    console.log('[InvitePageClient] 📦 STATE: Initial state set', {
+      slug,
+      hasEvent: !!event,
+      hasConfig: !!config,
+      loading,
+      subEventsCount: subEvents.length,
+    })
+  }
 
   const fetchInvite = useCallback(async () => {
+    const fetchStartTime = Date.now()
+    console.log('[InvitePageClient] 📡 CLIENT COMMUNICATION: Starting client-side fetch', {
+      slug,
+      timestamp: new Date().toISOString(),
+      elapsedSinceMount: fetchStartTime - clientStartTime,
+    })
     try {
       // CRITICAL: Always use slug, never event ID for public invite pages
       // The public endpoint is /api/events/invite/{slug}/, NOT /api/events/{id}/invite/
@@ -64,18 +97,34 @@ export default function InvitePageClient({
         throw new Error('Invalid invite URL format - must use /api/events/invite/{slug}/')
       }
       
-      console.log('[InvitePageClient] Fetching invite data:', {
+      console.log('[InvitePageClient] 📡 CLIENT COMMUNICATION: Fetching invite data', {
         slug,
         inviteUrl,
         apiBase: api.defaults.baseURL,
         fullUrl: `${api.defaults.baseURL}${inviteUrl}`,
         guestToken: guestToken ? 'present' : 'none',
+        timestamp: new Date().toISOString(),
       })
       
+      const apiCallStart = Date.now()
       const response = await api.get(inviteUrl)
+      const apiCallEnd = Date.now()
       const inviteData = response.data
       
+      console.log('[InvitePageClient] ✅ CLIENT COMMUNICATION: API call succeeded', {
+        slug,
+        duration: `${apiCallEnd - apiCallStart}ms`,
+        dataSize: JSON.stringify(inviteData).length,
+        status: response.status,
+      })
+      
       // Extract event data and allowed_sub_events
+      const dataProcessingStart = Date.now()
+      console.log('[InvitePageClient] 🔄 CLIENT DATA PROCESSING: Processing response data', {
+        slug,
+        timestamp: new Date().toISOString(),
+      })
+      
       const eventData = {
         ...inviteData,
         page_config: inviteData.config,
@@ -83,9 +132,17 @@ export default function InvitePageClient({
       
       if (inviteData.allowed_sub_events) {
         setSubEvents(inviteData.allowed_sub_events)
+        console.log('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Sub-events set', {
+          slug,
+          subEventsCount: inviteData.allowed_sub_events.length,
+        })
       }
 
       if (eventData?.page_config) {
+        console.log('[InvitePageClient] 🔄 CLIENT DATA PROCESSING: Processing page config', {
+          slug,
+          hasConfig: !!eventData.page_config,
+        })
         // Use page_config from API (supports both legacy hero-based and new tile-based configs)
         // Preserve customColors - check if it's an object and has properties
         let customColors = undefined
@@ -111,7 +168,18 @@ export default function InvitePageClient({
         
         setEvent(eventData)
         setConfig(configWithCustomColors)
+        
+        const dataProcessingEnd = Date.now()
+        console.log('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Config processed and state updated', {
+          slug,
+          duration: `${dataProcessingEnd - dataProcessingStart}ms`,
+          totalFetchDuration: `${dataProcessingEnd - fetchStartTime}ms`,
+        })
+        setLoading(false)
       } else {
+        console.log('[InvitePageClient] ⚠️ CLIENT DATA PROCESSING: No page config, using fallback', {
+          slug,
+        })
         // Fallback: create config from event data
         const fallbackConfig: InviteConfig = {
           themeId: 'classic-noir',
@@ -134,8 +202,25 @@ export default function InvitePageClient({
         }
         setEvent(eventData)
         setConfig(fallbackConfig)
+        
+        const dataProcessingEnd = Date.now()
+        console.log('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Fallback config created and state updated', {
+          slug,
+          duration: `${dataProcessingEnd - dataProcessingStart}ms`,
+          totalFetchDuration: `${dataProcessingEnd - fetchStartTime}ms`,
+        })
+        setLoading(false)
       }
     } catch (error: any) {
+      const fetchEndTime = Date.now()
+      console.error('[InvitePageClient] ❌ CLIENT COMMUNICATION: API call failed', {
+        slug,
+        duration: `${fetchEndTime - fetchStartTime}ms`,
+        error: error.message,
+        errorType: error.name,
+        timestamp: new Date().toISOString(),
+      })
+      
       // Capture FULL error details for display
       const fullErrorDetails = {
         type: 'CLIENT_FETCH_ERROR',
@@ -218,11 +303,27 @@ export default function InvitePageClient({
   }, [slug])
 
   useEffect(() => {
+    const effectStartTime = Date.now()
+    console.log('[InvitePageClient] 🔄 CLIENT EFFECT: useEffect triggered (data fetch check)', {
+      slug,
+      hasInitialConfig: !!initialConfig,
+      timestamp: new Date().toISOString(),
+      elapsedSinceMount: effectStartTime - clientStartTime,
+    })
+    
     // If we have initial data from server, skip fetching
     if (initialConfig) {
+      console.log('[InvitePageClient] ✅ CLIENT EFFECT: Skipping fetch (has initial config from SSR)', {
+        slug,
+        elapsedSinceMount: Date.now() - clientStartTime,
+      })
       return
     }
     
+    console.log('[InvitePageClient] 📡 CLIENT EFFECT: No initial config, triggering client-side fetch', {
+      slug,
+      elapsedSinceMount: Date.now() - clientStartTime,
+    })
     fetchInvite()
   }, [slug, initialConfig, fetchInvite])
 
@@ -232,21 +333,37 @@ export default function InvitePageClient({
   // Set body background to match page background
   // This MUST be called before any early returns to follow React hooks rules
   useEffect(() => {
+    console.log('[InvitePageClient] 🎨 CLIENT EFFECT: Setting background color', {
+      slug,
+      backgroundColor,
+      timestamp: new Date().toISOString(),
+    })
+    
     document.body.style.setProperty('background-color', backgroundColor, 'important')
     document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
     document.body.style.setProperty('background', backgroundColor, 'important')
     document.documentElement.style.setProperty('background', backgroundColor, 'important')
 
     return () => {
+      console.log('[InvitePageClient] 🧹 CLIENT EFFECT: Cleaning up background color', {
+        slug,
+      })
       document.body.style.removeProperty('background-color')
       document.body.style.removeProperty('background')
       document.documentElement.style.removeProperty('background-color')
       document.documentElement.style.removeProperty('background')
     }
-  }, [backgroundColor])
+  }, [backgroundColor, slug])
 
   // Display error with full details
   if (error) {
+    console.log('[InvitePageClient] ⚠️ CLIENT RENDER: Rendering error state', {
+      slug,
+      errorType: error.type,
+      timestamp: new Date().toISOString(),
+      elapsedSinceMount: Date.now() - clientStartTime,
+    })
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="text-center px-4 max-w-6xl w-full">
@@ -278,6 +395,12 @@ export default function InvitePageClient({
   }
 
   if (loading) {
+    console.log('[InvitePageClient] ⏳ CLIENT RENDER: Rendering loading state', {
+      slug,
+      timestamp: new Date().toISOString(),
+      elapsedSinceMount: Date.now() - clientStartTime,
+    })
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -289,6 +412,12 @@ export default function InvitePageClient({
   }
 
   if (!config) {
+    console.log('[InvitePageClient] ⚠️ CLIENT RENDER: No config available', {
+      slug,
+      timestamp: new Date().toISOString(),
+      elapsedSinceMount: Date.now() - clientStartTime,
+    })
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -299,6 +428,16 @@ export default function InvitePageClient({
   }
 
   // If we have SSR content, filter out those tiles from config
+  console.log('[InvitePageClient] 🎨 CLIENT RENDER: Preparing final render', {
+    slug,
+    hasConfig: !!config,
+    hasHeroSSR: !!heroSSR,
+    hasEventDetailsSSR: !!eventDetailsSSR,
+    tilesCount: config.tiles?.length || 0,
+    timestamp: new Date().toISOString(),
+    elapsedSinceMount: Date.now() - clientStartTime,
+  })
+  
   const configForClient = heroSSR || eventDetailsSSR ? {
     ...config,
     tiles: config.tiles?.filter((tile) => {
@@ -317,6 +456,22 @@ export default function InvitePageClient({
       return true
     }) || []
   } : config
+
+  const renderTime = Date.now()
+  console.log('[InvitePageClient] ✅ CLIENT RENDER: Rendering LivingPosterPage', {
+    slug,
+    hasConfig: !!configForClient,
+    hasHeroSSR: !!heroSSR,
+    hasEventDetailsSSR: !!eventDetailsSSR,
+    totalElapsed: `${renderTime - clientStartTime}ms`,
+    timestamp: new Date().toISOString(),
+  })
+  
+  console.log('[InvitePageClient] ====== CLIENT COMPONENT RENDER COMPLETE ======', {
+    slug,
+    totalDuration: renderTime - clientStartTime,
+    timestamp: new Date().toISOString(),
+  })
 
   return (
     <div className="min-h-screen w-full h-full relative" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
