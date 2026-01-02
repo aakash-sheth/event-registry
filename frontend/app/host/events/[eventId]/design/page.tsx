@@ -581,7 +581,9 @@ export default function DesignInvitationPage(): JSX.Element {
 
   // Fix 2: Add publish handler
   const handlePublish = async () => {
-    if (!invitePage) {
+    let currentInvitePage = invitePage
+    
+    if (!currentInvitePage) {
       // Create InvitePage first if it doesn't exist
       try {
         const newInvite = await createInvitePage(eventId, {
@@ -589,6 +591,7 @@ export default function DesignInvitationPage(): JSX.Element {
           background_url: event?.banner_image || '',
         })
         setInvitePage(newInvite)
+        currentInvitePage = newInvite // Use the newly created invite page
       } catch (error) {
         logError('Failed to create invite page:', error)
         showToast('Failed to create invite page', 'error')
@@ -598,7 +601,14 @@ export default function DesignInvitationPage(): JSX.Element {
     
     setIsPublishing(true)
     try {
-      const updated = await publishInvitePage(invitePage?.slug || event?.slug || '', true)
+      // Use currentInvitePage.slug (from state or newly created) or fallback to event.slug
+      const slugToUse = currentInvitePage?.slug || event?.slug || ''
+      if (!slugToUse) {
+        showToast('Event slug not found', 'error')
+        return
+      }
+      
+      const updated = await publishInvitePage(slugToUse, true)
       setInvitePage(updated)
       showToast('Invite page published!', 'success')
       setShowPublishModal(false)
@@ -798,7 +808,25 @@ export default function DesignInvitationPage(): JSX.Element {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button 
-                    onClick={() => setShowPublishModal(true)}
+                    onClick={async () => {
+                      // Ensure InvitePage exists before opening modal
+                      if (!invitePage) {
+                        try {
+                          // Create InvitePage if it doesn't exist
+                          const newInvite = await createInvitePage(eventId, {
+                            config: config,
+                            background_url: event?.banner_image || '',
+                          })
+                          setInvitePage(newInvite)
+                          setShowPublishModal(true)
+                        } catch (error) {
+                          logError('Failed to create invite page:', error)
+                          showToast('Please save your design first, then publish', 'error')
+                        }
+                      } else {
+                        setShowPublishModal(true)
+                      }
+                    }}
                     disabled={isPublishing}
                     className="bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm px-3 sm:px-4 flex-1 sm:flex-none w-full sm:w-auto"
                   >

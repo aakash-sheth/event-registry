@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from apps.users.models import User
 
 
@@ -130,9 +132,13 @@ class InvitePage(models.Model):
         return state_map.get(self.state, "Unknown")
     
     def save(self, *args, **kwargs):
-        if not self.slug:
-            # Use event slug directly (not {event-slug}-invite)
-            self.slug = self.event.slug
+        # Always sync slug with event.slug to prevent drift
+        # This ensures InvitePage.slug always matches Event.slug
+        if self.event and self.event.slug:
+            self.slug = self.event.slug.lower()
+        elif not self.slug:
+            # Fallback: if event doesn't have slug yet, keep existing or set empty
+            pass
         # Always normalize slug to lowercase
         if self.slug:
             self.slug = self.slug.lower()
@@ -401,4 +407,21 @@ class WhatsAppTemplate(models.Model):
             message = message.replace(variable, value)
         
         return message
+
+
+# Signal to keep InvitePage.slug in sync with Event.slug
+@receiver(post_save, sender=Event)
+def sync_invite_page_slug(sender, instance, **kwargs):
+    """
+    Keep InvitePage.slug synchronized with Event.slug.
+    This ensures they never drift apart, even if Event.slug changes.
+    """
+    # Only sync if InvitePage exists
+    if hasattr(instance, 'invite_page') and instance.invite_page:
+        invite_page = instance.invite_page
+        # Only update if slug differs (avoid unnecessary saves)
+        if invite_page.slug != instance.slug.lower():
+            invite_page.slug = instance.slug.lower()
+            # Use update_fields to avoid triggering save() recursion
+            invite_page.save(update_fields=['slug', 'updated_at'])
 

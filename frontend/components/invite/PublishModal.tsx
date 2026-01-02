@@ -32,15 +32,24 @@ export default function PublishModal({
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${slug}`
 
   const handlePublish = async () => {
+    if (!slug) {
+      showToast('Event slug not found', 'error')
+      return
+    }
+    
     setIsPublishing(true)
     try {
-      await publishInvitePage(slug, true)
+      const updated = await publishInvitePage(slug, true)
       setIsPublished(true)
       onPublishChange(true)
       showToast('Invite page published successfully!', 'success')
     } catch (error: any) {
       logError('Failed to publish invite page:', error)
-      showToast('Failed to publish invite page', 'error')
+      if (error.response?.status === 404) {
+        showToast('Invite page not found. Please save your design first.', 'error')
+      } else {
+        showToast('Failed to publish invite page', 'error')
+      }
     } finally {
       setIsPublishing(false)
     }
