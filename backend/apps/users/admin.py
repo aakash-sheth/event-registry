@@ -70,11 +70,29 @@ class CustomAdminSite(AdminSite):
     site_header = 'Event Registry Administration'
     site_title = 'Event Registry Admin'
     index_title = 'Welcome to Event Registry Administration'
+    
+    def each_context(self, request):
+        """
+        Override to ensure site_url uses the current request's domain
+        This ensures admin links work correctly on admin.ekfern.com subdomain
+        """
+        context = super().each_context(request)
+        # Ensure site_url uses the current request's domain
+        if 'site_url' in context and context['site_url']:
+            # Use request's host to build site URL
+            scheme = 'https' if request.is_secure() else 'http'
+            context['site_url'] = f"{scheme}://{request.get_host()}/"
+        return context
 
     def login(self, request, extra_context=None):
         """
         Override login to provide better error messages and ensure proper redirect
         """
+        # If already authenticated, redirect to admin index (prevent redirect loops)
+        if request.user.is_authenticated and request.path == '/api/admin/login/':
+            from django.shortcuts import redirect
+            return redirect('/api/admin/')
+        
         extra_context = extra_context or {}
         extra_context['site_header'] = self.site_header
         extra_context['site_title'] = self.site_title
@@ -86,6 +104,19 @@ class CustomAdminSite(AdminSite):
         if request.method == 'POST' and not request.user.is_authenticated:
             # Login failed - response should already be the login page with errors
             pass
+        
+        # If login succeeded, ensure redirect goes to admin index, not homepage
+        if request.method == 'POST' and request.user.is_authenticated:
+            from django.shortcuts import redirect
+            # Get the 'next' parameter or default to admin index
+            next_url = request.GET.get('next') or request.POST.get('next', '/api/admin/')
+            # Prevent redirect loops - if next is login page, go to admin index
+            if next_url == '/api/admin/login/' or next_url.endswith('/api/admin/login/'):
+                next_url = '/api/admin/'
+            # Ensure next_url is within admin (security check)
+            if not next_url or not next_url.startswith('/api/admin/'):
+                next_url = '/api/admin/'
+            return redirect(next_url)
         
         return response
     

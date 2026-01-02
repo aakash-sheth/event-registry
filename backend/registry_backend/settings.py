@@ -41,6 +41,10 @@ INSTALLED_APPS = [
     'apps.common',
 ]
 
+# Authentication URLs - Admin login redirect
+LOGIN_URL = '/api/admin/login/'
+LOGIN_REDIRECT_URL = '/api/admin/'  # Redirect to admin index after successful login
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Serve static files efficiently in production
@@ -205,6 +209,13 @@ if not DEBUG:
     # Cookie Security
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    
+    # CSRF Trusted Origins - Allow admin subdomain
+    CSRF_TRUSTED_ORIGINS = [
+        'https://ekfern.com',
+        'https://admin.ekfern.com',
+        'https://www.ekfern.com',
+    ]
     
     # Security Headers
     X_FRAME_OPTIONS = 'DENY'
