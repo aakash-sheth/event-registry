@@ -161,6 +161,9 @@ export default function InvitePageClient({
       setError(fullErrorDetails)
       setLoading(false)
       
+      // TEMPORARILY COMMENTED OUT: Fallback to registry endpoint
+      // We want to see the main error, not try fallbacks
+      /*
       // If connection error, try fallback to registry endpoint
       if (error.code === 'ERR_CONNECTION_RESET' || error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
         console.log('[InvitePageClient] Connection error, trying fallback to registry endpoint')
@@ -208,6 +211,7 @@ export default function InvitePageClient({
           })
         }
       }
+      */
     } finally {
       setLoading(false)
     }

@@ -116,14 +116,14 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     // Throw error with full details for display
     const errorDetails = {
       type: 'HTTP_ERROR',
-      status: response.status,
-      statusText: response.statusText,
+        status: response.status,
+        statusText: response.statusText,
       url,
       slug,
       responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
       message: `Invite endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
     }
-    
+
     throw new Error(JSON.stringify(errorDetails, null, 2))
   } catch (error: any) {
     // Re-throw with enhanced error details
@@ -191,14 +191,14 @@ async function fetchEventData(slug: string): Promise<Event | null> {
     // Throw error with full details for display
     const errorDetails = {
       type: 'HTTP_ERROR',
-      status: response.status,
-      statusText: response.statusText,
+        status: response.status,
+        statusText: response.statusText,
       url,
       slug,
       responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
       message: `Registry endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
     }
-    
+
     throw new Error(JSON.stringify(errorDetails, null, 2))
   } catch (error: any) {
     // Re-throw with enhanced error details
@@ -369,8 +369,9 @@ export default async function InvitePage({
     }
     
     // Fetch invite page data (supports guest token via ?g= parameter)
+    // TEMPORARILY: No fallback - show main error immediately
     let inviteData: any = null
-    let inviteError: Error | null = null
+    let inviteError: any = null
     try {
       inviteData = await fetchInviteData(slug, searchParams.g)
       if (process.env.NODE_ENV === 'production') {
@@ -383,10 +384,60 @@ export default async function InvitePage({
         errorType: error.name,
         stack: error.stack,
       })
+      // TEMPORARILY: Show error immediately instead of trying fallback
+      // If invite data fetch fails, show error right away
+      if (inviteError) {
+        let inviteErrorDetails: any = null
+        try {
+          if (inviteError.message) {
+            inviteErrorDetails = JSON.parse(inviteError.message)
+          }
+        } catch (e) {
+          inviteErrorDetails = { rawMessage: inviteError.message, errorName: inviteError.name, stack: inviteError.stack }
+        }
+        
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div className="text-center px-4 max-w-6xl w-full">
+              <div className="text-6xl mb-4">⚠️</div>
+              <h1 className="text-3xl font-semibold text-gray-900 mb-6">
+                Error Loading Invite Page (Main Error - No Fallback)
+              </h1>
+              
+              {/* Invite Data Error */}
+              {inviteErrorDetails && (
+                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
+                  <h2 className="text-xl font-bold text-red-900 mb-3">Invite Endpoint Error (Main)</h2>
+                  <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto">
+                    {JSON.stringify(inviteErrorDetails, null, 2)}
+                  </pre>
+                </div>
+              )}
+              
+              {/* Debug Information */}
+              <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 mb-4 text-left">
+                <h2 className="text-xl font-bold text-gray-900 mb-3">Debug Information</h2>
+                <div className="space-y-2 text-sm">
+                  <p><strong>Slug:</strong> {params.slug}</p>
+                  <p><strong>API Base:</strong> {getApiBase()}</p>
+                  <p><strong>Invite Data Found:</strong> {inviteData ? 'Yes' : 'No'}</p>
+                  <p><strong>Duration:</strong> {Date.now() - startTime}ms</p>
+                  <p><strong>Guest Token:</strong> {searchParams.g ? 'Present' : 'None'}</p>
+                  <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
+                  <p><strong>BACKEND_API_BASE:</strong> {process.env.BACKEND_API_BASE || 'NOT SET'}</p>
+                  <p><strong>NEXT_PUBLIC_API_BASE:</strong> {process.env.NEXT_PUBLIC_API_BASE || 'NOT SET'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
     }
     
+    // TEMPORARILY COMMENTED OUT: Fallback to registry endpoint
     // Extract event data - always use registry endpoint for full event data
     // The invite endpoint only returns invite config, not full event details
+    /*
     let event: Event | null = null
     let eventError: Error | null = null
     try {
@@ -422,12 +473,35 @@ export default async function InvitePage({
         duration: `${Date.now() - startTime}ms`,
       })
     }
+    */
+    
+    // TEMPORARILY: Use invite data directly if available, otherwise show error
+    // For now, we need event data to render, so if we don't have it, show error
+    // But first check if inviteData has what we need
+    let event: Event | null = null
+    
+    // Try to construct event from inviteData if it has the necessary fields
+    if (inviteData) {
+      // If inviteData has event info, use it
+      if (inviteData.event_slug || inviteData.slug) {
+        event = {
+          id: inviteData.id || 0,
+          title: inviteData.title || 'Event',
+          date: inviteData.date,
+          description: inviteData.description,
+          banner_image: inviteData.background_url,
+          page_config: inviteData.config,
+          has_rsvp: inviteData.has_rsvp,
+          has_registry: inviteData.has_registry,
+        } as Event
+      }
+    }
 
   // If event not found, render error page with FULL error details
+  // TEMPORARILY: Only show invite error (fallback commented out)
   if (!event) {
     // Parse error messages to extract JSON details
     let inviteErrorDetails: any = null
-    let eventErrorDetails: any = null
     
     try {
       if (inviteError?.message) {
@@ -437,39 +511,28 @@ export default async function InvitePage({
       inviteErrorDetails = { rawMessage: inviteError?.message, errorName: inviteError?.name, stack: inviteError?.stack }
     }
     
-    try {
-      if (eventError?.message) {
-        eventErrorDetails = JSON.parse(eventError.message)
-      }
-    } catch (e) {
-      eventErrorDetails = { rawMessage: eventError?.message, errorName: eventError?.name, stack: eventError?.stack }
-    }
-    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="text-center px-4 max-w-6xl w-full">
           <div className="text-6xl mb-4">⚠️</div>
           <h1 className="text-3xl font-semibold text-gray-900 mb-6">
-            Error Loading Invite Page
+            Error Loading Invite Page (No Fallback - Main Error Only)
           </h1>
           
           {/* Invite Data Error */}
           {inviteErrorDetails && (
             <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
-              <h2 className="text-xl font-bold text-red-900 mb-3">Invite Endpoint Error</h2>
+              <h2 className="text-xl font-bold text-red-900 mb-3">Invite Endpoint Error (Main)</h2>
               <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto">
                 {JSON.stringify(inviteErrorDetails, null, 2)}
               </pre>
             </div>
           )}
           
-          {/* Event Data Error */}
-          {eventErrorDetails && (
-            <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-6 mb-4 text-left">
-              <h2 className="text-xl font-bold text-orange-900 mb-3">Registry Endpoint Error</h2>
-              <pre className="text-orange-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-orange-200 overflow-x-auto">
-                {JSON.stringify(eventErrorDetails, null, 2)}
-              </pre>
+          {!inviteErrorDetails && (
+            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6 mb-4 text-left">
+              <h2 className="text-xl font-bold text-yellow-900 mb-3">No Error Details Available</h2>
+              <p className="text-yellow-800">Invite data fetch returned null but no error was thrown.</p>
             </div>
           )}
           
