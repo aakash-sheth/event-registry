@@ -1079,11 +1079,11 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                 try:
                     # Use select_related to load event relationship to avoid N+1 queries and serializer issues
                     invite_page = InvitePage.objects.select_related('event').get(event=event)
-                # Verify ownership
-                if invite_page.event.host != self.request.user:
-                    from rest_framework.exceptions import PermissionDenied
-                    raise PermissionDenied("You can only access invite pages for your own events.")
-                return invite_page
+                    # Verify ownership
+                    if invite_page.event.host != self.request.user:
+                        from rest_framework.exceptions import PermissionDenied
+                        raise PermissionDenied("You can only access invite pages for your own events.")
+                    return invite_page
                 except InvitePage.DoesNotExist:
                     # Raise Http404 so DRF returns proper 404 response
                     from django.http import Http404
@@ -1181,9 +1181,9 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                         raise NotFound(f"Invite page not found for slug: {slug}")
                 else:
                     # Use default get_object() for event_id or id-based lookups
-            invite_page = self.get_object()
+                    invite_page = self.get_object()
                 
-            is_published = request.data.get('is_published', True)
+                is_published = request.data.get('is_published', True)
                 logger.info(f"Publishing invite page: slug={invite_page.slug}, is_published={is_published}, user={request.user.id}")
                 
                 # Ensure slug exists before publishing
@@ -1200,14 +1200,14 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                         )
                 else:
                     # Update is_published field only
-            invite_page.is_published = is_published
+                    invite_page.is_published = is_published
                     # Use update_fields to avoid triggering slug sync unnecessarily
                     invite_page.save(update_fields=['is_published', 'updated_at'])
                 
                 # Reload to get fresh data with relationships
                 invite_page.refresh_from_db()
                 
-            return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_200_OK)
+                return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_200_OK)
             except Exception as e:
                 logger.error(f"Error publishing invite page: {str(e)}", exc_info=True)
                 # Re-raise DRF exceptions as-is
