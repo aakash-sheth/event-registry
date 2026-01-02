@@ -6,9 +6,14 @@ import Link from 'next/link'
 import { useToast } from '@/components/ui/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import PublishModal from '@/components/invite/PublishModal'
 import api from '@/lib/api'
-import { InviteConfig, Tile } from '@/lib/invite/schema'
+import { InviteConfig, Tile, InvitePage } from '@/lib/invite/schema'
+import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
 import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
+import { getInvitePage, createInvitePage, publishInvitePage } from '@/lib/invite/api'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import TileList from '@/components/invite/tiles/TileList'
 import TileSettings from '@/components/invite/tiles/TileSettings'
@@ -21,6 +26,7 @@ interface Event {
   date?: string
   city?: string
   description?: string
+  banner_image?: string
   has_rsvp: boolean
   has_registry: boolean
   event_structure?: 'SIMPLE' | 'ENVELOPE'
@@ -129,6 +135,24 @@ export default function DesignInvitationPage(): JSX.Element {
     themeId: 'classic-noir',
     tiles: DEFAULT_TILES,
   })
+  // Fix 2: Add state for InvitePage and publish modal
+  const [invitePage, setInvitePage] = useState<InvitePage | null>(null)
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [showPublishModal, setShowPublishModal] = useState(false)
+
+  // Fix 2: Fetch InvitePage status on mount
+  useEffect(() => {
+    const loadInvitePage = async () => {
+      try {
+        const invite = await getInvitePage(eventId)
+        setInvitePage(invite)
+      } catch (error) {
+        // 404 is expected if InvitePage doesn't exist yet
+        setInvitePage(null)
+      }
+    }
+    loadInvitePage()
+  }, [eventId])
 
   useEffect(() => {
     const loadData = async () => {
@@ -526,14 +550,104 @@ export default function DesignInvitationPage(): JSX.Element {
       if (imageTile) {
       }
       
-      await updateEventPageConfig(eventId, configToSave)
-      showToast('Invitation saved successfully!', 'success')
+      const response = await api.put(`/api/events/${eventId}/design/`, {
+        page_config: configToSave,
+      })
+      
+      // Fix 1: Check if InvitePage was auto-created
+      if (response.data.invite_page_created) {
+        // Reload InvitePage to get the created one
+        try {
+          const invite = await getInvitePage(eventId)
+          setInvitePage(invite)
+          showToast('Invitation saved and invite page created!', 'success')
+        } catch (error) {
+          showToast('Invitation saved successfully!', 'success')
+        }
+      } else {
+        // Update invitePage state if it exists
+        if (invitePage && response.data.is_published !== undefined) {
+          setInvitePage({ ...invitePage, is_published: response.data.is_published })
+        }
+        showToast('Invitation saved successfully!', 'success')
+      }
     } catch (error: any) {
       logError('Failed to save:', error)
       showToast(getErrorMessage(error), 'error')
     } finally {
       setSaving(false)
     }
+  }
+
+  // Fix 2: Add publish handler
+  const handlePublish = async () => {
+    if (!invitePage) {
+      // Create InvitePage first if it doesn't exist
+      try {
+        const newInvite = await createInvitePage(eventId, {
+          config: config,
+          background_url: event?.banner_image || '',
+        })
+        setInvitePage(newInvite)
+      } catch (error) {
+        logError('Failed to create invite page:', error)
+        showToast('Failed to create invite page', 'error')
+        return
+      }
+    }
+    
+    setIsPublishing(true)
+    try {
+      const updated = await publishInvitePage(invitePage?.slug || event?.slug || '', true)
+      setInvitePage(updated)
+      showToast('Invite page published!', 'success')
+      setShowPublishModal(false)
+    } catch (error) {
+      logError('Failed to publish:', error)
+      showToast('Failed to publish invite page', 'error')
+    } finally {
+      setIsPublishing(false)
+    }
+  }
+
+  // Fix 3: Validate preview before opening
+  const handlePreview = async () => {
+    if (!event?.slug) {
+      showToast('Event slug not found', 'error')
+      return
+    }
+    
+    // Check if InvitePage exists
+    if (!invitePage) {
+      const shouldCreate = confirm(
+        'Invite page not created yet. Create it now to preview?'
+      )
+      if (shouldCreate) {
+        try {
+          const newInvite = await createInvitePage(eventId, {
+            config: config,
+            background_url: event?.banner_image || '',
+          })
+          setInvitePage(newInvite)
+          showToast('Invite page created. Opening preview...', 'success')
+          window.open(`/invite/${event.slug}`, '_blank')
+        } catch (error) {
+          logError('Failed to create invite page:', error)
+          showToast('Failed to create invite page', 'error')
+        }
+      }
+      return
+    }
+    
+    // Check if published
+    if (!invitePage.is_published) {
+      showToast(
+        'Invite page is not published. It may not be accessible publicly.',
+        'info'
+      )
+    }
+    
+    window.open(`/invite/${event.slug}`, '_blank')
   }
 
   const handleTileUpdate = (updatedTile: Tile) => {
@@ -635,12 +749,42 @@ export default function DesignInvitationPage(): JSX.Element {
             <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-eco-green break-words">Design Invitation Page</h1>
               <p className="text-gray-600 mt-1 text-xs sm:text-sm break-words">Customize your invitation page by arranging and configuring tiles. Drag tiles in the mobile preview to reorder them.</p>
           </div>
-          <div className="flex gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto">
-              <Link href={`/invite/${event?.slug}`} target="_blank" className="flex-1 sm:flex-none">
-                <Button variant="outline" className="border-eco-green text-eco-green text-xs sm:text-sm px-3 sm:px-4 w-full sm:w-auto">
-              👁️ <span className="hidden sm:inline">Preview</span>
-            </Button>
-              </Link>
+          <div className="flex gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto items-center">
+            {/* Fix 2: Publish Status Badge */}
+            {invitePage?.is_published ? (
+              <Badge variant="success" className="text-xs">Published</Badge>
+            ) : invitePage ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="warning" className="text-xs">Draft</Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Your invite page is in draft mode. Publish it to share with guests.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
+            
+            {/* Fix 3: Preview button with validation */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    onClick={handlePreview}
+                    variant="outline" 
+                    className="border-eco-green text-eco-green text-xs sm:text-sm px-3 sm:px-4 w-full sm:w-auto flex-1 sm:flex-none"
+                  >
+                    👁️ <span className="hidden sm:inline">Preview</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Preview your invite page. It will be created automatically if needed.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            
+            {/* Save button */}
             <Button
               onClick={handleSave}
               disabled={saving}
@@ -648,12 +792,54 @@ export default function DesignInvitationPage(): JSX.Element {
             >
               {saving ? 'Saving...' : <><span className="hidden sm:inline">💾 </span>Save</>}
             </Button>
-            </div>
+            
+            {/* Fix 2: Publish button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    onClick={() => setShowPublishModal(true)}
+                    disabled={isPublishing}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm px-3 sm:px-4 flex-1 sm:flex-none w-full sm:w-auto"
+                  >
+                    {invitePage?.is_published ? 'Update Published' : 'Publish'}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Publish your invite page to make it publicly accessible</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 w-full overflow-x-hidden" style={{ paddingTop: `${headerHeight}px`, paddingBottom: '1.5rem' }}>
+        {/* Fix 5: State-based info banners */}
+        {(() => {
+          const state = getInvitePageState(invitePage)
+          if (state === InvitePageState.NOT_CREATED) {
+            return (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  💡 Design and save your invitation to create the invite page.
+                </p>
+              </div>
+            )
+          }
+          if (state === InvitePageState.DRAFT) {
+            return (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  ⚠️ Your invite page is in draft mode. Publish it to share with guests.
+                </p>
+              </div>
+            )
+          }
+          return null
+        })()}
+        
         <div ref={gridContainerRef} className="grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6 w-full items-start">
           {/* Left Panel - Settings */}
           <div className="lg:col-span-3 space-y-4 w-full min-w-0 pt-4 sm:pt-6">
@@ -930,6 +1116,20 @@ export default function DesignInvitationPage(): JSX.Element {
           </>
         </div>
       </div>
+      
+      {/* Fix 2: Publish Modal */}
+      {showPublishModal && (
+        <PublishModal
+          isOpen={showPublishModal}
+          onClose={() => setShowPublishModal(false)}
+          slug={event?.slug || ''}
+          onPublishChange={(published) => {
+            if (invitePage) {
+              setInvitePage({ ...invitePage, is_published: published })
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

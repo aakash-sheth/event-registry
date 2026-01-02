@@ -555,27 +555,38 @@ class EventViewSet(viewsets.ModelViewSet):
             self._verify_event_ownership(event)  # Explicit ownership check
             
             # Handle page_config (Living Poster template)
+            # Fix 6: InvitePage.config is the single source of truth
             if 'page_config' in request.data:
                 page_config = request.data.get('page_config')
                 if isinstance(page_config, dict):
+                    # Auto-create InvitePage if it doesn't exist (Fix 1: Auto-create on first save)
+                    invite_page, created = InvitePage.objects.get_or_create(
+                        event=event,
+                        defaults={
+                            'slug': event.slug,
+                            'config': page_config,
+                            'background_url': event.banner_image or '',
+                            'is_published': False,
+                        }
+                    )
+                    
+                    # Fix 6: Save to InvitePage.config first (single source of truth)
+                    invite_page.config = page_config
+                    if event.banner_image:
+                        invite_page.background_url = event.banner_image
+                    invite_page.save(update_fields=['config', 'background_url', 'updated_at'])
+                    
+                    # Keep Event.page_config as cache/sync for backward compatibility
+                    # This will be deprecated in future migration (Fix 6: long-term)
                     event.page_config = page_config
-                    # Only update page_config and updated_at fields (faster than full save)
                     event.save(update_fields=['page_config', 'updated_at'])
                     
-                    # Sync to InvitePage.config if it exists (ensures invite page has latest config)
-                    try:
-                        invite_page = InvitePage.objects.filter(event=event).first()
-                        if invite_page:
-                            invite_page.config = page_config
-                            invite_page.save(update_fields=['config', 'updated_at'])
-                    except Exception:
-                        # InvitePage might not exist yet - ignore
-                        pass
-                    
-                    # Return minimal response instead of full event object (much faster)
+                    # Return minimal response with publish status (Fix 1: Return is_published)
                     return Response({
                         'status': 'success',
-                        'message': 'Design saved successfully'
+                        'message': 'Design saved successfully',
+                        'invite_page_created': created,
+                        'is_published': invite_page.is_published,
                     }, status=status.HTTP_200_OK)
             
             # Legacy form-based fields (for backward compatibility)

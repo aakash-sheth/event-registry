@@ -25,7 +25,37 @@ interface Event {
 // In Docker, use BACKEND_API_BASE (service name), otherwise use NEXT_PUBLIC_API_BASE
 // Client-side will use NEXT_PUBLIC_API_BASE (which is localhost:8000 from browser)
 function getApiBase(): string {
-  return process.env.BACKEND_API_BASE || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
+  const backendApiBase = process.env.BACKEND_API_BASE
+  const publicApiBase = process.env.NEXT_PUBLIC_API_BASE
+  const fallback = 'http://localhost:8000'
+  
+  const apiBase = backendApiBase || publicApiBase || fallback
+  
+  // Defensive logging and validation for production debugging
+  if (process.env.NODE_ENV === 'production') {
+    // Check for potential CloudFront loop (BACKEND_API_BASE missing and NEXT_PUBLIC_API_BASE points to frontend)
+    const isCloudFrontUrl = apiBase.includes('cloudfront') || 
+                          apiBase.includes('ekfern.com') || 
+                          apiBase.match(/^https?:\/\/[^/]+$/) // Simple domain check
+    
+    if (!backendApiBase && publicApiBase && isCloudFrontUrl) {
+      console.error('[SSR API Base] ⚠️ CRITICAL: BACKEND_API_BASE not set, falling back to NEXT_PUBLIC_API_BASE which points to CloudFront!', {
+        BACKEND_API_BASE: backendApiBase || 'NOT SET',
+        NEXT_PUBLIC_API_BASE: publicApiBase,
+        resolved: apiBase,
+        warning: 'This will cause a routing loop. Set BACKEND_API_BASE to ALB URL.',
+      })
+    } else {
+      console.log('[SSR API Base] Resolved:', {
+        BACKEND_API_BASE: backendApiBase || 'NOT SET',
+        NEXT_PUBLIC_API_BASE: publicApiBase || 'NOT SET',
+        resolved: apiBase,
+        isCloudFront: isCloudFrontUrl,
+      })
+    }
+  }
+  
+  return apiBase
 }
 
 // Get frontend URL for absolute URL conversion (for meta tags, images, etc.)
@@ -61,9 +91,27 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       return await response.json()
     }
 
+    // Log non-200 responses for debugging
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(`[InvitePage SSR] Invite endpoint returned ${response.status} for slug: ${slug}`, {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+      })
+    }
+
     // Don't retry - just return null and let fallback handle it
     return null
   } catch (error: any) {
+    // Network error - log for debugging
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[InvitePage SSR] Network error fetching invite data for slug: ${slug}`, {
+        url,
+        error: error.message,
+        errorType: error.name,
+        isTimeout: error.name === 'AbortError',
+      })
+    }
     // Network error - return null, fallback will try event endpoint
     return null
   }
@@ -93,8 +141,26 @@ async function fetchEventData(slug: string): Promise<Event | null> {
       return await response.json()
     }
 
+    // Log non-200 responses for debugging
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(`[InvitePage SSR] Registry endpoint returned ${response.status} for slug: ${slug}`, {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+      })
+    }
+
     return null
   } catch (error: any) {
+    // Network error - log for debugging
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[InvitePage SSR] Network error fetching event data for slug: ${slug}`, {
+        url,
+        error: error.message,
+        errorType: error.name,
+        isTimeout: error.name === 'AbortError',
+      })
+    }
     return null
   }
 }
@@ -223,20 +289,41 @@ export default async function InvitePage({
   params: { slug: string }
   searchParams: { g?: string }
 }) {
+  const startTime = Date.now()
+  const slug = params.slug
+  
   try {
+    // Log SSR start for production debugging
+    if (process.env.NODE_ENV === 'production') {
+      console.log(`[InvitePage SSR] Starting SSR for slug: ${slug}`, {
+        slug,
+        hasGuestToken: !!searchParams.g,
+        apiBase: getApiBase(),
+      })
+    }
+    
     // Fetch invite page data (supports guest token via ?g= parameter)
     let inviteData: any = null
     try {
-      inviteData = await fetchInviteData(params.slug, searchParams.g)
-    } catch (error) {
-      // Silently fail - will use fallback
+      inviteData = await fetchInviteData(slug, searchParams.g)
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`[InvitePage SSR] Invite data fetch ${inviteData ? 'succeeded' : 'returned null'} for slug: ${slug}`)
+      }
+    } catch (error: any) {
+      // Log error but continue with fallback
+      if (process.env.NODE_ENV === 'production') {
+        console.error(`[InvitePage SSR] Exception fetching invite data for slug: ${slug}`, {
+          error: error.message,
+          errorType: error.name,
+        })
+      }
     }
     
     // Extract event data - always use registry endpoint for full event data
     // The invite endpoint only returns invite config, not full event details
     let event: Event | null = null
     try {
-      event = await fetchEventData(params.slug)
+      event = await fetchEventData(slug)
       
       // If we have invite data, merge the invite-specific config
       if (inviteData && event) {
@@ -249,13 +336,45 @@ export default async function InvitePage({
           event.banner_image = inviteData.background_url
         }
       }
-    } catch (error) {
+      
+      if (process.env.NODE_ENV === 'production') {
+        const duration = Date.now() - startTime
+        console.log(`[InvitePage SSR] Completed SSR for slug: ${slug}`, {
+          slug,
+          eventFound: !!event,
+          inviteDataFound: !!inviteData,
+          duration: `${duration}ms`,
+        })
+      }
+    } catch (error: any) {
       // If both fail, event will be null and we'll show 404
-      console.error('[InvitePage SSR] Error fetching event data:', error)
+      if (process.env.NODE_ENV === 'production') {
+        console.error(`[InvitePage SSR] Exception fetching event data for slug: ${slug}`, {
+          error: error.message,
+          errorType: error.name,
+          duration: `${Date.now() - startTime}ms`,
+        })
+      }
     }
 
   // If event not found, render error page
   if (!event) {
+    // Log diagnostic information for production debugging
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[InvitePage SSR] Event not found for slug: ${slug}`, {
+        slug,
+        inviteDataFound: !!inviteData,
+        apiBase: getApiBase(),
+        duration: `${Date.now() - startTime}ms`,
+        possibleCauses: [
+          'Invite page is unpublished (is_published=False)',
+          'Event does not exist',
+          'API routing issue (BACKEND_API_BASE misconfigured)',
+          'Backend API timeout or error',
+        ],
+      })
+    }
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center px-4">

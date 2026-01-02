@@ -110,6 +110,25 @@ class InvitePage(models.Model):
     def __str__(self):
         return f"Invite for {self.event.title} ({self.slug})"
     
+    # Fix 5: State machine property
+    @property
+    def state(self) -> str:
+        """Return current state of invite page"""
+        if not self.pk:  # Not saved yet
+            return "not_created"
+        if self.is_published:
+            return "published"
+        return "draft"
+    
+    def get_state_display(self) -> str:
+        """Human-readable state"""
+        state_map = {
+            "not_created": "Not Created",
+            "draft": "Draft",
+            "published": "Published",
+        }
+        return state_map.get(self.state, "Unknown")
+    
     def save(self, *args, **kwargs):
         if not self.slug:
             # Use event slug directly (not {event-slug}-invite)
