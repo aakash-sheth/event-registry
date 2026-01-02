@@ -4,7 +4,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 from django.conf import settings
 from django.utils import timezone
 import csv
@@ -1135,7 +1135,17 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                     {'error': 'Invite page not found for this event'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            except Http404:
+                # get_object() raises Http404 when invite page doesn't exist
+                return Response(
+                    {'error': 'Invite page not found for this event'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
             except Exception as e:
+                # Log unexpected errors for debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error retrieving invite page: {str(e)}", exc_info=True)
                 # If get_object fails (e.g., invite page doesn't exist), return 404
                 if 'DoesNotExist' in str(type(e).__name__):
                     return Response(

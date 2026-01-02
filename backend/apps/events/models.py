@@ -134,11 +134,27 @@ class InvitePage(models.Model):
     def save(self, *args, **kwargs):
         # Always sync slug with event.slug to prevent drift
         # This ensures InvitePage.slug always matches Event.slug
-        if self.event and self.event.slug:
-            self.slug = self.event.slug.lower()
-        elif not self.slug:
-            # Fallback: if event doesn't have slug yet, keep existing or set empty
+        try:
+            # Get event slug - prefer loaded event, fallback to event_id query
+            event_slug = None
+            if self.event and hasattr(self.event, 'slug') and self.event.slug:
+                # Event is already loaded
+                event_slug = self.event.slug
+            elif self.event_id:
+                # Event not loaded - query only slug field to avoid full object load
+                try:
+                    event_slug = Event.objects.values_list('slug', flat=True).get(pk=self.event_id)
+                except Event.DoesNotExist:
+                    # Event was deleted - can't sync slug, keep existing
+                    pass
+            
+            if event_slug:
+                self.slug = event_slug.lower()
+        except Exception:
+            # If slug sync fails for any reason, keep existing slug
+            # Don't break the save operation - this is defensive programming
             pass
+        
         # Always normalize slug to lowercase
         if self.slug:
             self.slug = self.slug.lower()
