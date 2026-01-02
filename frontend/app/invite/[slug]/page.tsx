@@ -454,139 +454,169 @@ export async function generateMetadata({
 }: { 
   params: { slug: string } 
 }): Promise<Metadata> {
-  const tracker = new RequestLifecycleTracker()
-  tracker.step('METADATA_START', 'generateMetadata called')
-  
-  console.log('[InvitePage Metadata] ====== METADATA GENERATION START ======', {
-    slug: params.slug,
-    timestamp: new Date().toISOString(),
-  })
+  try {
+    const tracker = new RequestLifecycleTracker()
+    tracker.step('METADATA_START', 'generateMetadata called')
+    
+    console.log('[InvitePage Metadata] ====== METADATA GENERATION START ======', {
+      slug: params.slug,
+      timestamp: new Date().toISOString(),
+    })
 
-  const fetchStart = Date.now()
-  const event = await fetchEventData(params.slug)
-  const fetchEnd = Date.now()
-  
-  tracker.step('METADATA_FETCH_COMPLETE', 'Event data fetched for metadata')
-  console.log('[InvitePage Metadata] Event data fetch', {
-    slug: params.slug,
-    duration: `${fetchEnd - fetchStart}ms`,
-    eventFound: !!event,
-  })
+    const fetchStart = Date.now()
+    let event: Event | null = null
+    try {
+      event = await fetchEventData(params.slug)
+    } catch (error: any) {
+      console.error('[InvitePage Metadata] Error fetching event data for metadata', {
+        slug: params.slug,
+        error: error.message,
+        errorType: error.name,
+      })
+      // Continue with null event - will use fallback metadata
+    }
+    const fetchEnd = Date.now()
+    
+    tracker.step('METADATA_FETCH_COMPLETE', 'Event data fetched for metadata')
+    console.log('[InvitePage Metadata] Event data fetch', {
+      slug: params.slug,
+      duration: `${fetchEnd - fetchStart}ms`,
+      eventFound: !!event,
+    })
 
-  // Get frontend URL for absolute URL conversion
-  const frontendUrl = getFrontendUrl()
-  const baseUrl = frontendUrl.replace('/api', '')
-  const pageUrl = `${baseUrl}/invite/${params.slug}`
+    // Get frontend URL for absolute URL conversion
+    const frontendUrl = getFrontendUrl()
+    const baseUrl = frontendUrl.replace('/api', '')
+    const pageUrl = `${baseUrl}/invite/${params.slug}`
 
-  if (!event) {
+    if (!event) {
+      tracker.step('METADATA_COMPLETE', 'Metadata object created (fallback)')
+      return {
+        title: 'Event Invitation',
+        description: 'Join us for a special celebration',
+        robots: {
+          index: false, // Don't index 404 pages
+          follow: false,
+        },
+        openGraph: {
+          title: 'Event Invitation',
+          description: 'Join us for a special celebration',
+          type: 'website',
+          url: pageUrl,
+        },
+        twitter: {
+          card: 'summary_large_image',
+          title: 'Event Invitation',
+          description: 'Join us for a special celebration',
+        },
+      }
+    }
+
+    // Extract title from page_config or use event title
+    let baseTitle = event.title || 'Event Invitation'
+    if (event.page_config?.tiles) {
+      const titleTile = event.page_config.tiles.find(
+        (tile: any) => tile.type === 'title' && tile.settings?.text
+      ) as any
+      if (titleTile?.settings?.text) {
+        baseTitle = titleTile.settings.text
+      }
+    }
+    
+    // Format title with suffix for branding
+    const title = `${baseTitle} | Wedding Invitation`
+
+    // Extract description
+    let description = event.description || 'Join us for a special celebration'
+    if (event.page_config?.tiles) {
+      const descTile = event.page_config.tiles.find(
+        (tile: any) => tile.type === 'description' && tile.settings?.content
+      ) as any
+      if (descTile?.settings?.content) {
+        // Strip HTML tags and limit length for description
+        description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
+      }
+    }
+
+    // Extract banner image with priority: banner_image > image tile
+    let bannerImage: string | undefined = event.banner_image
+    
+    if (!bannerImage && event.page_config?.tiles) {
+      // Find first enabled image tile with a source
+      const imageTile = event.page_config.tiles.find(
+        (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
+      ) as any
+      if (imageTile?.settings?.src) {
+        bannerImage = imageTile.settings.src
+      }
+    }
+
+    // Ensure banner image URL is absolute for Open Graph
+    let absoluteBannerImage: string | undefined = bannerImage
+    if (bannerImage) {
+      if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
+        // If relative URL (local dev), make it absolute using frontend URL
+        absoluteBannerImage = bannerImage.startsWith('/') 
+          ? `${baseUrl}${bannerImage}`
+          : `${baseUrl}/${bannerImage}`
+      } else {
+        // Already absolute (S3 URL), use as-is
+        absoluteBannerImage = bannerImage
+      }
+    }
+
+    const metadata: Metadata = {
+      title,
+      description,
+      openGraph: {
+        title,
+        description,
+        type: 'website',
+        url: pageUrl,
+        ...(absoluteBannerImage && { 
+          images: [{ 
+            url: absoluteBannerImage, 
+            alt: title,
+            width: 1200,
+            height: 630,
+          }] 
+        }),
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title,
+        description,
+        ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
+      },
+    }
+
+    tracker.step('METADATA_COMPLETE', 'Metadata object created')
+    tracker.logSummary('METADATA GENERATION')
+    
+    console.log('[InvitePage Metadata] ====== METADATA GENERATION COMPLETE ======', {
+      slug: params.slug,
+      totalDuration: tracker.getSummary().totalDuration,
+    })
+
+    return metadata
+  } catch (error: any) {
+    console.error('[InvitePage Metadata] ❌ ERROR in generateMetadata', {
+      slug: params.slug,
+      error: error.message,
+      errorType: error.name,
+      stack: error.stack,
+    })
+    
+    // Return fallback metadata on error
     return {
       title: 'Event Invitation',
       description: 'Join us for a special celebration',
       robots: {
-        index: false, // Don't index 404 pages
+        index: false,
         follow: false,
       },
-      openGraph: {
-        title: 'Event Invitation',
-        description: 'Join us for a special celebration',
-        type: 'website',
-        url: pageUrl,
-      },
-      twitter: {
-        card: 'summary_large_image',
-        title: 'Event Invitation',
-        description: 'Join us for a special celebration',
-      },
     }
   }
-
-  // Extract title from page_config or use event title
-  let baseTitle = event.title || 'Event Invitation'
-  if (event.page_config?.tiles) {
-    const titleTile = event.page_config.tiles.find(
-      (tile: any) => tile.type === 'title' && tile.settings?.text
-    ) as any
-    if (titleTile?.settings?.text) {
-      baseTitle = titleTile.settings.text
-    }
-  }
-  
-  // Format title with suffix for branding
-  const title = `${baseTitle} | Wedding Invitation`
-
-  // Extract description
-  let description = event.description || 'Join us for a special celebration'
-  if (event.page_config?.tiles) {
-    const descTile = event.page_config.tiles.find(
-      (tile: any) => tile.type === 'description' && tile.settings?.content
-    ) as any
-    if (descTile?.settings?.content) {
-      // Strip HTML tags and limit length for description
-      description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
-    }
-  }
-
-  // Extract banner image with priority: banner_image > image tile
-  let bannerImage: string | undefined = event.banner_image
-  
-  if (!bannerImage && event.page_config?.tiles) {
-    // Find first enabled image tile with a source
-    const imageTile = event.page_config.tiles.find(
-      (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
-    ) as any
-    if (imageTile?.settings?.src) {
-      bannerImage = imageTile.settings.src
-    }
-  }
-
-  // Ensure banner image URL is absolute for Open Graph
-  let absoluteBannerImage: string | undefined = bannerImage
-  if (bannerImage) {
-    if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
-      // If relative URL (local dev), make it absolute using frontend URL
-    absoluteBannerImage = bannerImage.startsWith('/') 
-      ? `${baseUrl}${bannerImage}`
-      : `${baseUrl}/${bannerImage}`
-    } else {
-      // Already absolute (S3 URL), use as-is
-      absoluteBannerImage = bannerImage
-    }
-  }
-
-  const metadata: Metadata = {
-    title,
-    description,
-    openGraph: {
-      title,
-      description,
-      type: 'website',
-      url: pageUrl,
-      ...(absoluteBannerImage && { 
-        images: [{ 
-          url: absoluteBannerImage, 
-          alt: title,
-          width: 1200,
-          height: 630,
-        }] 
-      }),
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title,
-      description,
-      ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
-    },
-  }
-
-  tracker.step('METADATA_COMPLETE', 'Metadata object created')
-  tracker.logSummary('METADATA GENERATION')
-  
-  console.log('[InvitePage Metadata] ====== METADATA GENERATION COMPLETE ======', {
-    slug: params.slug,
-    totalDuration: tracker.getSummary().totalDuration,
-  })
-
-  return metadata
 }
 
 // Server component that fetches initial data and renders client component
@@ -597,12 +627,23 @@ export default async function InvitePage({
   params: { slug: string }
   searchParams: { g?: string }
 }) {
-  const tracker = new RequestLifecycleTracker()
+  let tracker: RequestLifecycleTracker | null = null
   const startTime = Date.now()
   const slug = params.slug
   
+  // Initialize tracker with error handling
+  try {
+    tracker = new RequestLifecycleTracker()
+  } catch (error: any) {
+    console.error('[InvitePage SSR] Failed to initialize RequestLifecycleTracker', {
+      error: error.message,
+      errorType: error.name,
+    })
+    // Continue without tracker - don't break the page
+  }
+  
   // STEP 1: Route Entry - Next.js calls this component
-  tracker.step('ROUTE_ENTRY', 'Next.js route handler called')
+  tracker?.step('ROUTE_ENTRY', 'Next.js route handler called')
   console.log('[InvitePage SSR] ====== PAGE RENDER START ======', {
     timestamp: new Date().toISOString(),
     slug,
@@ -614,10 +655,10 @@ export default async function InvitePage({
     publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
     processUptime: process.uptime(),
   })
-  
+
   try {
     // STEP 2: Initialization
-    tracker.step('INIT', 'Component initialization')
+    tracker?.step('INIT', 'Component initialization')
     console.log(`[InvitePage SSR] Component initialized for slug: ${slug}`, {
       slug,
       hasGuestToken: !!searchParams.g,
@@ -625,7 +666,7 @@ export default async function InvitePage({
     })
     
     // STEP 3: Fetch invite page data (supports guest token via ?g= parameter)
-    tracker.step('FETCH_START', 'Starting backend API call')
+    tracker?.step('FETCH_START', 'Starting backend API call')
     let inviteData: any = null
     let inviteError: any = null
     
@@ -640,7 +681,7 @@ export default async function InvitePage({
       
       inviteData = await fetchInviteData(slug, searchParams.g)
       
-      tracker.step('FETCH_COMPLETE', 'Backend API call completed successfully')
+      tracker?.step('FETCH_COMPLETE', 'Backend API call completed successfully')
       console.log('[InvitePage SSR] ✅ COMMUNICATION: Backend API call succeeded', {
         slug,
         hasData: !!inviteData,
@@ -648,22 +689,25 @@ export default async function InvitePage({
       })
       
       // Log if fetch took too long
-      const fetchStep = tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_COMPLETE')
-      if (fetchStep && fetchStep.duration > 3000) {
-        console.warn('[InvitePage SSR] ⚠️ Slow backend communication detected', {
-          slug,
-          duration: fetchStep.duration,
-          threshold: 3000,
-        })
+      if (tracker) {
+        const fetchStep = tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_COMPLETE')
+        if (fetchStep && fetchStep.duration > 3000) {
+          console.warn('[InvitePage SSR] ⚠️ Slow backend communication detected', {
+            slug,
+            duration: fetchStep.duration,
+            threshold: 3000,
+          })
+        }
       }
     } catch (error: any) {
-      tracker.step('FETCH_ERROR', 'Backend API call failed')
+      tracker?.step('FETCH_ERROR', 'Backend API call failed')
       inviteError = error
+      const elapsed = tracker ? tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_ERROR')?.duration || 0 : 0
       console.error(`[InvitePage SSR] ❌ COMMUNICATION: Backend API call failed for slug: ${slug}`, {
         error: error.message,
         errorType: error.name,
         stack: error.stack,
-        elapsed: tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_ERROR')?.duration || 0,
+        elapsed,
       })
       // TEMPORARILY: Show error immediately instead of trying fallback
       // If invite data fetch fails, show error right away
@@ -757,7 +801,7 @@ export default async function InvitePage({
     */
     
     // STEP 4: Data Processing - Transform invite data to event format
-    tracker.step('DATA_PROCESSING_START', 'Processing and transforming data')
+    tracker?.step('DATA_PROCESSING_START', 'Processing and transforming data')
     let event: Event | null = null
     
     // Try to construct event from inviteData if it has the necessary fields
@@ -781,21 +825,21 @@ export default async function InvitePage({
           has_registry: inviteData.has_registry,
         } as Event
         
-        tracker.step('DATA_PROCESSING_COMPLETE', 'Event object constructed from invite data')
+        tracker?.step('DATA_PROCESSING_COMPLETE', 'Event object constructed from invite data')
         console.log('[InvitePage SSR] ✅ DATA PROCESSING: Event object created', {
           slug,
           eventId: event.id,
           hasConfig: !!event.page_config,
         })
       } else {
-        tracker.step('DATA_PROCESSING_WARNING', 'Invite data missing event info')
+        tracker?.step('DATA_PROCESSING_WARNING', 'Invite data missing event info')
         console.warn('[InvitePage SSR] ⚠️ DATA PROCESSING: Invite data missing event_slug or slug', {
           slug,
           inviteDataKeys: Object.keys(inviteData),
         })
       }
     } else {
-      tracker.step('DATA_PROCESSING_ERROR', 'No invite data to process')
+      tracker?.step('DATA_PROCESSING_ERROR', 'No invite data to process')
       console.error('[InvitePage SSR] ❌ DATA PROCESSING: No invite data available', {
         slug,
       })
@@ -803,7 +847,7 @@ export default async function InvitePage({
 
   // STEP 5: Error Handling - If event not found, render error page
   if (!event) {
-    tracker.step('ERROR_RENDER_START', 'Rendering error page')
+    tracker?.step('ERROR_RENDER_START', 'Rendering error page')
     console.log('[InvitePage SSR] ⚠️ RENDERING: Error page (event not found)', {
       slug,
       hasInviteData: !!inviteData,
@@ -879,7 +923,7 @@ export default async function InvitePage({
   }
 
   // STEP 6: Config Preparation - Prepare invite configuration
-  tracker.step('CONFIG_PREP_START', 'Preparing invite configuration')
+  tracker?.step('CONFIG_PREP_START', 'Preparing invite configuration')
   console.log('[InvitePage SSR] ⚙️ CONFIG: Preparing invite configuration', {
     slug,
     hasPageConfig: !!event.page_config,
@@ -925,7 +969,7 @@ export default async function InvitePage({
     }
   }
   
-  tracker.step('CONFIG_PREP_COMPLETE', 'Invite configuration prepared')
+  tracker?.step('CONFIG_PREP_COMPLETE', 'Invite configuration prepared')
   console.log('[InvitePage SSR] ✅ CONFIG: Configuration prepared', {
     slug,
     hasConfig: !!initialConfig,
@@ -933,7 +977,7 @@ export default async function InvitePage({
   })
 
   // STEP 7: SSR Rendering - Render server-side components
-  tracker.step('SSR_RENDER_START', 'Rendering server-side components')
+  tracker?.step('SSR_RENDER_START', 'Rendering server-side components')
   console.log('[InvitePage SSR] 🎨 SSR RENDERING: Starting server-side component rendering', {
     slug,
     hasConfig: !!initialConfig,
@@ -993,7 +1037,7 @@ export default async function InvitePage({
     }
   }
   
-  tracker.step('SSR_RENDER_COMPLETE', 'Server-side components rendered')
+  tracker?.step('SSR_RENDER_COMPLETE', 'Server-side components rendered')
   console.log('[InvitePage SSR] ✅ SSR RENDERING: Server-side rendering complete', {
     slug,
     hasHeroSSR: !!heroSSR,
@@ -1001,7 +1045,7 @@ export default async function InvitePage({
   })
 
     // STEP 8: Final Assembly - Prepare props for client component
-    tracker.step('FINAL_ASSEMBLY_START', 'Assembling final component props')
+    tracker?.step('FINAL_ASSEMBLY_START', 'Assembling final component props')
     console.log('[InvitePage SSR] 📦 FINAL ASSEMBLY: Preparing client component props', {
       slug,
       hasEvent: !!event,
@@ -1011,21 +1055,30 @@ export default async function InvitePage({
     // Extract allowed_sub_events from invite data
     const allowedSubEvents = inviteData?.allowed_sub_events || []
     
-    tracker.step('FINAL_ASSEMBLY_COMPLETE', 'Client component props ready')
-    tracker.step('RENDER_COMPLETE', 'Server-side render complete, returning JSX')
+    tracker?.step('FINAL_ASSEMBLY_COMPLETE', 'Client component props ready')
+    tracker?.step('RENDER_COMPLETE', 'Server-side render complete, returning JSX')
     
     // STEP 9: Final Render - Return JSX to Next.js
     console.log('[InvitePage SSR] 🎯 RENDERING: Returning JSX to Next.js', {
       slug,
-      totalSteps: tracker.getSummary().steps.length,
+      totalSteps: tracker ? tracker.getSummary().steps.length : 0,
     })
     
-    tracker.logSummary('PAGE RENDER')
-    console.log('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
-      slug,
-      totalDuration: tracker.getSummary().totalDuration,
-      timestamp: new Date().toISOString(),
-    })
+    if (tracker) {
+      tracker.logSummary('PAGE RENDER')
+      console.log('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
+        slug,
+        totalDuration: tracker.getSummary().totalDuration,
+        timestamp: new Date().toISOString(),
+      })
+    } else {
+      console.log('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
+        slug,
+        totalDuration: Date.now() - startTime,
+        timestamp: new Date().toISOString(),
+        note: 'Tracker not available',
+      })
+    }
 
     // Render client component with SSR content
     return (
@@ -1040,16 +1093,22 @@ export default async function InvitePage({
     )
   } catch (error: any) {
     // STEP X: Unexpected Error - Catch any unexpected errors during SSR
-    tracker.step('UNEXPECTED_ERROR', 'Unexpected error caught')
+    tracker?.step('UNEXPECTED_ERROR', 'Unexpected error caught')
+    const elapsed = tracker ? tracker.getSummary().totalDuration : Date.now() - startTime
+    
     console.error('[InvitePage SSR] 💥 UNEXPECTED ERROR: Exception during SSR', {
       slug,
       error: error.message,
       errorType: error.name,
       stack: error.stack,
-      elapsed: tracker.getSummary().totalDuration,
+      elapsed,
+      errorString: String(error),
+      errorKeys: error ? Object.keys(error) : [],
     })
     
-    tracker.logSummary('PAGE RENDER (ERROR)')
+    if (tracker) {
+      tracker.logSummary('PAGE RENDER (ERROR)')
+    }
     
     // Try to parse error message if it's JSON
     let errorDetails: any = null
@@ -1089,9 +1148,9 @@ export default async function InvitePage({
             <div className="space-y-2 text-sm">
               <p><strong>Slug:</strong> {params.slug}</p>
               <p><strong>API Base:</strong> {getApiBase()}</p>
-              <p><strong>Duration:</strong> {tracker.getSummary().totalDuration}ms</p>
+              <p><strong>Duration:</strong> {tracker ? tracker.getSummary().totalDuration : Date.now() - startTime}ms</p>
               <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
-              <p><strong>Lifecycle Steps:</strong> {tracker.getSummary().steps.length}</p>
+              <p><strong>Lifecycle Steps:</strong> {tracker ? tracker.getSummary().steps.length : 0}</p>
             </div>
           </div>
         </div>
