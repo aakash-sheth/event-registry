@@ -105,29 +105,54 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       return await response.json()
     }
 
-    // Log non-200 responses for debugging
-    if (process.env.NODE_ENV === 'production') {
-      console.warn(`[InvitePage SSR] Invite endpoint returned ${response.status} for slug: ${slug}`, {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-      })
+    // Get error response body for detailed error info
+    let errorBody = ''
+    try {
+      errorBody = await response.text()
+    } catch (e) {
+      errorBody = 'Could not read error response body'
     }
 
-    // Don't retry - just return null and let fallback handle it
-    return null
-  } catch (error: any) {
-    // Network error - log for debugging
-    if (process.env.NODE_ENV === 'production') {
-      console.error(`[InvitePage SSR] Network error fetching invite data for slug: ${slug}`, {
-        url,
-        error: error.message,
-        errorType: error.name,
-        isTimeout: error.name === 'AbortError',
-      })
+    // Throw error with full details for display
+    const errorDetails = {
+      type: 'HTTP_ERROR',
+      status: response.status,
+      statusText: response.statusText,
+      url,
+      slug,
+      responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
+      message: `Invite endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
     }
-    // Network error - return null, fallback will try event endpoint
-    return null
+    
+    throw new Error(JSON.stringify(errorDetails, null, 2))
+  } catch (error: any) {
+    // Re-throw with enhanced error details
+    if (error.name === 'AbortError') {
+      const timeoutError = {
+        type: 'TIMEOUT_ERROR',
+        message: `Request timeout after 5 seconds`,
+        url,
+        slug,
+        errorName: error.name,
+      }
+      throw new Error(JSON.stringify(timeoutError, null, 2))
+    }
+    
+    // If already our formatted error, re-throw
+    if (error.message && error.message.includes('HTTP_ERROR')) {
+      throw error
+    }
+    
+    // Network or other error
+    const networkError = {
+      type: 'NETWORK_ERROR',
+      message: error.message || 'Unknown network error',
+      url,
+      slug,
+      errorName: error.name,
+      errorStack: error.stack,
+    }
+    throw new Error(JSON.stringify(networkError, null, 2))
   }
 }
 
@@ -155,27 +180,54 @@ async function fetchEventData(slug: string): Promise<Event | null> {
       return await response.json()
     }
 
-    // Log non-200 responses for debugging
-    if (process.env.NODE_ENV === 'production') {
-      console.warn(`[InvitePage SSR] Registry endpoint returned ${response.status} for slug: ${slug}`, {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-      })
+    // Get error response body for detailed error info
+    let errorBody = ''
+    try {
+      errorBody = await response.text()
+    } catch (e) {
+      errorBody = 'Could not read error response body'
     }
 
-    return null
-  } catch (error: any) {
-    // Network error - log for debugging
-    if (process.env.NODE_ENV === 'production') {
-      console.error(`[InvitePage SSR] Network error fetching event data for slug: ${slug}`, {
-        url,
-        error: error.message,
-        errorType: error.name,
-        isTimeout: error.name === 'AbortError',
-      })
+    // Throw error with full details for display
+    const errorDetails = {
+      type: 'HTTP_ERROR',
+      status: response.status,
+      statusText: response.statusText,
+      url,
+      slug,
+      responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
+      message: `Registry endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
     }
-    return null
+    
+    throw new Error(JSON.stringify(errorDetails, null, 2))
+  } catch (error: any) {
+    // Re-throw with enhanced error details
+    if (error.name === 'AbortError') {
+      const timeoutError = {
+        type: 'TIMEOUT_ERROR',
+        message: `Request timeout after 5 seconds`,
+        url,
+        slug,
+        errorName: error.name,
+      }
+      throw new Error(JSON.stringify(timeoutError, null, 2))
+    }
+    
+    // If already our formatted error, re-throw
+    if (error.message && error.message.includes('HTTP_ERROR')) {
+      throw error
+    }
+    
+    // Network or other error
+    const networkError = {
+      type: 'NETWORK_ERROR',
+      message: error.message || 'Unknown network error',
+      url,
+      slug,
+      errorName: error.name,
+      errorStack: error.stack,
+    }
+    throw new Error(JSON.stringify(networkError, null, 2))
   }
 }
 
@@ -318,24 +370,25 @@ export default async function InvitePage({
     
     // Fetch invite page data (supports guest token via ?g= parameter)
     let inviteData: any = null
+    let inviteError: Error | null = null
     try {
       inviteData = await fetchInviteData(slug, searchParams.g)
       if (process.env.NODE_ENV === 'production') {
         console.log(`[InvitePage SSR] Invite data fetch ${inviteData ? 'succeeded' : 'returned null'} for slug: ${slug}`)
       }
     } catch (error: any) {
-      // Log error but continue with fallback
-      if (process.env.NODE_ENV === 'production') {
-        console.error(`[InvitePage SSR] Exception fetching invite data for slug: ${slug}`, {
-          error: error.message,
-          errorType: error.name,
-        })
-      }
+      inviteError = error
+      console.error(`[InvitePage SSR] Exception fetching invite data for slug: ${slug}`, {
+        error: error.message,
+        errorType: error.name,
+        stack: error.stack,
+      })
     }
     
     // Extract event data - always use registry endpoint for full event data
     // The invite endpoint only returns invite config, not full event details
     let event: Event | null = null
+    let eventError: Error | null = null
     try {
       event = await fetchEventData(slug)
       
@@ -361,47 +414,93 @@ export default async function InvitePage({
         })
       }
     } catch (error: any) {
-      // If both fail, event will be null and we'll show 404
-      if (process.env.NODE_ENV === 'production') {
-        console.error(`[InvitePage SSR] Exception fetching event data for slug: ${slug}`, {
-          error: error.message,
-          errorType: error.name,
-          duration: `${Date.now() - startTime}ms`,
-        })
-      }
+      eventError = error
+      console.error(`[InvitePage SSR] Exception fetching event data for slug: ${slug}`, {
+        error: error.message,
+        errorType: error.name,
+        stack: error.stack,
+        duration: `${Date.now() - startTime}ms`,
+      })
     }
 
-  // If event not found, render error page
+  // If event not found, render error page with FULL error details
   if (!event) {
-    // Log diagnostic information for production debugging
-    if (process.env.NODE_ENV === 'production') {
-      console.error(`[InvitePage SSR] Event not found for slug: ${slug}`, {
-        slug,
-        inviteDataFound: !!inviteData,
-        apiBase: getApiBase(),
-        duration: `${Date.now() - startTime}ms`,
-        possibleCauses: [
-          'Invite page is unpublished (is_published=False)',
-          'Event does not exist',
-          'API routing issue (BACKEND_API_BASE misconfigured)',
-          'Backend API timeout or error',
-        ],
-      })
+    // Parse error messages to extract JSON details
+    let inviteErrorDetails: any = null
+    let eventErrorDetails: any = null
+    
+    try {
+      if (inviteError?.message) {
+        inviteErrorDetails = JSON.parse(inviteError.message)
+      }
+    } catch (e) {
+      inviteErrorDetails = { rawMessage: inviteError?.message, errorName: inviteError?.name, stack: inviteError?.stack }
+    }
+    
+    try {
+      if (eventError?.message) {
+        eventErrorDetails = JSON.parse(eventError.message)
+      }
+    } catch (e) {
+      eventErrorDetails = { rawMessage: eventError?.message, errorName: eventError?.name, stack: eventError?.stack }
     }
     
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center px-4">
-          <div className="text-6xl mb-4">♻️</div>
-          <h1 className="text-3xl font-semibold text-gray-900 mb-4">
-            This invite has vanished like paper in a recycling bin
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="text-center px-4 max-w-6xl w-full">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-6">
+            Error Loading Invite Page
           </h1>
-          <p className="text-gray-600 mb-2">
-            Double-check the link and try again.
-          </p>
-          <p className="text-sm text-gray-500 mt-4">
-            Event: {params.slug}
-          </p>
+          
+          {/* Invite Data Error */}
+          {inviteErrorDetails && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
+              <h2 className="text-xl font-bold text-red-900 mb-3">Invite Endpoint Error</h2>
+              <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto">
+                {JSON.stringify(inviteErrorDetails, null, 2)}
+              </pre>
+            </div>
+          )}
+          
+          {/* Event Data Error */}
+          {eventErrorDetails && (
+            <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-6 mb-4 text-left">
+              <h2 className="text-xl font-bold text-orange-900 mb-3">Registry Endpoint Error</h2>
+              <pre className="text-orange-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-orange-200 overflow-x-auto">
+                {JSON.stringify(eventErrorDetails, null, 2)}
+              </pre>
+            </div>
+          )}
+          
+          {/* Debug Information */}
+          <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 mb-4 text-left">
+            <h2 className="text-xl font-bold text-gray-900 mb-3">Debug Information</h2>
+            <div className="space-y-2 text-sm">
+              <p><strong>Slug:</strong> {params.slug}</p>
+              <p><strong>API Base:</strong> {getApiBase()}</p>
+              <p><strong>Invite Data Found:</strong> {inviteData ? 'Yes' : 'No'}</p>
+              <p><strong>Event Found:</strong> {event ? 'Yes' : 'No'}</p>
+              <p><strong>Duration:</strong> {Date.now() - startTime}ms</p>
+              <p><strong>Guest Token:</strong> {searchParams.g ? 'Present' : 'None'}</p>
+              <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
+              <p><strong>BACKEND_API_BASE:</strong> {process.env.BACKEND_API_BASE || 'NOT SET'}</p>
+              <p><strong>NEXT_PUBLIC_API_BASE:</strong> {process.env.NEXT_PUBLIC_API_BASE || 'NOT SET'}</p>
+            </div>
+          </div>
+          
+          {/* Possible Causes */}
+          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-6 text-left">
+            <h2 className="text-xl font-bold text-blue-900 mb-3">Possible Causes</h2>
+            <ul className="list-disc list-inside space-y-1 text-blue-800">
+              <li>Invite page is unpublished (is_published=False)</li>
+              <li>Event does not exist</li>
+              <li>API routing issue (BACKEND_API_BASE misconfigured)</li>
+              <li>Backend API timeout or error</li>
+              <li>Network connectivity issue</li>
+              <li>CloudFront routing loop (BACKEND_API_BASE not set)</li>
+            </ul>
+          </div>
         </div>
       </div>
     )
@@ -517,21 +616,51 @@ export default async function InvitePage({
       />
     )
   } catch (error: any) {
-    // Catch any unexpected errors during SSR and show error page
+    // Catch any unexpected errors during SSR and show FULL error details
     console.error('[InvitePage SSR] Unexpected error:', error)
+    
+    // Try to parse error message if it's JSON
+    let errorDetails: any = null
+    try {
+      if (error.message) {
+        errorDetails = JSON.parse(error.message)
+      }
+    } catch (e) {
+      errorDetails = {
+        rawMessage: error.message,
+        errorName: error.name,
+        stack: error.stack,
+      }
+    }
+    
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center px-4">
-          <div className="text-6xl mb-4">⚠️</div>
-          <h1 className="text-3xl font-semibold text-gray-900 mb-4">
-            Something went wrong
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="text-center px-4 max-w-6xl w-full">
+          <div className="text-6xl mb-4">💥</div>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-6">
+            Unexpected Error During SSR
           </h1>
-          <p className="text-gray-600 mb-2">
-            We encountered an error loading this page.
-          </p>
-          <p className="text-sm text-gray-500 mt-4">
-            Event: {params.slug}
-          </p>
+          
+          <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
+            <h2 className="text-xl font-bold text-red-900 mb-3">Error Details</h2>
+            <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto max-h-96 overflow-y-auto">
+              {JSON.stringify(errorDetails || {
+                message: error.message,
+                name: error.name,
+                stack: error.stack,
+              }, null, 2)}
+            </pre>
+          </div>
+          
+          <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 text-left">
+            <h2 className="text-xl font-bold text-gray-900 mb-3">Context</h2>
+            <div className="space-y-2 text-sm">
+              <p><strong>Slug:</strong> {params.slug}</p>
+              <p><strong>API Base:</strong> {getApiBase()}</p>
+              <p><strong>Duration:</strong> {Date.now() - startTime}ms</p>
+              <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
+            </div>
+          </div>
         </div>
       </div>
     )

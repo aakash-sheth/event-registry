@@ -37,6 +37,7 @@ export default function InvitePageClient({
   const [config, setConfig] = useState<InviteConfig | null>(initialConfig)
   const [loading, setLoading] = useState(!initialConfig)
   const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
+  const [error, setError] = useState<any>(null)
   
 
   const fetchInvite = useCallback(async () => {
@@ -135,16 +136,30 @@ export default function InvitePageClient({
         setConfig(fallbackConfig)
       }
     } catch (error: any) {
-      console.error('[InvitePageClient] Failed to fetch invite:', {
-        slug,
-        error: error.message,
+      // Capture FULL error details for display
+      const fullErrorDetails = {
+        type: 'CLIENT_FETCH_ERROR',
+        message: error.message,
+        name: error.name,
         code: error.code,
-        response: error.response?.status,
-        apiBase: api.defaults.baseURL,
-        url: error.config?.url,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        responseData: error.response?.data,
+        requestUrl: error.config?.url,
+        requestBaseURL: error.config?.baseURL,
         fullUrl: error.config ? `${error.config.baseURL}${error.config.url}` : 'unknown',
-      })
+        apiBase: api.defaults.baseURL,
+        slug,
+        stack: error.stack,
+        headers: error.response?.headers,
+      }
+      
+      console.error('[InvitePageClient] Failed to fetch invite:', fullErrorDetails)
       logError('Failed to fetch invite:', error)
+      
+      // Set error state with full details
+      setError(fullErrorDetails)
+      setLoading(false)
       
       // If connection error, try fallback to registry endpoint
       if (error.code === 'ERR_CONNECTION_RESET' || error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
@@ -177,10 +192,20 @@ export default function InvitePageClient({
           }
           setEvent(eventData)
           setConfig(fallbackConfig)
+          setError(null) // Clear error on successful fallback
           setLoading(false)
           return
         } catch (fallbackError: any) {
           console.error('[InvitePageClient] Fallback also failed:', fallbackError)
+          // Update error with fallback failure
+          setError({
+            ...fullErrorDetails,
+            fallbackError: {
+              message: fallbackError.message,
+              code: fallbackError.code,
+              status: fallbackError.response?.status,
+            },
+          })
         }
       }
     } finally {
@@ -215,6 +240,38 @@ export default function InvitePageClient({
       document.documentElement.style.removeProperty('background')
     }
   }, [backgroundColor])
+
+  // Display error with full details
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="text-center px-4 max-w-6xl w-full">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-6">
+            Error Loading Invite Page (Client)
+          </h1>
+          
+          <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
+            <h2 className="text-xl font-bold text-red-900 mb-3">Full Error Details</h2>
+            <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto max-h-96 overflow-y-auto">
+              {JSON.stringify(error, null, 2)}
+            </pre>
+          </div>
+          
+          <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 text-left">
+            <h2 className="text-xl font-bold text-gray-900 mb-3">Debug Information</h2>
+            <div className="space-y-2 text-sm">
+              <p><strong>Slug:</strong> {slug}</p>
+              <p><strong>API Base:</strong> {api.defaults.baseURL || 'Not set'}</p>
+              <p><strong>Initial Config:</strong> {initialConfig ? 'Yes' : 'No'}</p>
+              <p><strong>Initial Event:</strong> {initialEvent ? 'Yes' : 'No'}</p>
+              <p><strong>Loading:</strong> {loading ? 'Yes' : 'No'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
