@@ -572,7 +572,7 @@ class EventViewSet(viewsets.ModelViewSet):
                     )
                     
                     # Fix 6: Save to InvitePage.config first (single source of truth)
-                            invite_page.config = page_config
+                    invite_page.config = page_config
                     if event.banner_image:
                         invite_page.background_url = event.banner_image
                     invite_page.save(update_fields=['config', 'background_url', 'updated_at'])
@@ -1079,11 +1079,11 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                 try:
                     # Use select_related to load event relationship to avoid N+1 queries and serializer issues
                     invite_page = InvitePage.objects.select_related('event').get(event=event)
-                    # Verify ownership
-                    if invite_page.event.host != self.request.user:
-                        from rest_framework.exceptions import PermissionDenied
-                        raise PermissionDenied("You can only access invite pages for your own events.")
-                    return invite_page
+                # Verify ownership
+                if invite_page.event.host != self.request.user:
+                    from rest_framework.exceptions import PermissionDenied
+                    raise PermissionDenied("You can only access invite pages for your own events.")
+                return invite_page
                 except InvitePage.DoesNotExist:
                     # Raise Http404 so DRF returns proper 404 response
                     from django.http import Http404

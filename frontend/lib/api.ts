@@ -93,11 +93,14 @@ api.interceptors.request.use((config) => {
     const isCorrectPattern = /\/api\/events\/invite\/[^/]+\//.test(config.url)
     
     // Check if request is authenticated (has auth token)
-    const isAuthenticated = config.headers && (
+    // Check both the config headers (set above) and localStorage directly
+    const tokenInHeaders = config.headers && (
       config.headers['Authorization'] || 
       config.headers['authorization'] ||
-      (api.defaults.headers.common && api.defaults.headers.common['Authorization'])
+      config.headers.Authorization
     )
+    const tokenInLocalStorage = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+    const isAuthenticated = !!(tokenInHeaders || tokenInLocalStorage)
     
     // Only warn if:
     // 1. Using wrong pattern (ID-based)

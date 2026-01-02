@@ -13,7 +13,7 @@ import api from '@/lib/api'
 import { InviteConfig, Tile, InvitePage } from '@/lib/invite/schema'
 import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
 import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
-import { getInvitePage, createInvitePage, publishInvitePage } from '@/lib/invite/api'
+import { getInvitePage, createInvitePage, publishInvitePage, getPublicInvite } from '@/lib/invite/api'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import TileList from '@/components/invite/tiles/TileList'
 import TileSettings from '@/components/invite/tiles/TileSettings'
@@ -562,7 +562,30 @@ export default function DesignInvitationPage(): JSX.Element {
           setInvitePage(invite)
           showToast('Invitation saved and invite page created!', 'success')
         } catch (error) {
-      showToast('Invitation saved successfully!', 'success')
+          // If reload fails, still update state with basic info from event
+          // This ensures publish button works even if getInvitePage fails
+          if (event?.slug) {
+            setInvitePage({
+              id: 0, // Will be set when we successfully load it
+              slug: event.slug,
+              is_published: false,
+              config: configToSave,
+              background_url: event.banner_image || '',
+              event: eventId,
+            } as any)
+            showToast('Invitation saved! (Reloading invite page...)', 'success')
+            // Try to reload in background
+            setTimeout(async () => {
+              try {
+                const invite = await getInvitePage(eventId)
+                setInvitePage(invite)
+              } catch (e) {
+                // Silent fail - state is already set
+              }
+            }, 1000)
+          } else {
+            showToast('Invitation saved successfully!', 'success')
+          }
         }
       } else {
         // Update invitePage state if it exists
@@ -583,19 +606,55 @@ export default function DesignInvitationPage(): JSX.Element {
   const handlePublish = async () => {
     let currentInvitePage = invitePage
     
-    if (!currentInvitePage) {
-      // Create InvitePage first if it doesn't exist
+    // If invitePage state is missing, try to fetch it first
+    if (!currentInvitePage && event?.slug) {
       try {
-        const newInvite = await createInvitePage(eventId, {
-          config: config,
-          background_url: event?.banner_image || '',
-        })
-        setInvitePage(newInvite)
-        currentInvitePage = newInvite // Use the newly created invite page
+        // Try to get it using slug (more reliable than ID)
+        const fetched = await getPublicInvite(event.slug)
+        setInvitePage(fetched)
+        currentInvitePage = fetched
       } catch (error) {
-        logError('Failed to create invite page:', error)
-        showToast('Failed to create invite page', 'error')
-        return
+        // If that fails, try ID-based endpoint
+        try {
+          const fetched = await getInvitePage(eventId)
+          setInvitePage(fetched)
+          currentInvitePage = fetched
+        } catch (error2) {
+          // If both fail, create it
+          try {
+            const newInvite = await createInvitePage(eventId, {
+              config: config,
+              background_url: event?.banner_image || '',
+            })
+            setInvitePage(newInvite)
+            currentInvitePage = newInvite
+          } catch (error3) {
+            logError('Failed to create invite page:', error3)
+            showToast('Failed to create invite page. Please save your design first.', 'error')
+            return
+          }
+        }
+      }
+    } else if (!currentInvitePage) {
+      // No slug available, try ID-based endpoint
+      try {
+        const fetched = await getInvitePage(eventId)
+        setInvitePage(fetched)
+        currentInvitePage = fetched
+      } catch (error) {
+        // If that fails, create it
+        try {
+          const newInvite = await createInvitePage(eventId, {
+            config: config,
+            background_url: event?.banner_image || '',
+          })
+          setInvitePage(newInvite)
+          currentInvitePage = newInvite
+        } catch (error2) {
+          logError('Failed to create invite page:', error2)
+          showToast('Failed to create invite page. Please save your design first.', 'error')
+          return
+        }
       }
     }
     
