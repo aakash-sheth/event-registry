@@ -1109,6 +1109,9 @@ class InvitePageViewSet(viewsets.ModelViewSet):
         
         def create(self, request, *args, **kwargs):
             """Create invite page for an event"""
+            import logging
+            logger = logging.getLogger(__name__)
+            
             event_id = self.kwargs.get('event_id')
             if not event_id:
                 return Response(
@@ -1116,49 +1119,79 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            event = get_object_or_404(Event, id=event_id, host=request.user)
-            
-            # Check if invite page already exists
-            if InvitePage.objects.filter(event=event).exists():
+            try:
+                event = get_object_or_404(Event, id=event_id, host=request.user)
+            except Exception as e:
+                logger.error(f"Error getting event {event_id}: {str(e)}", exc_info=True)
                 return Response(
-                    {'error': 'Invite page already exists for this event'},
+                    {'error': 'Event not found or you do not have permission'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if invite page already exists - if so, return existing one instead of error
+            existing_invite = InvitePage.objects.filter(event=event).first()
+            if existing_invite:
+                # Return existing invite page instead of error (idempotent create)
+                logger.info(f"Invite page already exists for event {event_id}, returning existing one")
+                return Response(InvitePageSerializer(existing_invite).data, status=status.HTTP_200_OK)
+            
+            # Validate serializer
+            serializer = self.get_serializer(data=request.data)
+            if not serializer.is_valid():
+                logger.error(f"Serializer validation failed: {serializer.errors}")
+                return Response(
+                    {'error': 'Invalid data', 'details': serializer.errors},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            invite_page = serializer.save(event=event)
-            return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_201_CREATED)
+            try:
+                invite_page = serializer.save(event=event)
+                return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"Error creating invite page: {str(e)}", exc_info=True)
+                return Response(
+                    {'error': f'Failed to create invite page: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
         def retrieve(self, request, *args, **kwargs):
             """Retrieve invite page by event_id"""
+            from django.http import Http404
+            import logging
+            logger = logging.getLogger(__name__)
+            
             try:
                 instance = self.get_object()
+                # Ensure event relationship is loaded before serialization
+                if hasattr(instance, 'event'):
+                    _ = instance.event  # Trigger relationship load
                 serializer = self.get_serializer(instance)
                 return Response(serializer.data)
-            except InvitePage.DoesNotExist:
-                return Response(
-                    {'error': 'Invite page not found for this event'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
             except Http404:
                 # get_object() raises Http404 when invite page doesn't exist
                 return Response(
                     {'error': 'Invite page not found for this event'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            except InvitePage.DoesNotExist:
+                return Response(
+                    {'error': 'Invite page not found for this event'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
             except Exception as e:
                 # Log unexpected errors for debugging
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.error(f"Error retrieving invite page: {str(e)}", exc_info=True)
                 # If get_object fails (e.g., invite page doesn't exist), return 404
-                if 'DoesNotExist' in str(type(e).__name__):
+                if 'DoesNotExist' in str(type(e).__name__) or 'Http404' in str(type(e).__name__):
                     return Response(
                         {'error': 'Invite page not found for this event'},
                         status=status.HTTP_404_NOT_FOUND
                     )
-                raise
+                # For other errors, return 500 with error message
+                return Response(
+                    {'error': f'Failed to retrieve invite page: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
         @action(detail=True, methods=['post'], url_path='publish')
         def publish(self, request, id=None):
