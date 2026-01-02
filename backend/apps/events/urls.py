@@ -7,7 +7,8 @@ from .views import (
     whatsapp_template_preview, whatsapp_template_duplicate,
     whatsapp_template_archive, whatsapp_template_activate,
     whatsapp_template_increment_usage,
-    get_event_impact, get_overall_impact
+    get_event_impact, get_overall_impact,
+    invite_page_by_event
 )
 
 router = DefaultRouter()
@@ -19,6 +20,8 @@ urlpatterns = [
     # Put custom paths BEFORE router.urls so they take precedence
     # Impact endpoints - must be before routes with <int:id> to avoid conflicts
     path('impact/overall/', get_overall_impact, name='overall-impact'),
+    # Invite page routes - must be before other <int:id> routes to avoid conflicts
+    path('<int:event_id>/invite/', invite_page_by_event, name='event-invite'),
     path('<int:id>/guests.csv/', EventViewSet.as_view({'get': 'guests_csv'}), name='event-guests-csv'),
     path('<int:id>/guests/<int:guest_id>/', EventViewSet.as_view({'put': 'update_guest', 'patch': 'update_guest', 'delete': 'delete_guest'}), name='event-guest-update'),
     path('<int:id>/orders/', EventViewSet.as_view({'get': 'orders'}), name='event-orders'),
@@ -27,8 +30,6 @@ urlpatterns = [
     path('<int:event_id>/rsvp/', create_rsvp, name='event-rsvp'),
     path('<int:event_id>/rsvp/check/', get_rsvp, name='event-rsvp-check'),
     path('<int:event_id>/rsvp/check/phone/', check_phone_for_rsvp, name='event-rsvp-check-phone'),
-    # Invite page routes - must be before router.urls
-    path('<int:event_id>/invite/', InvitePageViewSet.as_view({'get': 'retrieve', 'post': 'create', 'put': 'update', 'patch': 'partial_update'}), name='event-invite'),
     # Public invite routes
     path('invite/<str:slug>/', PublicInviteViewSet.as_view({'get': 'retrieve'}), name='public-invite'),
     path('invite/<str:slug>/publish/', InvitePageViewSet.as_view({'post': 'publish'}), name='invite-publish'),
