@@ -118,36 +118,27 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Get FRONTEND_URL (single source of truth) from SSM
-          # If FRONTEND_URL exists, use it; otherwise fall back to NEXT_PUBLIC_API_BASE or ALB_DNS
-          FRONTEND_URL=$(aws ssm get-parameter --name "/event-registry-staging/FRONTEND_URL" --query "Parameter.Value" --output text 2>/dev/null || echo "")
-          
-          if [ -n "$FRONTEND_URL" ]; then
-            # Use FRONTEND_URL as NEXT_PUBLIC_API_BASE (new flexible distribution system)
-            NEXT_PUBLIC_API_BASE="$FRONTEND_URL"
-            echo "✅ Using FRONTEND_URL from SSM: ${FRONTEND_URL}"
-          else
-            # Fallback: Try NEXT_PUBLIC_API_BASE directly
+          # Use NEXT_PUBLIC_API_BASE directly (for API calls - should point to ALB)
+          # FRONTEND_URL is only for frontend display URLs, not API calls
           NEXT_PUBLIC_API_BASE=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_API_BASE" --query "Parameter.Value" --output text 2>/dev/null || echo "")
           
           if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
-              # Final fallback: construct from ALB_DNS (defaults to HTTP)
+            # Fallback: construct from ALB_DNS
             ALB_DNS=$(aws ssm get-parameter --name "/event-registry-staging/ALB_DNS" --query "Parameter.Value" --output text 2>/dev/null || echo "staging-alb-33342285.us-east-1.elb.amazonaws.com")
             NEXT_PUBLIC_API_BASE="http://${ALB_DNS}"
-              echo "⚠️  Using fallback: constructed from ALB_DNS"
-            else
-              echo "✅ Using NEXT_PUBLIC_API_BASE from SSM"
-            fi
+            echo "⚠️  Using fallback: constructed from ALB_DNS"
+          else
+            echo "✅ Using NEXT_PUBLIC_API_BASE from SSM: ${NEXT_PUBLIC_API_BASE}"
           fi
+          
+          # Get FRONTEND_URL for display purposes (company homepage, meta tags, etc.)
+          FRONTEND_URL=$(aws ssm get-parameter --name "/event-registry-staging/FRONTEND_URL" --query "Parameter.Value" --output text 2>/dev/null || echo "")
           
           # Fetch brand name from SSM (default: Celebrate Mindfully)
           NEXT_PUBLIC_BRAND_NAME=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_BRAND_NAME" --query "Parameter.Value" --output text 2>/dev/null || echo "Celebrate Mindfully")
           
-          # Company homepage is the same as FRONTEND_URL (base URL)
-          NEXT_PUBLIC_COMPANY_HOMEPAGE="$FRONTEND_URL"
-          if [ -z "$NEXT_PUBLIC_COMPANY_HOMEPAGE" ]; then
-            NEXT_PUBLIC_COMPANY_HOMEPAGE="$NEXT_PUBLIC_API_BASE"
-          fi
+          # Company homepage uses FRONTEND_URL if available, otherwise NEXT_PUBLIC_API_BASE
+          NEXT_PUBLIC_COMPANY_HOMEPAGE="${FRONTEND_URL:-$NEXT_PUBLIC_API_BASE}"
           
           echo "Building frontend with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
           echo "Building frontend with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}"
