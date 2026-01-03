@@ -87,7 +87,22 @@ function getApiBase(): string {
   const publicApiBase = process.env.NEXT_PUBLIC_API_BASE
   const fallback = 'http://localhost:8000'
   
-  const apiBase = backendApiBase || publicApiBase || fallback
+  let apiBase = backendApiBase || publicApiBase || fallback
+  
+  // CRITICAL: Force HTTPS ONLY for ALB URLs (ALBs require HTTPS)
+  // Keep HTTP for localhost, Docker service names, and internal URLs
+  const isAlbUrl = apiBase.includes('.elb.amazonaws.com')
+  const isLocalhost = apiBase.includes('localhost') || apiBase.includes('127.0.0.1')
+  const isDockerService = apiBase.includes('backend:') || apiBase.includes('frontend:')
+  
+  if (apiBase.startsWith('http://') && isAlbUrl && !isLocalhost && !isDockerService) {
+    const originalUrl = apiBase
+    apiBase = apiBase.replace('http://', 'https://')
+    console.warn('[SSR API Base] ⚠️ Converted HTTP to HTTPS for ALB URL:', {
+      original: originalUrl,
+      converted: apiBase,
+    })
+  }
   
   // Defensive logging and validation for production debugging
   if (process.env.NODE_ENV === 'production') {
@@ -109,6 +124,7 @@ function getApiBase(): string {
         NEXT_PUBLIC_API_BASE: publicApiBase || 'NOT SET',
         resolved: apiBase,
         isCloudFront: isCloudFrontUrl,
+        isAlb: isAlbUrl,
       })
     }
   }
@@ -190,7 +206,8 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
 
   try {
     const controller = new AbortController()
-    const timeout = 15000 // 15 seconds - increased for staging/production network latency
+    // Increase timeout for production (ALB + network latency)
+    const timeout = process.env.NODE_ENV === 'production' ? 30000 : 15000 // 30s in prod, 15s in dev
     
     // Log timeout setup
     console.log('[InvitePage SSR] Setting up fetch with timeout', {
@@ -349,13 +366,31 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
 
       req.on('error', (error) => {
         clearTimeout(timeoutId)
+        const errorDetails = {
+          type: 'NETWORK_ERROR',
+          message: error.message,
+          code: (error as any).code,
+          url,
+          slug,
+          elapsed: Date.now() - requestStartTime,
+        }
+        console.error('[InvitePage SSR] Request error', errorDetails)
         reject(error)
       })
 
       req.on('timeout', () => {
         req.destroy()
         clearTimeout(timeoutId)
-        reject(new Error('Request timeout'))
+        const errorDetails = {
+          type: 'TIMEOUT',
+          message: 'Request timeout - backend did not respond within timeout period',
+          url,
+          slug,
+          elapsed: Date.now() - requestStartTime,
+          timeout,
+        }
+        console.error('[InvitePage SSR] Request timeout', errorDetails)
+        reject(new Error(`Request timeout after ${timeout}ms`))
       })
 
       // Handle abort
@@ -468,10 +503,12 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
 async function fetchEventData(slug: string): Promise<Event | null> {
     const apiBase = getApiBase()
   const url = `${apiBase}/api/registry/${slug}/`
+  const requestStartTime = Date.now()
   
   try {
     const controller = new AbortController()
-    const timeout = 15000 // 15 seconds - increased for staging/production network latency
+    // Increase timeout for production (ALB + network latency)
+    const timeout = process.env.NODE_ENV === 'production' ? 30000 : 15000 // 30s in prod, 15s in dev
     const timeoutId = setTimeout(() => controller.abort(), timeout)
   
     // Use Node's native http/https to bypass Next.js fetch wrapper issues
@@ -518,14 +555,32 @@ async function fetchEventData(slug: string): Promise<Event | null> {
       })
 
       req.on('error', (error) => {
-    clearTimeout(timeoutId)
+        clearTimeout(timeoutId)
+        const errorDetails = {
+          type: 'NETWORK_ERROR',
+          message: error.message,
+          code: (error as any).code,
+          url,
+          slug,
+          elapsed: Date.now() - requestStartTime,
+        }
+        console.error('[InvitePage SSR] fetchEventData request error', errorDetails)
         reject(error)
       })
 
       req.on('timeout', () => {
         req.destroy()
         clearTimeout(timeoutId)
-        reject(new Error('Request timeout'))
+        const errorDetails = {
+          type: 'TIMEOUT',
+          message: 'Request timeout - backend did not respond within timeout period',
+          url,
+          slug,
+          elapsed: Date.now() - requestStartTime,
+          timeout,
+        }
+        console.error('[InvitePage SSR] fetchEventData request timeout', errorDetails)
+        reject(new Error(`Request timeout after ${timeout}ms`))
       })
 
       if (controller.signal) {
