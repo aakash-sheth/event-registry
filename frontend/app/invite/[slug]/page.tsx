@@ -12,6 +12,12 @@ import https from 'https'
 // ISR: Revalidate every hour (3600 seconds)
 export const revalidate = 3600
 
+// Helper for development-only logging
+const isDev = process.env.NODE_ENV === 'development'
+const devLog = (...args: any[]) => {
+  if (isDev) console.log(...args)
+}
+
 // Timing tracker for comprehensive request lifecycle logging
 class RequestLifecycleTracker {
   private steps: Map<string, number> = new Map()
@@ -30,12 +36,14 @@ class RequestLifecycleTracker {
 
     this.steps.set(name, now)
     
-    console.log(`[Lifecycle] STEP: ${name}`, {
-      description,
-      elapsed: `${elapsed}ms`,
-      stepDuration: `${stepDuration}ms`,
-      timestamp: new Date().toISOString(),
-    })
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Lifecycle] STEP: ${name}`, {
+        description,
+        elapsed: `${elapsed}ms`,
+        stepDuration: `${stepDuration}ms`,
+        timestamp: new Date().toISOString(),
+      })
+    }
 
     return elapsed
   }
@@ -64,7 +72,9 @@ class RequestLifecycleTracker {
 
   logSummary(context: string) {
     const summary = this.getSummary()
-    console.log(`[Lifecycle] ${context} - COMPLETE SUMMARY`, summary)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Lifecycle] ${context} - COMPLETE SUMMARY`, summary)
+    }
   }
 }
 
@@ -126,17 +136,19 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     }
 
     // Log request initiation
-    console.log('[InvitePage SSR] Starting fetch request', {
-      timestamp: new Date().toISOString(),
-      slug,
-      url,
-      apiBase,
-      hasGuestToken: !!guestToken,
-      timeout: 15000,
-      nodeEnv: process.env.NODE_ENV,
-      backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
-      publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
-    })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[InvitePage SSR] Starting fetch request', {
+        timestamp: new Date().toISOString(),
+        slug,
+        url,
+        apiBase,
+        hasGuestToken: !!guestToken,
+        timeout: 15000,
+        nodeEnv: process.env.NODE_ENV,
+        backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
+        publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
+      })
+    }
 
     // Try to resolve DNS (if possible in Node.js environment)
     let dnsResolved = false
@@ -144,14 +156,18 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       const urlObj = new URL(url)
       const hostname = urlObj.hostname
       // In Node.js, we can't easily test DNS without dns module, but we can log the hostname
-      console.log('[InvitePage SSR] DNS Info', {
-        hostname,
-        protocol: urlObj.protocol,
-        port: urlObj.port || (urlObj.protocol === 'https:' ? '443' : '80'),
-      })
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[InvitePage SSR] DNS Info', {
+          hostname,
+          protocol: urlObj.protocol,
+          port: urlObj.port || (urlObj.protocol === 'https:' ? '443' : '80'),
+        })
+      }
       dnsResolved = true
     } catch (e) {
-      console.warn('[InvitePage SSR] Could not parse URL for DNS info:', e)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[InvitePage SSR] Could not parse URL for DNS info:', e)
+      }
     }
 
     const dnsTime = Date.now()
@@ -163,11 +179,13 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     const timeout = process.env.NODE_ENV === 'production' ? 30000 : 15000 // 30s in prod, 15s in dev
     
     // Log timeout setup
-    console.log('[InvitePage SSR] Setting up fetch with timeout', {
-      timeout,
-      url,
-      signalAborted: controller.signal.aborted,
-    })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[InvitePage SSR] Setting up fetch with timeout', {
+        timeout,
+        url,
+        signalAborted: controller.signal.aborted,
+      })
+    }
 
     const timeoutId = setTimeout(() => {
       const elapsed = Date.now() - requestStartTime
@@ -186,14 +204,16 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     performanceTimings.tcpConnection = tcpStartTime - dnsTime
 
     // Log fetch initiation
-    console.log('[InvitePage SSR] Initiating fetch', {
-      url,
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      hasSignal: !!controller.signal,
-    })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[InvitePage SSR] Initiating fetch', {
+        url,
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        hasSignal: !!controller.signal,
+      })
+    }
 
     const requestSentTime = Date.now()
     performanceTimings.requestSent = requestSentTime - tcpStartTime
@@ -284,15 +304,17 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
           try {
             const jsonData = JSON.parse(data)
             
-            console.log('[InvitePage SSR] ✅ Request successful', {
-              slug,
-              url,
-              status: statusCode,
-              statusMessage: res.statusMessage,
-              dataSize: data.length,
-              totalDuration: performanceTimings.totalDuration,
-              timings: performanceTimings,
-            })
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[InvitePage SSR] ✅ Request successful', {
+                slug,
+                url,
+                status: statusCode,
+                statusMessage: res.statusMessage,
+                dataSize: data.length,
+                totalDuration: performanceTimings.totalDuration,
+                timings: performanceTimings,
+              })
+            }
 
             resolve({
               ok: true,
@@ -606,7 +628,7 @@ export async function generateMetadata({
     const tracker = new RequestLifecycleTracker()
     tracker.step('METADATA_START', 'generateMetadata called')
     
-    console.log('[InvitePage Metadata] ====== METADATA GENERATION START ======', {
+    devLog('[InvitePage Metadata] ====== METADATA GENERATION START ======', {
       slug: params.slug,
       timestamp: new Date().toISOString(),
     })
@@ -626,7 +648,7 @@ export async function generateMetadata({
     const fetchEnd = Date.now()
     
     tracker.step('METADATA_FETCH_COMPLETE', 'Event data fetched for metadata')
-    console.log('[InvitePage Metadata] Event data fetch', {
+    devLog('[InvitePage Metadata] Event data fetch', {
       slug: params.slug,
       duration: `${fetchEnd - fetchStart}ms`,
       eventFound: !!event,
@@ -741,7 +763,7 @@ export async function generateMetadata({
     tracker.step('METADATA_COMPLETE', 'Metadata object created')
     tracker.logSummary('METADATA GENERATION')
     
-    console.log('[InvitePage Metadata] ====== METADATA GENERATION COMPLETE ======', {
+    devLog('[InvitePage Metadata] ====== METADATA GENERATION COMPLETE ======', {
       slug: params.slug,
       totalDuration: tracker.getSummary().totalDuration,
     })
@@ -807,7 +829,7 @@ export default async function InvitePage({
   try {
     // STEP 2: Initialization
     tracker?.step('INIT', 'Component initialization')
-    console.log(`[InvitePage SSR] Component initialized for slug: ${slug}`, {
+    devLog(`[InvitePage SSR] Component initialized for slug: ${slug}`, {
       slug,
       hasGuestToken: !!searchParams.g,
       apiBase: getApiBase(),
@@ -819,7 +841,7 @@ export default async function InvitePage({
     let inviteError: any = null
     
     try {
-      console.log('[InvitePage SSR] 📡 COMMUNICATION: Initiating backend API call', {
+      devLog('[InvitePage SSR] 📡 COMMUNICATION: Initiating backend API call', {
         slug,
         timestamp: new Date().toISOString(),
         apiBase: getApiBase(),
@@ -830,7 +852,7 @@ export default async function InvitePage({
       inviteData = await fetchInviteData(slug, searchParams.g)
       
       tracker?.step('FETCH_COMPLETE', 'Backend API call completed successfully')
-      console.log('[InvitePage SSR] ✅ COMMUNICATION: Backend API call succeeded', {
+      devLog('[InvitePage SSR] ✅ COMMUNICATION: Backend API call succeeded', {
         slug,
         hasData: !!inviteData,
         dataSize: inviteData ? JSON.stringify(inviteData).length : 0,
@@ -840,11 +862,13 @@ export default async function InvitePage({
       if (tracker) {
         const fetchStep = tracker.getSummary().steps.find((s: any) => s.name === 'FETCH_COMPLETE')
         if (fetchStep && fetchStep.duration > 3000) {
-          console.warn('[InvitePage SSR] ⚠️ Slow backend communication detected', {
-            slug,
-            duration: fetchStep.duration,
-            threshold: 3000,
-          })
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[InvitePage SSR] ⚠️ Slow backend communication detected', {
+              slug,
+              duration: fetchStep.duration,
+              threshold: 3000,
+            })
+          }
         }
       }
     } catch (error: any) {
@@ -857,96 +881,21 @@ export default async function InvitePage({
         stack: error.stack,
         elapsed,
       })
-      // TEMPORARILY: Show error immediately instead of trying fallback
-      // If invite data fetch fails, show error right away
+      // If invite data fetch fails, show error
       if (inviteError) {
-        let inviteErrorDetails: any = null
-        try {
-          if (inviteError.message) {
-            inviteErrorDetails = JSON.parse(inviteError.message)
-          }
-        } catch (e) {
-          inviteErrorDetails = { rawMessage: inviteError.message, errorName: inviteError.name, stack: inviteError.stack }
-        }
-        
         return (
           <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-            <div className="text-center px-4 max-w-6xl w-full">
-              <div className="text-6xl mb-4">⚠️</div>
-              <h1 className="text-3xl font-semibold text-gray-900 mb-6">
-                Error Loading Invite Page (Main Error - No Fallback)
+            <div className="text-center">
+              <h1 className="text-2xl font-semibold text-gray-900 mb-4">
+                Unable to load invite page
               </h1>
-              
-              {/* Invite Data Error */}
-              {inviteErrorDetails && (
-                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
-                  <h2 className="text-xl font-bold text-red-900 mb-3">Invite Endpoint Error (Main)</h2>
-                  <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto">
-                    {JSON.stringify(inviteErrorDetails, null, 2)}
-                  </pre>
-                </div>
-              )}
-              
-              {/* Debug Information */}
-              <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 mb-4 text-left">
-                <h2 className="text-xl font-bold text-gray-900 mb-3">Debug Information</h2>
-                <div className="space-y-2 text-sm">
-                  <p><strong>Slug:</strong> {params.slug}</p>
-                  <p><strong>API Base:</strong> {getApiBase()}</p>
-                  <p><strong>Invite Data Found:</strong> {inviteData ? 'Yes' : 'No'}</p>
-                  <p><strong>Duration:</strong> {Date.now() - startTime}ms</p>
-                  <p><strong>Guest Token:</strong> {searchParams.g ? 'Present' : 'None'}</p>
-                  <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
-                  <p><strong>BACKEND_API_BASE:</strong> {process.env.BACKEND_API_BASE || 'NOT SET'}</p>
-                  <p><strong>NEXT_PUBLIC_API_BASE:</strong> {process.env.NEXT_PUBLIC_API_BASE || 'NOT SET'}</p>
-                </div>
-              </div>
+              <p className="text-gray-600">Please try again later.</p>
             </div>
           </div>
         )
       }
     }
     
-    // TEMPORARILY COMMENTED OUT: Fallback to registry endpoint
-    // Extract event data - always use registry endpoint for full event data
-    // The invite endpoint only returns invite config, not full event details
-    /*
-    let event: Event | null = null
-    let eventError: Error | null = null
-    try {
-      event = await fetchEventData(slug)
-      
-      // If we have invite data, merge the invite-specific config
-      if (inviteData && event) {
-        // Prefer invite page config over event page_config
-        if (inviteData.config) {
-          event.page_config = inviteData.config
-        }
-        // Prefer invite background_url if available
-        if (inviteData.background_url) {
-          event.banner_image = inviteData.background_url
-        }
-      }
-      
-      if (process.env.NODE_ENV === 'production') {
-        const duration = Date.now() - startTime
-        console.log(`[InvitePage SSR] Completed SSR for slug: ${slug}`, {
-          slug,
-          eventFound: !!event,
-          inviteDataFound: !!inviteData,
-          duration: `${duration}ms`,
-        })
-      }
-    } catch (error: any) {
-      eventError = error
-      console.error(`[InvitePage SSR] Exception fetching event data for slug: ${slug}`, {
-        error: error.message,
-        errorType: error.name,
-        stack: error.stack,
-        duration: `${Date.now() - startTime}ms`,
-      })
-    }
-    */
     
     // STEP 4: Data Processing - Transform invite data to event format
     tracker?.step('DATA_PROCESSING_START', 'Processing and transforming data')
@@ -954,7 +903,7 @@ export default async function InvitePage({
     
     // Try to construct event from inviteData if it has the necessary fields
     if (inviteData) {
-      console.log('[InvitePage SSR] 🔄 DATA PROCESSING: Transforming invite data to event format', {
+      devLog('[InvitePage SSR] 🔄 DATA PROCESSING: Transforming invite data to event format', {
         slug,
         hasInviteData: !!inviteData,
         inviteDataKeys: inviteData ? Object.keys(inviteData) : [],
@@ -974,17 +923,19 @@ export default async function InvitePage({
         } as Event
         
         tracker?.step('DATA_PROCESSING_COMPLETE', 'Event object constructed from invite data')
-        console.log('[InvitePage SSR] ✅ DATA PROCESSING: Event object created', {
+        devLog('[InvitePage SSR] ✅ DATA PROCESSING: Event object created', {
           slug,
           eventId: event.id,
           hasConfig: !!event.page_config,
         })
       } else {
         tracker?.step('DATA_PROCESSING_WARNING', 'Invite data missing event info')
-        console.warn('[InvitePage SSR] ⚠️ DATA PROCESSING: Invite data missing event_slug or slug', {
-          slug,
-          inviteDataKeys: Object.keys(inviteData),
-        })
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[InvitePage SSR] ⚠️ DATA PROCESSING: Invite data missing event_slug or slug', {
+            slug,
+            inviteDataKeys: Object.keys(inviteData),
+          })
+        }
       }
     } else {
       tracker?.step('DATA_PROCESSING_ERROR', 'No invite data to process')
@@ -996,75 +947,19 @@ export default async function InvitePage({
   // STEP 5: Error Handling - If event not found, render error page
   if (!event) {
     tracker?.step('ERROR_RENDER_START', 'Rendering error page')
-    console.log('[InvitePage SSR] ⚠️ RENDERING: Error page (event not found)', {
+    devLog('[InvitePage SSR] ⚠️ RENDERING: Error page (event not found)', {
       slug,
       hasInviteData: !!inviteData,
       hasInviteError: !!inviteError,
     })
-    // Parse error messages to extract JSON details
-    let inviteErrorDetails: any = null
-    
-    try {
-      if (inviteError?.message) {
-        inviteErrorDetails = JSON.parse(inviteError.message)
-      }
-    } catch (e) {
-      inviteErrorDetails = { rawMessage: inviteError?.message, errorName: inviteError?.name, stack: inviteError?.stack }
-    }
     
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="text-center px-4 max-w-6xl w-full">
-          <div className="text-6xl mb-4">⚠️</div>
-          <h1 className="text-3xl font-semibold text-gray-900 mb-6">
-            Error Loading Invite Page (No Fallback - Main Error Only)
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-4">
+            Unable to load invite page
           </h1>
-          
-          {/* Invite Data Error */}
-          {inviteErrorDetails && (
-            <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
-              <h2 className="text-xl font-bold text-red-900 mb-3">Invite Endpoint Error (Main)</h2>
-              <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto">
-                {JSON.stringify(inviteErrorDetails, null, 2)}
-              </pre>
-            </div>
-          )}
-          
-          {!inviteErrorDetails && (
-            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6 mb-4 text-left">
-              <h2 className="text-xl font-bold text-yellow-900 mb-3">No Error Details Available</h2>
-              <p className="text-yellow-800">Invite data fetch returned null but no error was thrown.</p>
-            </div>
-          )}
-          
-          {/* Debug Information */}
-          <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 mb-4 text-left">
-            <h2 className="text-xl font-bold text-gray-900 mb-3">Debug Information</h2>
-            <div className="space-y-2 text-sm">
-              <p><strong>Slug:</strong> {params.slug}</p>
-              <p><strong>API Base:</strong> {getApiBase()}</p>
-              <p><strong>Invite Data Found:</strong> {inviteData ? 'Yes' : 'No'}</p>
-              <p><strong>Event Found:</strong> {event ? 'Yes' : 'No'}</p>
-              <p><strong>Duration:</strong> {Date.now() - startTime}ms</p>
-              <p><strong>Guest Token:</strong> {searchParams.g ? 'Present' : 'None'}</p>
-              <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
-              <p><strong>BACKEND_API_BASE:</strong> {process.env.BACKEND_API_BASE || 'NOT SET'}</p>
-              <p><strong>NEXT_PUBLIC_API_BASE:</strong> {process.env.NEXT_PUBLIC_API_BASE || 'NOT SET'}</p>
-            </div>
-          </div>
-          
-          {/* Possible Causes */}
-          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-6 text-left">
-            <h2 className="text-xl font-bold text-blue-900 mb-3">Possible Causes</h2>
-            <ul className="list-disc list-inside space-y-1 text-blue-800">
-              <li>Invite page is unpublished (is_published=False)</li>
-              <li>Event does not exist</li>
-              <li>API routing issue (BACKEND_API_BASE misconfigured)</li>
-              <li>Backend API timeout or error</li>
-              <li>Network connectivity issue</li>
-              <li>CloudFront routing loop (BACKEND_API_BASE not set)</li>
-            </ul>
-          </div>
+          <p className="text-gray-600">The invite page could not be loaded. Please check the URL or contact support.</p>
         </div>
       </div>
     )
@@ -1072,7 +967,7 @@ export default async function InvitePage({
 
   // STEP 6: Config Preparation - Prepare invite configuration
   tracker?.step('CONFIG_PREP_START', 'Preparing invite configuration')
-  console.log('[InvitePage SSR] ⚙️ CONFIG: Preparing invite configuration', {
+  devLog('[InvitePage SSR] ⚙️ CONFIG: Preparing invite configuration', {
     slug,
     hasPageConfig: !!event.page_config,
   })
@@ -1118,7 +1013,7 @@ export default async function InvitePage({
   }
   
   tracker?.step('CONFIG_PREP_COMPLETE', 'Invite configuration prepared')
-  console.log('[InvitePage SSR] ✅ CONFIG: Configuration prepared', {
+  devLog('[InvitePage SSR] ✅ CONFIG: Configuration prepared', {
     slug,
     hasConfig: !!initialConfig,
     configType: initialConfig?.themeId || 'fallback',
@@ -1126,7 +1021,7 @@ export default async function InvitePage({
 
   // STEP 7: SSR Rendering - Render server-side components
   tracker?.step('SSR_RENDER_START', 'Rendering server-side components')
-  console.log('[InvitePage SSR] 🎨 SSR RENDERING: Starting server-side component rendering', {
+  devLog('[InvitePage SSR] 🎨 SSR RENDERING: Starting server-side component rendering', {
     slug,
     hasConfig: !!initialConfig,
     hasTiles: !!(initialConfig?.tiles && initialConfig.tiles.length > 0),
@@ -1186,7 +1081,7 @@ export default async function InvitePage({
   }
   
   tracker?.step('SSR_RENDER_COMPLETE', 'Server-side components rendered')
-  console.log('[InvitePage SSR] ✅ SSR RENDERING: Server-side rendering complete', {
+  devLog('[InvitePage SSR] ✅ SSR RENDERING: Server-side rendering complete', {
     slug,
     hasHeroSSR: !!heroSSR,
     hasEventDetailsSSR: !!eventDetailsSSR,
@@ -1194,7 +1089,7 @@ export default async function InvitePage({
 
     // STEP 8: Final Assembly - Prepare props for client component
     tracker?.step('FINAL_ASSEMBLY_START', 'Assembling final component props')
-    console.log('[InvitePage SSR] 📦 FINAL ASSEMBLY: Preparing client component props', {
+    devLog('[InvitePage SSR] 📦 FINAL ASSEMBLY: Preparing client component props', {
       slug,
       hasEvent: !!event,
       hasConfig: !!initialConfig,
@@ -1207,20 +1102,20 @@ export default async function InvitePage({
     tracker?.step('RENDER_COMPLETE', 'Server-side render complete, returning JSX')
     
     // STEP 9: Final Render - Return JSX to Next.js
-    console.log('[InvitePage SSR] 🎯 RENDERING: Returning JSX to Next.js', {
+    devLog('[InvitePage SSR] 🎯 RENDERING: Returning JSX to Next.js', {
       slug,
       totalSteps: tracker ? tracker.getSummary().steps.length : 0,
     })
     
     if (tracker) {
       tracker.logSummary('PAGE RENDER')
-      console.log('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
+      devLog('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
         slug,
         totalDuration: tracker.getSummary().totalDuration,
         timestamp: new Date().toISOString(),
       })
     } else {
-      console.log('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
+      devLog('[InvitePage SSR] ====== PAGE RENDER COMPLETE ======', {
         slug,
         totalDuration: Date.now() - startTime,
         timestamp: new Date().toISOString(),
@@ -1274,33 +1169,11 @@ export default async function InvitePage({
     
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="text-center px-4 max-w-6xl w-full">
-          <div className="text-6xl mb-4">💥</div>
-          <h1 className="text-3xl font-semibold text-gray-900 mb-6">
-            Unexpected Error During SSR
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-4">
+            Unable to load invite page
           </h1>
-          
-          <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
-            <h2 className="text-xl font-bold text-red-900 mb-3">Error Details</h2>
-            <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto max-h-96 overflow-y-auto">
-              {JSON.stringify(errorDetails || {
-                message: error.message,
-                name: error.name,
-                stack: error.stack,
-              }, null, 2)}
-            </pre>
-          </div>
-          
-          <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 text-left">
-            <h2 className="text-xl font-bold text-gray-900 mb-3">Context</h2>
-            <div className="space-y-2 text-sm">
-              <p><strong>Slug:</strong> {params.slug}</p>
-              <p><strong>API Base:</strong> {getApiBase()}</p>
-              <p><strong>Duration:</strong> {tracker ? tracker.getSummary().totalDuration : Date.now() - startTime}ms</p>
-              <p><strong>Node Environment:</strong> {process.env.NODE_ENV}</p>
-              <p><strong>Lifecycle Steps:</strong> {tracker ? tracker.getSummary().steps.length : 0}</p>
-            </div>
-          </div>
+          <p className="text-gray-600">Please try again later.</p>
         </div>
       </div>
     )

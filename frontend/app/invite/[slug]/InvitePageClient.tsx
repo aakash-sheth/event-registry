@@ -7,6 +7,12 @@ import { logError, logDebug } from '@/lib/error-handler'
 import api from '@/lib/api'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 
+// Helper for development-only logging
+const isDev = process.env.NODE_ENV === 'development'
+const devLog = (...args: any[]) => {
+  if (isDev) console.log(...args)
+}
+
 interface Event {
   id: number
   title: string
@@ -38,7 +44,7 @@ export default function InvitePageClient({
   
   // Log component mount/hydration
   if (typeof window !== 'undefined') {
-    console.log('[InvitePageClient] ====== CLIENT COMPONENT MOUNT ======', {
+    devLog('[InvitePageClient] ====== CLIENT COMPONENT MOUNT ======', {
       timestamp: new Date().toISOString(),
       slug,
       hasInitialEvent: !!initialEvent,
@@ -58,7 +64,7 @@ export default function InvitePageClient({
   
   // Log initial state
   if (typeof window !== 'undefined') {
-    console.log('[InvitePageClient] 📦 STATE: Initial state set', {
+    devLog('[InvitePageClient] 📦 STATE: Initial state set', {
       slug,
       hasEvent: !!event,
       hasConfig: !!config,
@@ -69,7 +75,7 @@ export default function InvitePageClient({
 
   const fetchInvite = useCallback(async () => {
     const fetchStartTime = Date.now()
-    console.log('[InvitePageClient] 📡 CLIENT COMMUNICATION: Starting client-side fetch', {
+    devLog('[InvitePageClient] 📡 CLIENT COMMUNICATION: Starting client-side fetch', {
       slug,
       timestamp: new Date().toISOString(),
       elapsedSinceMount: fetchStartTime - clientStartTime,
@@ -97,7 +103,7 @@ export default function InvitePageClient({
         throw new Error('Invalid invite URL format - must use /api/events/invite/{slug}/')
       }
       
-      console.log('[InvitePageClient] 📡 CLIENT COMMUNICATION: Fetching invite data', {
+      devLog('[InvitePageClient] 📡 CLIENT COMMUNICATION: Fetching invite data', {
         slug,
         inviteUrl,
         apiBase: api.defaults.baseURL,
@@ -111,7 +117,7 @@ export default function InvitePageClient({
       const apiCallEnd = Date.now()
       const inviteData = response.data
       
-      console.log('[InvitePageClient] ✅ CLIENT COMMUNICATION: API call succeeded', {
+      devLog('[InvitePageClient] ✅ CLIENT COMMUNICATION: API call succeeded', {
         slug,
         duration: `${apiCallEnd - apiCallStart}ms`,
         dataSize: JSON.stringify(inviteData).length,
@@ -120,7 +126,7 @@ export default function InvitePageClient({
       
       // Extract event data and allowed_sub_events
       const dataProcessingStart = Date.now()
-      console.log('[InvitePageClient] 🔄 CLIENT DATA PROCESSING: Processing response data', {
+      devLog('[InvitePageClient] 🔄 CLIENT DATA PROCESSING: Processing response data', {
         slug,
         timestamp: new Date().toISOString(),
       })
@@ -132,14 +138,14 @@ export default function InvitePageClient({
       
       if (inviteData.allowed_sub_events) {
         setSubEvents(inviteData.allowed_sub_events)
-        console.log('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Sub-events set', {
+        devLog('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Sub-events set', {
           slug,
           subEventsCount: inviteData.allowed_sub_events.length,
         })
       }
 
       if (eventData?.page_config) {
-        console.log('[InvitePageClient] 🔄 CLIENT DATA PROCESSING: Processing page config', {
+        devLog('[InvitePageClient] 🔄 CLIENT DATA PROCESSING: Processing page config', {
           slug,
           hasConfig: !!eventData.page_config,
         })
@@ -170,14 +176,14 @@ export default function InvitePageClient({
         setConfig(configWithCustomColors)
         
         const dataProcessingEnd = Date.now()
-        console.log('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Config processed and state updated', {
+        devLog('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Config processed and state updated', {
           slug,
           duration: `${dataProcessingEnd - dataProcessingStart}ms`,
           totalFetchDuration: `${dataProcessingEnd - fetchStartTime}ms`,
         })
         setLoading(false)
       } else {
-        console.log('[InvitePageClient] ⚠️ CLIENT DATA PROCESSING: No page config, using fallback', {
+        devLog('[InvitePageClient] ⚠️ CLIENT DATA PROCESSING: No page config, using fallback', {
           slug,
         })
         // Fallback: create config from event data
@@ -204,7 +210,7 @@ export default function InvitePageClient({
         setConfig(fallbackConfig)
         
         const dataProcessingEnd = Date.now()
-        console.log('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Fallback config created and state updated', {
+        devLog('[InvitePageClient] ✅ CLIENT DATA PROCESSING: Fallback config created and state updated', {
           slug,
           duration: `${dataProcessingEnd - dataProcessingStart}ms`,
           totalFetchDuration: `${dataProcessingEnd - fetchStartTime}ms`,
@@ -304,7 +310,7 @@ export default function InvitePageClient({
 
   useEffect(() => {
     const effectStartTime = Date.now()
-    console.log('[InvitePageClient] 🔄 CLIENT EFFECT: useEffect triggered (data fetch check)', {
+    devLog('[InvitePageClient] 🔄 CLIENT EFFECT: useEffect triggered (data fetch check)', {
       slug,
       hasInitialConfig: !!initialConfig,
       timestamp: new Date().toISOString(),
@@ -313,14 +319,14 @@ export default function InvitePageClient({
     
     // If we have initial data from server, skip fetching
     if (initialConfig) {
-      console.log('[InvitePageClient] ✅ CLIENT EFFECT: Skipping fetch (has initial config from SSR)', {
+      devLog('[InvitePageClient] ✅ CLIENT EFFECT: Skipping fetch (has initial config from SSR)', {
         slug,
         elapsedSinceMount: Date.now() - clientStartTime,
       })
       return
     }
     
-    console.log('[InvitePageClient] 📡 CLIENT EFFECT: No initial config, triggering client-side fetch', {
+    devLog('[InvitePageClient] 📡 CLIENT EFFECT: No initial config, triggering client-side fetch', {
       slug,
       elapsedSinceMount: Date.now() - clientStartTime,
     })
@@ -333,7 +339,7 @@ export default function InvitePageClient({
   // Set body background to match page background
   // This MUST be called before any early returns to follow React hooks rules
   useEffect(() => {
-    console.log('[InvitePageClient] 🎨 CLIENT EFFECT: Setting background color', {
+    devLog('[InvitePageClient] 🎨 CLIENT EFFECT: Setting background color', {
       slug,
       backgroundColor,
       timestamp: new Date().toISOString(),
@@ -345,7 +351,7 @@ export default function InvitePageClient({
     document.documentElement.style.setProperty('background', backgroundColor, 'important')
 
     return () => {
-      console.log('[InvitePageClient] 🧹 CLIENT EFFECT: Cleaning up background color', {
+      devLog('[InvitePageClient] 🧹 CLIENT EFFECT: Cleaning up background color', {
         slug,
       })
       document.body.style.removeProperty('background-color')
@@ -355,9 +361,9 @@ export default function InvitePageClient({
     }
   }, [backgroundColor, slug])
 
-  // Display error with full details
+  // Display error
   if (error) {
-    console.log('[InvitePageClient] ⚠️ CLIENT RENDER: Rendering error state', {
+    devLog('[InvitePageClient] ⚠️ CLIENT RENDER: Rendering error state', {
       slug,
       errorType: error.type,
       timestamp: new Date().toISOString(),
@@ -366,36 +372,18 @@ export default function InvitePageClient({
     
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="text-center px-4 max-w-6xl w-full">
-          <div className="text-6xl mb-4">⚠️</div>
-          <h1 className="text-3xl font-semibold text-gray-900 mb-6">
-            Error Loading Invite Page (Client)
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-4">
+            Unable to load invite page
           </h1>
-          
-          <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 text-left">
-            <h2 className="text-xl font-bold text-red-900 mb-3">Full Error Details</h2>
-            <pre className="text-red-800 text-sm whitespace-pre-wrap break-words bg-white p-4 rounded border border-red-200 overflow-x-auto max-h-96 overflow-y-auto">
-              {JSON.stringify(error, null, 2)}
-            </pre>
-          </div>
-          
-          <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 text-left">
-            <h2 className="text-xl font-bold text-gray-900 mb-3">Debug Information</h2>
-            <div className="space-y-2 text-sm">
-              <p><strong>Slug:</strong> {slug}</p>
-              <p><strong>API Base:</strong> {api.defaults.baseURL || 'Not set'}</p>
-              <p><strong>Initial Config:</strong> {initialConfig ? 'Yes' : 'No'}</p>
-              <p><strong>Initial Event:</strong> {initialEvent ? 'Yes' : 'No'}</p>
-              <p><strong>Loading:</strong> {loading ? 'Yes' : 'No'}</p>
-            </div>
-          </div>
+          <p className="text-gray-600">Please try again later.</p>
         </div>
       </div>
     )
   }
 
   if (loading) {
-    console.log('[InvitePageClient] ⏳ CLIENT RENDER: Rendering loading state', {
+    devLog('[InvitePageClient] ⏳ CLIENT RENDER: Rendering loading state', {
       slug,
       timestamp: new Date().toISOString(),
       elapsedSinceMount: Date.now() - clientStartTime,
@@ -412,7 +400,7 @@ export default function InvitePageClient({
   }
 
   if (!config) {
-    console.log('[InvitePageClient] ⚠️ CLIENT RENDER: No config available', {
+    devLog('[InvitePageClient] ⚠️ CLIENT RENDER: No config available', {
       slug,
       timestamp: new Date().toISOString(),
       elapsedSinceMount: Date.now() - clientStartTime,
@@ -428,7 +416,7 @@ export default function InvitePageClient({
   }
 
   // If we have SSR content, filter out those tiles from config
-  console.log('[InvitePageClient] 🎨 CLIENT RENDER: Preparing final render', {
+  devLog('[InvitePageClient] 🎨 CLIENT RENDER: Preparing final render', {
     slug,
     hasConfig: !!config,
     hasHeroSSR: !!heroSSR,
@@ -458,7 +446,7 @@ export default function InvitePageClient({
   } : config
 
   const renderTime = Date.now()
-  console.log('[InvitePageClient] ✅ CLIENT RENDER: Rendering LivingPosterPage', {
+  devLog('[InvitePageClient] ✅ CLIENT RENDER: Rendering LivingPosterPage', {
     slug,
     hasConfig: !!configForClient,
     hasHeroSSR: !!heroSSR,
@@ -467,7 +455,7 @@ export default function InvitePageClient({
     timestamp: new Date().toISOString(),
   })
   
-  console.log('[InvitePageClient] ====== CLIENT COMPONENT RENDER COMPLETE ======', {
+  devLog('[InvitePageClient] ====== CLIENT COMPONENT RENDER COMPLETE ======', {
     slug,
     totalDuration: renderTime - clientStartTime,
     timestamp: new Date().toISOString(),
