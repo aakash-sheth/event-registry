@@ -3,6 +3,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Calendar, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
 import { EventCarouselTileSettings } from '@/lib/invite/schema'
+import { 
+  getImageDimensions, 
+  calculateOptimalDimensions, 
+  getRecommendedCarouselDimensions,
+  type ImageDimensions 
+} from '@/lib/invite/imageUtils'
 
 interface SubEvent {
   id: number
@@ -62,12 +68,14 @@ export default function EventCarouselTile({
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const [touchEndX, setTouchEndX] = useState<number | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [imageDimensionsMap, setImageDimensionsMap] = useState<Map<string, ImageDimensions>>(new Map())
   
   // Refs
   const autoPlayTimerRef = useRef<NodeJS.Timeout | null>(null)
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null)
   const carouselRef = useRef<HTMLDivElement>(null)
   const liveRegionRef = useRef<HTMLDivElement>(null)
+  const loadingImagesRef = useRef<Set<string>>(new Set())
 
   // Check for reduced motion preference
   useEffect(() => {
@@ -81,6 +89,40 @@ export default function EventCarouselTile({
       return () => mediaQuery.removeEventListener('change', handleChange)
     }
   }, [])
+
+  // Load image dimensions for all sub-event images
+  useEffect(() => {
+    if (!mounted || !allowedSubEvents || allowedSubEvents.length === 0) return
+
+    allowedSubEvents.forEach((subEvent) => {
+      if (subEvent.image_url) {
+        const imageUrl = subEvent.image_url
+        // Skip if already loaded or currently loading
+        if (imageDimensionsMap.has(imageUrl) || loadingImagesRef.current.has(imageUrl)) {
+          return
+        }
+        
+        // Mark as loading
+        loadingImagesRef.current.add(imageUrl)
+        
+        // Load dimensions asynchronously
+        getImageDimensions(imageUrl)
+          .then((dims) => {
+            setImageDimensionsMap((current) => {
+              const newMap = new Map(current)
+              newMap.set(imageUrl, dims)
+              return newMap
+            })
+            loadingImagesRef.current.delete(imageUrl)
+          })
+          .catch((error) => {
+            // Handle error gracefully - don't break carousel if dimension loading fails
+            console.warn('Failed to load image dimensions:', error)
+            loadingImagesRef.current.delete(imageUrl)
+          })
+      }
+    })
+  }, [mounted, allowedSubEvents, imageDimensionsMap])
 
   // Memoize settings to ensure component reacts to changes
   const normalizedSettings = useMemo(() => ({
@@ -378,16 +420,44 @@ export default function EventCarouselTile({
         className={`${cardStyleClasses} w-full`}
         style={cardStyle}
       >
-        {showFields.image && subEvent.image_url && (
-          <div className={`w-full ${imageHeightClass} bg-gray-200 overflow-hidden`} style={imageAspectStyle}>
-            <img
-              src={subEvent.image_url}
-              alt={subEvent.title}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          </div>
-        )}
+        {showFields.image && subEvent.image_url && (() => {
+          const recommendedDims = getRecommendedCarouselDimensions(
+            normalizedSettings.imageHeight || 'medium',
+            normalizedSettings.imageAspectRatio || '16:9'
+          )
+
+          // Always use recommended dimensions from the start to prevent layout shift
+          // The container size is fixed, and object-fit: contain will handle scaling
+          return (
+            <div 
+              className={`w-full ${imageHeightClass} bg-gray-200 overflow-hidden flex items-center justify-center`} 
+              style={{
+                ...imageAspectStyle,
+                maxWidth: '100%',
+                maxHeight: `${recommendedDims.maxHeight}px`,
+                height: `${recommendedDims.maxHeight}px`, // Fixed height to prevent shift
+              }}
+            >
+              <img
+                src={subEvent.image_url}
+                alt={subEvent.title}
+                style={{
+                  objectFit: 'contain',
+                  maxWidth: `${recommendedDims.maxWidth}px`,
+                  maxHeight: `${recommendedDims.maxHeight}px`,
+                  width: 'auto',
+                  height: 'auto',
+                  display: 'block',
+                }}
+                loading="lazy"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement
+                  target.style.display = 'none'
+                }}
+              />
+            </div>
+          )
+        })()}
         
         <div className={cardPaddingClass}>
           {showFields.title && (
@@ -416,15 +486,6 @@ export default function EventCarouselTile({
             <p className="text-gray-700 text-sm mb-4 line-clamp-3">
               {subEvent.description}
             </p>
-          )}
-          
-          {showFields.cta && subEvent.rsvp_enabled && eventSlug && (
-            <a
-              href={`/event/${eventSlug}/rsvp`}
-              className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              RSVP
-            </a>
           )}
         </div>
       </div>

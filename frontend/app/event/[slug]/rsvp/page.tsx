@@ -25,6 +25,7 @@ const rsvpSchema = z.object({
   will_attend: z.enum(['yes', 'no', 'maybe']),
   guests_count: z.number().min(0).default(0),
   notes: z.string().optional(),
+  selectedSubEventIds: z.array(z.number()).optional(),
 })
 
 type RSVPForm = z.infer<typeof rsvpSchema>
@@ -43,6 +44,8 @@ interface Event {
   has_registry?: boolean
   is_public?: boolean
   slug?: string
+  rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
+  event_structure?: 'SIMPLE' | 'ENVELOPE'
   page_config?: {
     tiles?: Array<{
       type: string
@@ -164,6 +167,9 @@ export default function RSVPPage() {
         logDebug('RSVP check result:', { found_in: foundIn, phone: response.data.phone })
         setExistingRSVP(response.data)
         
+        // Format phone for API calls
+        const formattedPhoneForApi = response.data.phone || formatPhoneWithCountryCode(phoneValue, countryCode)
+        
         // Extract local phone number and country code from stored phone
         // Stored phone format: +91XXXXXXXXXX
         let localPhone = ''
@@ -248,6 +254,37 @@ export default function RSVPPage() {
           setValue('will_attend', response.data.will_attend, { shouldValidate: false, shouldDirty: true })
           setValue('guests_count', response.data.guests_count || 1, { shouldValidate: false, shouldDirty: true })
           setValue('notes', response.data.notes || '', { shouldValidate: false, shouldDirty: true })
+          
+          // For PER_SUBEVENT mode, fetch all RSVPs for this phone to get all selected sub-events
+          if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && response.data.will_attend === 'yes') {
+            try {
+              // Fetch all RSVPs for this event and phone to get all sub-events
+              const allRsvpsResponse = await api.get(`/api/events/${event.id}/rsvps/`, {
+                params: { phone: formattedPhoneForApi }
+              })
+              const allRsvps = Array.isArray(allRsvpsResponse.data) 
+                ? allRsvpsResponse.data 
+                : (allRsvpsResponse.data.results || [])
+              
+              // Extract sub-event IDs from RSVPs where will_attend is 'yes'
+              const rsvpedSubEventIds = allRsvps
+                .filter((r: any) => r.will_attend === 'yes' && r.sub_event_id)
+                .map((r: any) => r.sub_event_id)
+              
+              if (rsvpedSubEventIds.length > 0) {
+                setSelectedSubEventIds(rsvpedSubEventIds)
+              }
+            } catch (err) {
+              // If fetching all RSVPs fails, at least try to use the single RSVP's sub_event_id
+              if (response.data.sub_event_id) {
+                setSelectedSubEventIds([response.data.sub_event_id])
+              }
+              logError('Failed to fetch all RSVPs for sub-event selection:', err)
+            }
+          } else if (response.data.sub_event_id) {
+            // For single RSVP, pre-select its sub-event
+            setSelectedSubEventIds([response.data.sub_event_id])
+          }
         } else {
           // Guest list - set defaults for RSVP fields
           setValue('will_attend', 'yes', { shouldValidate: false, shouldDirty: false })
@@ -317,6 +354,36 @@ export default function RSVPPage() {
       // Set default country code from event
       if (eventData?.country_code) {
         setValue('country_code', eventData.country_code)
+      }
+      
+      // Fetch allowed sub-events if event is ENVELOPE
+      if (eventData.event_structure === 'ENVELOPE') {
+        try {
+          // Use invite endpoint to get allowed sub-events (respects guest tokens if any)
+          const inviteResponse = await api.get(`/api/events/invite/${slug}/`)
+          const allowedSubEventsData = inviteResponse.data.allowed_sub_events || []
+          // Filter to only RSVP-enabled, public-visible sub-events
+          const filteredSubEvents = allowedSubEventsData.filter((se: any) => 
+            se.rsvp_enabled && (se.is_public_visible !== false)
+          )
+          setAllowedSubEvents(filteredSubEvents)
+        } catch (error: any) {
+          // Fallback: try sub-events endpoint
+          try {
+            const subEventsResponse = await api.get(`/api/events/envelopes/${eventData.id}/sub-events/`)
+            const subEvents = subEventsResponse.data.results || subEventsResponse.data || []
+            // Filter to only RSVP-enabled, public-visible sub-events
+            const filteredSubEvents = subEvents.filter((se: any) => 
+              se.rsvp_enabled && (se.is_public_visible !== false)
+            )
+            setAllowedSubEvents(filteredSubEvents)
+          } catch (err) {
+            logError('Failed to fetch sub-events:', err)
+            setAllowedSubEvents([])
+          }
+        }
+      } else {
+        setAllowedSubEvents([])
       }
       
       // Reset Stage 0 state when event changes
@@ -438,11 +505,21 @@ export default function RSVPPage() {
   const onSubmit = async (data: RSVPForm) => {
     setSubmitting(true)
     try {
+      // Validation: require at least one sub-event selected when in PER_SUBEVENT mode
+      if (event?.event_structure === 'ENVELOPE' && 
+          event?.rsvp_mode === 'PER_SUBEVENT' && 
+          data.will_attend === 'yes' && 
+          selectedSubEventIds.length === 0) {
+        showToast('Please select at least one event to attend', 'error')
+        setSubmitting(false)
+        return
+      }
+
       // Format phone with country code
       const countryCode = data.country_code || event?.country_code || '+91'
       const formattedPhone = formatPhoneWithCountryCode(data.phone, countryCode)
       
-      const response = await api.post(`/api/events/${event?.id}/rsvp/`, {
+      const requestData: any = {
         name: data.name,
         phone: formattedPhone,
         country_code: countryCode,
@@ -451,7 +528,14 @@ export default function RSVPPage() {
         guests_count: data.guests_count,
         notes: data.notes || '',
         source_channel: sourceChannel,
-      })
+      }
+
+      // Include selectedSubEventIds for PER_SUBEVENT mode
+      if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
+        requestData.selectedSubEventIds = selectedSubEventIds
+      }
+      
+      const response = await api.post(`/api/events/${event?.id}/rsvp/`, requestData)
       
       const isUpdate = existingRSVP !== null && existingRSVP.found_in === 'rsvp'
       const isFirstRSVP = existingRSVP !== null && existingRSVP.found_in === 'guest_list'
@@ -467,8 +551,11 @@ export default function RSVPPage() {
       
       showToast(message, 'success')
       
+      // Handle response - backend returns array for PER_SUBEVENT mode, single object otherwise
+      const responseData = Array.isArray(response.data) ? response.data[0] : response.data
+      
       // Update existing RSVP state (now it will be an RSVP, not guest list)
-      setExistingRSVP({ ...response.data, found_in: 'rsvp' })
+      setExistingRSVP({ ...responseData, found_in: 'rsvp' })
       
       // Show thank you message if registry is disabled OR if it's a private event
       if (!event?.has_registry || !event?.is_public) {
@@ -878,6 +965,60 @@ export default function RSVPPage() {
                     <p className="text-red-500 text-sm mt-1">
                       {errors.guests_count.message}
                     </p>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-event selection for ENVELOPE events with PER_SUBEVENT mode */}
+              {event?.event_structure === 'ENVELOPE' && 
+               event?.rsvp_mode === 'PER_SUBEVENT' && 
+               allowedSubEvents.length > 0 && 
+               willAttend === 'yes' && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Select which events you'll attend: *
+                  </label>
+                  <div className="space-y-2 border rounded-lg p-4 bg-white max-h-96 overflow-y-auto">
+                    {allowedSubEvents.map((subEvent) => (
+                      <label 
+                        key={subEvent.id} 
+                        className="flex items-start gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer border border-transparent hover:border-gray-200 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedSubEventIds.includes(subEvent.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedSubEventIds([...selectedSubEventIds, subEvent.id])
+                            } else {
+                              setSelectedSubEventIds(selectedSubEventIds.filter(id => id !== subEvent.id))
+                            }
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">{subEvent.title}</div>
+                          {subEvent.start_at && (
+                            <div className="text-sm text-gray-600 mt-1">
+                              {new Date(subEvent.start_at).toLocaleDateString('en-US', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          )}
+                          {subEvent.location && (
+                            <div className="text-sm text-gray-600">{subEvent.location}</div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  {selectedSubEventIds.length === 0 && (
+                    <p className="text-sm text-red-600">Please select at least one event</p>
                   )}
                 </div>
               )}

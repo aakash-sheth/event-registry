@@ -118,6 +118,7 @@ export default function GuestsPage() {
   const [subEvents, setSubEvents] = useState<SubEvent[]>([])
   const [showSubEventAssignment, setShowSubEventAssignment] = useState<number | null>(null)
   const [guestSubEventAssignments, setGuestSubEventAssignments] = useState<Record<number, number[]>>({})
+  const [guestRSVPs, setGuestRSVPs] = useState<Record<number, any[]>>({})
   const [copiedGuestId, setCopiedGuestId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -190,6 +191,11 @@ export default function GuestsPage() {
         setRemovedGuestsList(response.data.removed_guests_list || [])
         setRemovedGuests(response.data.removed_guests || [])
       }
+      
+      // Fetch RSVPs for all guests if event is ENVELOPE with PER_SUBEVENT mode
+      if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
+        await fetchAllGuestRSVPs()
+      }
     } catch (error: any) {
       if (error.response?.status === 401) {
         router.push('/host/login')
@@ -225,6 +231,55 @@ export default function GuestsPage() {
     } catch (error: any) {
       // Guest might not have assignments yet
       setGuestSubEventAssignments(prev => ({ ...prev, [guestId]: [] }))
+    }
+  }
+
+  const fetchGuestRSVPs = async (guestId: number) => {
+    try {
+      // Fetch all RSVPs for this event and filter by guest_id
+      const response = await api.get(`/api/events/${eventId}/rsvps/`)
+      const allRsvps = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data.results || [])
+      
+      // Filter RSVPs for this guest where will_attend is 'yes'
+      const guestRsvps = allRsvps.filter((rsvp: any) => 
+        rsvp.guest_id === guestId && rsvp.will_attend === 'yes'
+      )
+      
+      setGuestRSVPs(prev => ({ ...prev, [guestId]: guestRsvps }))
+    } catch (error: any) {
+      logError('Failed to fetch guest RSVPs:', error)
+      setGuestRSVPs(prev => ({ ...prev, [guestId]: [] }))
+    }
+  }
+
+  const fetchAllGuestRSVPs = async () => {
+    if (event?.event_structure !== 'ENVELOPE' || event?.rsvp_mode !== 'PER_SUBEVENT') {
+      return
+    }
+    
+    try {
+      // Fetch all RSVPs for this event
+      const response = await api.get(`/api/events/${eventId}/rsvps/`)
+      const allRsvps = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data.results || [])
+      
+      // Group RSVPs by guest_id
+      const rsvpsByGuest: Record<number, any[]> = {}
+      allRsvps.forEach((rsvp: any) => {
+        if (rsvp.guest_id && rsvp.will_attend === 'yes') {
+          if (!rsvpsByGuest[rsvp.guest_id]) {
+            rsvpsByGuest[rsvp.guest_id] = []
+          }
+          rsvpsByGuest[rsvp.guest_id].push(rsvp)
+        }
+      })
+      
+      setGuestRSVPs(rsvpsByGuest)
+    } catch (error: any) {
+      logError('Failed to fetch all guest RSVPs:', error)
     }
   }
 
@@ -921,6 +976,9 @@ export default function GuestsPage() {
                       {event?.event_structure === 'ENVELOPE' && (
                         <th className="text-left p-2">Sub-Events</th>
                       )}
+                      {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
+                        <th className="text-left p-2">Sub-Events Attending</th>
+                      )}
                       <th className="text-left p-2">Notes</th>
                       <th className="text-left p-2">Actions</th>
                     </tr>
@@ -939,9 +997,10 @@ export default function GuestsPage() {
                       }
                       
                       if (filteredGuests.length === 0) {
+                        const colSpan = 8 + (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' ? 1 : 0)
                         return (
                           <tr>
-                            <td colSpan={8} className="p-8 text-center text-gray-500">
+                            <td colSpan={colSpan} className="p-8 text-center text-gray-500">
                               {rsvpFilter === 'unconfirmed' && 'No unconfirmed guests'}
                               {rsvpFilter === 'confirmed' && 'No confirmed guests'}
                               {rsvpFilter === 'no' && 'No declined guests'}
@@ -1002,6 +1061,30 @@ export default function GuestsPage() {
                               >
                                 {guestSubEventAssignments[guest.id]?.length || 0} assigned
                               </Button>
+                            </td>
+                          )}
+                          {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
+                            <td className="p-2">
+                              {(() => {
+                                const rsvps = guestRSVPs[guest.id] || []
+                                const attendingSubEvents = rsvps
+                                  .filter((r: any) => r.will_attend === 'yes' && r.sub_event_title)
+                                  .map((r: any) => r.sub_event_title)
+                                
+                                if (attendingSubEvents.length === 0) {
+                                  return <span className="text-xs text-gray-400">-</span>
+                                }
+                                
+                                return (
+                                  <div className="flex flex-wrap gap-1">
+                                    {attendingSubEvents.map((title: string, idx: number) => (
+                                      <span key={idx} className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
+                                        {title}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
                             </td>
                           )}
                           <td className="p-2 text-sm text-gray-600">{guest.notes || '-'}</td>
