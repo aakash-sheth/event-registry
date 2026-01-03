@@ -6,6 +6,8 @@ import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
 import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
+import http from 'http'
+import https from 'https'
 
 // ISR: Revalidate every hour (3600 seconds)
 export const revalidate = 3600
@@ -226,64 +228,103 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     const requestSentTime = Date.now()
     performanceTimings.requestSent = requestSentTime - tcpStartTime
 
-    const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      cache: 'no-store', // Disable Next.js caching to prevent timeout issues
-    })
+    // Use Node's native http/https to bypass Next.js fetch wrapper issues
+    const urlObj = new URL(url)
+    const protocol = urlObj.protocol === 'https:' ? https : http
+    const isAborted = { value: false }
     
-    const firstByteTime = Date.now()
-    performanceTimings.firstByte = firstByteTime - requestSentTime
-    
-    clearTimeout(timeoutId)
+    // Set up abort handler
+    if (controller.signal) {
+      controller.signal.addEventListener('abort', () => {
+        isAborted.value = true
+      })
+    }
 
-    // Log response received
-    console.log('[InvitePage SSR] Response received', {
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok,
-      headers: Object.fromEntries(response.headers.entries()),
-      firstByteTime: performanceTimings.firstByte,
-      elapsed: firstByteTime - requestStartTime,
+    const response = await new Promise<any>((resolve, reject) => {
+      if (isAborted.value) {
+        reject(new Error('Aborted'))
+        return
+      }
+
+      const req = protocol.request(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: timeout,
+      }, (res) => {
+        const firstByteTime = Date.now()
+        performanceTimings.firstByte = firstByteTime - requestSentTime
+        clearTimeout(timeoutId)
+
+        let data = ''
+        res.on('data', (chunk) => {
+          data += chunk
+        })
+        
+        res.on('end', () => {
+          const jsonEndTime = Date.now()
+          performanceTimings.responseComplete = jsonEndTime - firstByteTime
+          performanceTimings.totalDuration = jsonEndTime - requestStartTime
+
+          try {
+            const jsonData = JSON.parse(data)
+            
+            console.log('[InvitePage SSR] ✅ Request successful', {
+              slug,
+              url,
+              status: res.statusCode,
+              statusMessage: res.statusMessage,
+              dataSize: data.length,
+              totalDuration: performanceTimings.totalDuration,
+              timings: performanceTimings,
+            })
+
+            resolve({
+              ok: res.statusCode && res.statusCode >= 200 && res.statusCode < 300,
+              status: res.statusCode,
+              statusText: res.statusMessage,
+              json: async () => jsonData,
+              data: jsonData,
+            })
+          } catch (parseError) {
+            console.error('[InvitePage SSR] JSON parse error', parseError)
+            reject(new Error(`Failed to parse JSON: ${parseError}`))
+          }
+        })
+      })
+
+      req.on('error', (error) => {
+        clearTimeout(timeoutId)
+        reject(error)
+      })
+
+      req.on('timeout', () => {
+        req.destroy()
+        clearTimeout(timeoutId)
+        reject(new Error('Request timeout'))
+      })
+
+      // Handle abort
+      if (controller.signal) {
+        controller.signal.addEventListener('abort', () => {
+          req.destroy()
+          clearTimeout(timeoutId)
+          reject(new Error('Aborted'))
+        })
+      }
+
+      req.end()
     })
 
     if (response.ok) {
-      const jsonStartTime = Date.now()
-      const data = await response.json()
-      const jsonEndTime = Date.now()
-      performanceTimings.responseComplete = jsonEndTime - firstByteTime
-      performanceTimings.totalDuration = jsonEndTime - requestStartTime
-
-      console.log('[InvitePage SSR] ✅ Request successful', {
-        slug,
-        url,
-        status: response.status,
-        dataSize: JSON.stringify(data).length,
-        jsonParseTime: jsonEndTime - jsonStartTime,
-        totalDuration: performanceTimings.totalDuration,
-        timings: performanceTimings,
-      })
-
-      return data
+      return response.data || await response.json()
     }
 
-    // Get error response body for detailed error info
-    const errorBodyStartTime = Date.now()
-    let errorBody = ''
-    try {
-      errorBody = await response.text()
-    } catch (e) {
-      errorBody = 'Could not read error response body'
-      console.error('[InvitePage SSR] Error reading response body:', e)
-    }
-    const errorBodyTime = Date.now() - errorBodyStartTime
-
-    performanceTimings.responseComplete = errorBodyTime
+    // Handle error response
+    const errorBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data || {})
     performanceTimings.totalDuration = Date.now() - requestStartTime
 
-    // Log HTTP error
     console.error('[InvitePage SSR] ❌ HTTP Error Response', {
       status: response.status,
       statusText: response.statusText,
@@ -291,20 +332,17 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       slug,
       errorBodyLength: errorBody.length,
       errorBodyPreview: errorBody.substring(0, 500),
-      errorBodyReadTime: errorBodyTime,
       totalDuration: performanceTimings.totalDuration,
       timings: performanceTimings,
-      headers: Object.fromEntries(response.headers.entries()),
     })
 
-    // Throw error with full details for display
     const errorDetails = {
       type: 'HTTP_ERROR',
       status: response.status,
       statusText: response.statusText,
       url,
       slug,
-      responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
+      responseBody: errorBody.substring(0, 1000),
       message: `Invite endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
       timings: performanceTimings,
     }
@@ -383,36 +421,85 @@ async function fetchEventData(slug: string): Promise<Event | null> {
     const timeout = 5000 // 5 seconds max
     const timeoutId = setTimeout(() => controller.abort(), timeout)
   
-    const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      cache: 'no-store', // Disable Next.js caching to prevent timeout issues
-    })
+    // Use Node's native http/https to bypass Next.js fetch wrapper issues
+    const urlObj = new URL(url)
+    const protocol = urlObj.protocol === 'https:' ? https : http
+    const isAborted = { value: false }
     
-    clearTimeout(timeoutId)
+    if (controller.signal) {
+      controller.signal.addEventListener('abort', () => {
+        isAborted.value = true
+      })
+    }
+
+    const response = await new Promise<any>((resolve, reject) => {
+      if (isAborted.value) {
+        reject(new Error('Aborted'))
+        return
+      }
+
+      const req = protocol.request(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: timeout,
+      }, (res) => {
+        clearTimeout(timeoutId)
+        let data = ''
+        res.on('data', (chunk) => { data += chunk })
+        res.on('end', () => {
+          try {
+            const jsonData = JSON.parse(data)
+            resolve({
+              ok: res.statusCode && res.statusCode >= 200 && res.statusCode < 300,
+              status: res.statusCode,
+              statusText: res.statusMessage,
+              json: async () => jsonData,
+              data: jsonData,
+            })
+          } catch (parseError) {
+            reject(new Error(`Failed to parse JSON: ${parseError}`))
+          }
+        })
+      })
+
+      req.on('error', (error) => {
+        clearTimeout(timeoutId)
+        reject(error)
+      })
+
+      req.on('timeout', () => {
+        req.destroy()
+        clearTimeout(timeoutId)
+        reject(new Error('Request timeout'))
+      })
+
+      if (controller.signal) {
+        controller.signal.addEventListener('abort', () => {
+          req.destroy()
+          clearTimeout(timeoutId)
+          reject(new Error('Aborted'))
+        })
+      }
+
+      req.end()
+    })
 
     if (response.ok) {
-      return await response.json()
+      return response.data || await response.json()
     }
 
-    // Get error response body for detailed error info
-    let errorBody = ''
-    try {
-      errorBody = await response.text()
-    } catch (e) {
-      errorBody = 'Could not read error response body'
-    }
+    // Get error response body
+    const errorBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data || '')
 
-    // Throw error with full details for display
     const errorDetails = {
       type: 'HTTP_ERROR',
-        status: response.status,
-        statusText: response.statusText,
+      status: response.status,
+      statusText: response.statusText,
       url,
       slug,
-      responseBody: errorBody.substring(0, 1000), // Limit to 1000 chars
+      responseBody: errorBody.substring(0, 1000),
       message: `Registry endpoint returned ${response.status} ${response.statusText} for slug: ${slug}`,
     }
 
