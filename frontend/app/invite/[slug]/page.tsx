@@ -231,7 +231,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
-      next: { revalidate: 3600 },
+      cache: 'no-store', // Disable Next.js caching to prevent timeout issues
     })
     
     const firstByteTime = Date.now()
@@ -388,7 +388,7 @@ async function fetchEventData(slug: string): Promise<Event | null> {
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
-      next: { revalidate: 3600 },
+      cache: 'no-store', // Disable Next.js caching to prevent timeout issues
     })
     
     clearTimeout(timeoutId)
