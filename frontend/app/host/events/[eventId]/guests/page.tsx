@@ -79,6 +79,7 @@ interface Event {
   city?: string
   whatsapp_message_template?: string
   event_structure?: 'SIMPLE' | 'ENVELOPE'
+  rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
 }
 
 interface SubEvent {

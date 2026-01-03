@@ -9,8 +9,14 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 function getApiBase(): string {
   let apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
   
-  // Log API base for debugging
-  if (typeof window !== 'undefined') {
+  // Fix for Docker: host.docker.internal only works inside containers, not in browser
+  // Replace with localhost for client-side calls
+  if (typeof window !== 'undefined' && apiBase.includes('host.docker.internal')) {
+    apiBase = apiBase.replace('host.docker.internal', 'localhost')
+  }
+  
+  // Log API base for debugging (development only)
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     console.log('[API] API Base URL:', {
       fromEnv: process.env.NEXT_PUBLIC_API_BASE,
       resolved: apiBase,
@@ -29,7 +35,9 @@ function getApiBase(): string {
     // This handles CloudFront -> ALB and other HTTPS distribution scenarios
     if (isPageHTTPS && isApiHTTP) {
       apiBase = currentOrigin
-      console.warn('[API] Auto-fixing mixed content: Using HTTPS origin:', apiBase)
+      if (process.env.NODE_ENV === 'development' as string) {
+        console.warn('[API] Auto-fixing mixed content: Using HTTPS origin:', apiBase)
+      }
     }
   }
   
@@ -39,21 +47,36 @@ function getApiBase(): string {
     // Fallback to localhost in development
     if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
       apiBase = 'http://localhost:8000'
-      console.warn('[API] Using fallback API base:', apiBase)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[API] Using fallback API base:', apiBase)
+      }
     } else {
       // In production, use current origin
       apiBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000'
-      console.warn('[API] Using current origin as API base:', apiBase)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[API] Using current origin as API base:', apiBase)
+      }
     }
   }
   
   return apiBase
 }
 
-const API_BASE = getApiBase()
+// Get API base URL dynamically (not at module load time)
+// This ensures window is available for client-side calls
+function getApiBaseUrl(): string {
+  // If we're in the browser, compute it dynamically
+  if (typeof window !== 'undefined') {
+    return getApiBase()
+  }
+  // For server-side, use environment variable or default
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
+  // Replace host.docker.internal with localhost for server-side too
+  return apiBase.replace('host.docker.internal', 'localhost')
+}
 
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -76,8 +99,25 @@ const processQueue = (error: any, token: string | null = null) => {
   failedQueue = []
 }
 
-// Add auth token to requests
+// Add auth token to requests and fix baseURL for client-side
 api.interceptors.request.use((config) => {
+  // Fix baseURL for client-side requests
+  // This ensures host.docker.internal is always replaced with localhost in the browser
+  if (typeof window !== 'undefined' && config.baseURL) {
+    let baseURL = config.baseURL
+    // Replace host.docker.internal with localhost for browser requests
+    if (baseURL.includes('host.docker.internal')) {
+      baseURL = baseURL.replace('host.docker.internal', 'localhost')
+      config.baseURL = baseURL
+    }
+    // Validate the URL is still valid
+    if (!baseURL.startsWith('http://') && !baseURL.startsWith('https://')) {
+      console.error('[API] Invalid baseURL after replacement:', baseURL)
+      config.baseURL = 'http://localhost:8000'
+    }
+  }
+  
+  // Add auth token
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('access_token')
     if (token) {
@@ -172,8 +212,10 @@ api.interceptors.response.use(
 
       try {
         // Try to refresh the token
+        // Use getApiBaseUrl() to ensure correct base URL resolution
+        const refreshUrl = `${getApiBaseUrl()}/api/auth/token/refresh/`
         const response = await axios.post(
-          `${API_BASE}/api/auth/token/refresh/`,
+          refreshUrl,
           { refresh: refreshToken },
           {
             headers: {
