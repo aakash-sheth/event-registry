@@ -80,56 +80,9 @@ interface Event {
 }
 
 // Get API base URL for server-side fetching
-// In Docker, use BACKEND_API_BASE (service name), otherwise use NEXT_PUBLIC_API_BASE
-// Client-side will use NEXT_PUBLIC_API_BASE (which is localhost:8000 from browser)
+// Uses NEXT_PUBLIC_API_BASE (set at build time or runtime)
 function getApiBase(): string {
-  const backendApiBase = process.env.BACKEND_API_BASE
-  const publicApiBase = process.env.NEXT_PUBLIC_API_BASE
-  const fallback = 'http://localhost:8000'
-  
-  let apiBase = backendApiBase || publicApiBase || fallback
-  
-  // CRITICAL: Force HTTPS ONLY for ALB URLs (ALBs require HTTPS)
-  // Keep HTTP for localhost, Docker service names, and internal URLs
-  const isAlbUrl = apiBase.includes('.elb.amazonaws.com')
-  const isLocalhost = apiBase.includes('localhost') || apiBase.includes('127.0.0.1')
-  const isDockerService = apiBase.includes('backend:') || apiBase.includes('frontend:')
-  
-  if (apiBase.startsWith('http://') && isAlbUrl && !isLocalhost && !isDockerService) {
-    const originalUrl = apiBase
-    apiBase = apiBase.replace('http://', 'https://')
-    console.warn('[SSR API Base] ⚠️ Converted HTTP to HTTPS for ALB URL:', {
-      original: originalUrl,
-      converted: apiBase,
-    })
-  }
-  
-  // Defensive logging and validation for production debugging
-  if (process.env.NODE_ENV === 'production') {
-    // Check for potential CloudFront loop (BACKEND_API_BASE missing and NEXT_PUBLIC_API_BASE points to frontend)
-    const isCloudFrontUrl = apiBase.includes('cloudfront') || 
-                          apiBase.includes('ekfern.com') || 
-                          apiBase.match(/^https?:\/\/[^/]+$/) // Simple domain check
-    
-    if (!backendApiBase && publicApiBase && isCloudFrontUrl) {
-      console.error('[SSR API Base] ⚠️ CRITICAL: BACKEND_API_BASE not set, falling back to NEXT_PUBLIC_API_BASE which points to CloudFront!', {
-        BACKEND_API_BASE: backendApiBase || 'NOT SET',
-        NEXT_PUBLIC_API_BASE: publicApiBase,
-        resolved: apiBase,
-        warning: 'This will cause a routing loop. Set BACKEND_API_BASE to ALB URL.',
-      })
-    } else {
-      console.log('[SSR API Base] Resolved:', {
-        BACKEND_API_BASE: backendApiBase || 'NOT SET',
-        NEXT_PUBLIC_API_BASE: publicApiBase || 'NOT SET',
-        resolved: apiBase,
-        isCloudFront: isCloudFrontUrl,
-        isAlb: isAlbUrl,
-      })
-    }
-  }
-  
-  return apiBase
+  return process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
 }
 
 // Get frontend URL for absolute URL conversion (for meta tags, images, etc.)
