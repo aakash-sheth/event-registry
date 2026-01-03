@@ -81,6 +81,8 @@ export default function RSVPPage() {
   const [existingRSVP, setExistingRSVP] = useState<ExistingRSVP | null>(null)
   const [checkingRSVP, setCheckingRSVP] = useState(false)
   const [showThankYou, setShowThankYou] = useState(false)
+  const [allowedSubEvents, setAllowedSubEvents] = useState<any[]>([])
+  const [selectedSubEventIds, setSelectedSubEventIds] = useState<number[]>([])
   
   // Stage 0 phone verification for private events
   const [phoneVerified, setPhoneVerified] = useState(false)
