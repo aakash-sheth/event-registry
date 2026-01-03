@@ -269,3 +269,22 @@ def admin_analytics(request):
         'growth': growth,
         'generated_at': timezone.now().isoformat(),
     }, status=status.HTTP_200_OK)
+
+
+def custom_404_handler(request, exception):
+    """
+    Custom 404 handler that returns JSON for API endpoints.
+    This ensures API clients always receive JSON responses, not HTML error pages.
+    """
+    # Check if this is an API request (starts with /api/)
+    if request.path.startswith('/api/'):
+        return JsonResponse(
+            {
+                'detail': 'Not found.',
+                'error': f'The requested resource was not found: {request.path}'
+            },
+            status=404
+        )
+    # For non-API requests, use Django's default 404 handler
+    from django.views.defaults import page_not_found
+    return page_not_found(request, exception)

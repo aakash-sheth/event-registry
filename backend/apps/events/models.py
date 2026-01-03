@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from apps.users.models import User
 
@@ -35,6 +35,16 @@ class Event(models.Model):
     # Event structure and RSVP mode
     event_structure = models.CharField(max_length=20, choices=EVENT_STRUCTURE_CHOICES, default='SIMPLE', help_text="SIMPLE: single event, ENVELOPE: event with sub-events")
     rsvp_mode = models.CharField(max_length=20, choices=RSVP_MODE_CHOICES, default='ONE_TAP_ALL', help_text="PER_SUBEVENT: RSVP per sub-event, ONE_TAP_ALL: single confirmation for all")
+    
+    # Cached sub-event counts for performance optimization
+    public_sub_events_count = models.IntegerField(
+        default=0,
+        help_text="Cached count of public-visible, non-removed sub-events (auto-updated via signals)"
+    )
+    total_sub_events_count = models.IntegerField(
+        default=0,
+        help_text="Cached count of all non-removed sub-events (auto-updated via signals)"
+    )
     
     # Feature toggles
     has_rsvp = models.BooleanField(default=True, help_text="Enable RSVP functionality for this event")
@@ -73,7 +83,8 @@ class Event(models.Model):
         """Automatically upgrade event to ENVELOPE when conditions are met"""
         if self.event_structure == 'SIMPLE':
             # Check if any upgrade conditions are met
-            has_sub_events = self.sub_events.exists()
+            # Use cached count instead of querying database
+            has_sub_events = self.total_sub_events_count > 0
             has_event_carousel = self.page_config.get('tiles', []) if isinstance(self.page_config, dict) else []
             has_event_carousel = any(t.get('type') == 'event-carousel' for t in has_event_carousel)
             has_guest_assignments = GuestSubEventInvite.objects.filter(guest__event=self).exists()
@@ -159,6 +170,18 @@ class InvitePage(models.Model):
         if self.slug:
             self.slug = self.slug.lower()
         super().save(*args, **kwargs)
+        
+        # Invalidate cache when invite page is updated
+        if self.pk and self.slug:  # Only if already saved and has slug
+            from django.core.cache import cache
+            import logging
+            logger = logging.getLogger(__name__)
+            cache_key = f'invite_page:{self.slug}'
+            cache.delete(cache_key)
+            logger.info(
+                f"[Cache] INVALIDATE - slug: {self.slug}, key: {cache_key}, "
+                f"reason: invite_page_updated"
+            )
 
 
 class Guest(models.Model):
@@ -440,4 +463,93 @@ def sync_invite_page_slug(sender, instance, **kwargs):
             invite_page.slug = instance.slug.lower()
             # Use update_fields to avoid triggering save() recursion
             invite_page.save(update_fields=['slug', 'updated_at'])
+
+
+def update_event_sub_event_counts(event):
+    """
+    Update cached sub-event counts for an event.
+    This is called automatically via signals when sub-events change.
+    
+    Args:
+        event: Event instance to update counts for
+    """
+    from django.db import transaction
+    
+    # Use select_for_update to prevent race conditions in concurrent scenarios
+    try:
+        with transaction.atomic():
+            # Reload event with lock to prevent concurrent updates
+            event = Event.objects.select_for_update().get(pk=event.pk)
+            
+            # Calculate counts efficiently
+            total_count = event.sub_events.filter(is_removed=False).count()
+            public_count = event.sub_events.filter(
+                is_public_visible=True,
+                is_removed=False
+            ).count()
+            
+            # Only update if values changed (avoid unnecessary writes)
+            if (event.total_sub_events_count != total_count or 
+                event.public_sub_events_count != public_count):
+                event.total_sub_events_count = total_count
+                event.public_sub_events_count = public_count
+                event.save(update_fields=['total_sub_events_count', 'public_sub_events_count'])
+                
+                # Invalidate cache for the event's invite page when counts change
+                try:
+                    # Check if invite page exists and get its slug
+                    invite_page_slug = InvitePage.objects.filter(event=event).values_list('slug', flat=True).first()
+                    if invite_page_slug:
+                        from django.core.cache import cache
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        cache_key = f'invite_page:{invite_page_slug}'
+                        cache.delete(cache_key)
+                        logger.info(
+                            f"[Cache] INVALIDATE - slug: {invite_page_slug}, key: {cache_key}, "
+                            f"reason: sub_event_count_changed"
+                        )
+                except Exception:
+                    # If cache invalidation fails, don't break the count update
+                    pass
+    except Event.DoesNotExist:
+        # Event was deleted, nothing to update
+        pass
+    except Exception:
+        # If update fails for any reason, don't break the save operation
+        # This is defensive programming - signals should not break normal operations
+        pass
+
+
+# Signal handlers for SubEvent to maintain cached counts
+@receiver(post_save, sender=SubEvent)
+def update_counts_on_subevent_save(sender, instance, created, **kwargs):
+    """
+    Update cached counts when SubEvent is created or updated.
+    Fires immediately after save() completes.
+    Handles:
+    - New sub-event creation
+    - Sub-event updates (including soft delete via is_removed=True)
+    - Visibility changes (is_public_visible toggle)
+    """
+    if instance.event_id:  # Ensure event exists
+        update_event_sub_event_counts(instance.event)
+
+
+@receiver(post_delete, sender=SubEvent)
+def update_counts_on_subevent_delete(sender, instance, **kwargs):
+    """
+    Update cached counts when SubEvent is hard-deleted.
+    Note: Soft deletes (is_removed=True) are handled by post_save.
+    """
+    # Store event_id before instance is deleted
+    event_id = instance.event_id if hasattr(instance, 'event_id') else None
+    if event_id:
+        try:
+            # Get event directly by ID to avoid accessing deleted relationship
+            event = Event.objects.get(pk=event_id)
+            update_event_sub_event_counts(event)
+        except Event.DoesNotExist:
+            # Event was deleted, nothing to update
+            pass
 

@@ -100,6 +100,22 @@ if 'DATABASE_URL' in os.environ:
     db_config['CONN_MAX_AGE'] = 600
     DATABASES['default'] = db_config
 
+# Cache Configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+            'CULL_FREQUENCY': 3,
+        }
+    }
+}
+
+# For production, consider using Redis or Memcached:
+# 'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+# 'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -150,6 +166,12 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # Ensure JSON responses for API endpoints
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+    ),
+    # Custom exception handler to ensure JSON error responses
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
 }
 
 # JWT Settings

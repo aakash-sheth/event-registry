@@ -25,6 +25,21 @@ import re
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
 from apps.items.models import RegistryItem
 from apps.items.serializers import RegistryItemSerializer
+from django.core.cache import cache
+
+
+def get_invite_page_cache_key(slug, guest_token=None):
+    """Generate cache key for invite page response"""
+    if guest_token:
+        return f'invite_page:{slug}:guest:{guest_token}'
+    return f'invite_page:{slug}'
+
+
+def invalidate_invite_page_cache(slug):
+    """Invalidate all cache entries for an invite page"""
+    # Invalidate public cache
+    cache.delete(f'invite_page:{slug}')
+    # Note: Guest-specific caches will expire naturally (shorter TTL)
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -221,6 +236,13 @@ class EventViewSet(viewsets.ModelViewSet):
                 # Update invite page config
                 invite_page.config = page_config
                 invite_page.save(update_fields=['config', 'updated_at'])
+                # Invalidate cache after updating config
+                if invite_page.slug:
+                    invalidate_invite_page_cache(invite_page.slug)
+                    logger.info(
+                        f"[Cache] INVALIDATE - slug: {invite_page.slug}, "
+                        f"reason: invite_page_config_updated"
+                    )
                 logger.info(f"Updated InvitePage config for event {event.id}")
             except InvitePage.DoesNotExist:
                 # Auto-create InvitePage if it doesn't exist
@@ -578,6 +600,14 @@ class InvitePageViewSet(viewsets.ModelViewSet):
                 invite_page.is_published = is_published
                 invite_page.save(update_fields=['is_published', 'updated_at'])
 
+            # Invalidate cache after publishing/unpublishing
+            if invite_page.slug:
+                invalidate_invite_page_cache(invite_page.slug)
+                logger.info(
+                    f"[Cache] INVALIDATE - slug: {invite_page.slug}, "
+                    f"reason: invite_page_published_changed, is_published: {is_published}"
+                )
+
             invite_page.refresh_from_db()
             return Response(InvitePageSerializer(invite_page).data, status=status.HTTP_200_OK)
 
@@ -639,10 +669,55 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         invite_page = None
         event = None
 
+        # Check cache for published pages without guest tokens
+        guest_token = request.query_params.get('g', '').strip()
+        if not guest_token:  # Only cache public (non-guest) responses
+            cache_key = get_invite_page_cache_key(slug)
+            cache_check_start = time.time()
+            cached_response = cache.get(cache_key)
+            cache_check_time = (time.time() - cache_check_start) * 1000  # Convert to ms
+            
+            if cached_response:
+                response_time = (time.time() - start_time) * 1000  # Convert to ms
+                logger.info(
+                    f"[Cache] HIT - slug: {slug}, key: {cache_key}, "
+                    f"response_time: {response_time:.2f}ms, cache_check: {cache_check_time:.2f}ms"
+                )
+                logger.info(
+                    "CACHE_METRIC",
+                    extra={
+                        'event_type': 'cache_hit',
+                        'slug': slug,
+                        'response_time_ms': response_time,
+                        'cache_key': cache_key,
+                        'cache_check_time_ms': cache_check_time
+                    }
+                )
+                return Response(cached_response)
+            logger.info(
+                f"[Cache] MISS - slug: {slug}, key: {cache_key}, "
+                f"cache_check: {cache_check_time:.2f}ms"
+            )
+            logger.info(
+                "CACHE_METRIC",
+                extra={
+                    'event_type': 'cache_miss',
+                    'slug': slug,
+                    'cache_key': cache_key,
+                    'cache_check_time_ms': cache_check_time
+                }
+            )
+
         # Step 1: Try to find published invite page (most common case)
         logger.info(f"[PublicInviteViewSet.retrieve] Step 1: Looking for published invite page with slug: '{slug}'")
         try:
-            invite_page = InvitePage.objects.select_related('event').get(slug=slug, is_published=True)
+            invite_page = InvitePage.objects.select_related('event').only(
+                'id', 'slug', 'background_url', 'config', 'is_published',
+                'event_id', 'created_at', 'updated_at',
+                'event__id', 'event__slug', 'event__event_structure',
+                'event__rsvp_mode', 'event__public_sub_events_count',
+                'event__total_sub_events_count'
+            ).get(slug=slug, is_published=True)
             event = invite_page.event
             query_time = time.time() - query_start
             logger.info(
@@ -657,7 +732,12 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             query_start = time.time()
             logger.info(f"[PublicInviteViewSet.retrieve] Step 2: Looking for unpublished invite page with slug: '{slug}'")
             try:
-                invite_page = InvitePage.objects.select_related('event').get(slug=slug)
+                invite_page = InvitePage.objects.select_related('event').only(
+                    'id', 'slug', 'background_url', 'config', 'is_published',
+                    'event_id', 'created_at', 'updated_at',
+                    'event__id', 'event__slug', 'event__event_structure',
+                    'event__rsvp_mode', 'event__host_id'  # host_id needed for auth check
+                ).get(slug=slug)
                 event = invite_page.event
                 query_time = time.time() - query_start
                 logger.info(
@@ -731,9 +811,9 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 )
                 raise NotFound(f"Invite page or event not found for slug: {slug}")
 
-        # Extract guest token from query params
+        # Extract guest token from query params (already extracted above for cache check)
         sub_events_start = time.time()
-        guest_token = request.query_params.get('g', '').strip()
+        # guest_token already extracted at line 665 for cache check
         guest = None
         allowed_sub_events = []
 
@@ -767,12 +847,8 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
 
             else:
                 # Public link - only show public-visible sub-events with optimized query
-                has_any_subevents = SubEvent.objects.filter(
-                    event=event,
-                    is_removed=False
-                ).exists()
-
-                if not has_any_subevents:
+                # Use cached count to avoid redundant exists() query
+                if event.public_sub_events_count == 0:
                     allowed_sub_events = SubEvent.objects.none()
                 else:
                     allowed_sub_events = SubEvent.objects.filter(
@@ -813,6 +889,25 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             logger.warning(
                 f"[PublicInviteViewSet] SLOW REQUEST: {elapsed_time:.2f}s "
                 f"(sub-events: {sub_events_total_time:.2f}s) for slug: {slug}"
+            )
+
+        # Cache response for published pages without guest tokens
+        if invite_page.is_published and not guest_token:
+            cache_key = get_invite_page_cache_key(slug)
+            cache.set(cache_key, serializer.data, 300)  # 5 minute TTL
+            logger.info(
+                f"[Cache] SET - slug: {slug}, key: {cache_key}, ttl: 300s, "
+                f"response_time: {elapsed_time:.3f}s"
+            )
+            logger.info(
+                "CACHE_METRIC",
+                extra={
+                    'event_type': 'cache_set',
+                    'slug': slug,
+                    'cache_key': cache_key,
+                    'ttl_seconds': 300,
+                    'response_time_ms': elapsed_time * 1000
+                }
             )
 
         return Response(serializer.data)

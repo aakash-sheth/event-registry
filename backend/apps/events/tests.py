@@ -8,6 +8,7 @@ from datetime import timedelta
 from rest_framework.test import APIClient
 from rest_framework import status
 from apps.events.models import Event, Guest, RSVP, InvitePage, MessageTemplate, SubEvent
+from django.core.cache import cache
 
 User = get_user_model()
 
@@ -16,6 +17,7 @@ class EventViewSetGuestsTestCase(TestCase):
     """Test fix A: guests() GET properly separates removed RSVPs"""
     
     def setUp(self):
+        cache.clear()  # Clear cache before each test
         self.client = APIClient()
         self.host = User.objects.create_user(email='host@test.com', name='Test Host')
         self.client.force_authenticate(user=self.host)
@@ -72,6 +74,7 @@ class MessageTemplateViewSetTestCase(TestCase):
     """Test fix B: perform_update() handles missing name in PATCH"""
     
     def setUp(self):
+        cache.clear()  # Clear cache before each test
         self.client = APIClient()
         self.host = User.objects.create_user(email='host@test.com', name='Test Host')
         self.client.force_authenticate(user=self.host)
@@ -127,6 +130,7 @@ class PublicInviteViewSetTestCase(TestCase):
     """Test fix D: PublicInviteViewSet does NOT auto-publish unpublished invite pages"""
     
     def setUp(self):
+        cache.clear()  # Clear cache before each test
         self.client = APIClient()
         self.host = User.objects.create_user(email='host@test.com', name='Test Host')
         self.event = Event.objects.create(
@@ -175,6 +179,7 @@ class CreateRSVPEnvelopeTestCase(TestCase):
     """Test fix E: create_rsvp() ENVELOPE returns 201 if any new RSVP created, else 200"""
     
     def setUp(self):
+        cache.clear()  # Clear cache before each test
         self.client = APIClient()
         self.host = User.objects.create_user(email='host@test.com', name='Test Host')
         self.event = Event.objects.create(
@@ -271,4 +276,260 @@ class CreateRSVPEnvelopeTestCase(TestCase):
         
         # Should return 201 because at least one new RSVP was created
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class InvitePageCacheTestCase(TestCase):
+    """Test cache functionality for invite pages"""
+    
+    def setUp(self):
+        cache.clear()  # Clear cache before each test
+        self.client = APIClient()
+        self.host = User.objects.create_user(email='host@test.com', name='Test Host')
+        self.event = Event.objects.create(
+            host=self.host,
+            slug='test-event',
+            title='Test Event',
+            is_public=True,
+            event_structure='SIMPLE'
+        )
+    
+    def get_cache_key(self, slug):
+        """Helper to get cache key"""
+        return f'invite_page:{slug}'
+    
+    def test_cache_hit_for_published_page(self):
+        """Test that published invite page is cached and subsequent requests hit cache"""
+        # Create published invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=True,
+            config={'themeId': 'classic-noir'}
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # First request - should be cache MISS
+        self.assertIsNone(cache.get(cache_key))
+        response1 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        
+        # Verify cache was set
+        cached_data = cache.get(cache_key)
+        self.assertIsNotNone(cached_data, "Cache should be set after first request")
+        
+        # Second request - should be cache HIT (no database queries)
+        with self.assertNumQueries(0):
+            response2 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        # Verify responses match
+        self.assertEqual(response1.json(), response2.json())
+    
+    def test_cache_miss_for_unpublished_page(self):
+        """Test that unpublished invite pages are never cached"""
+        # Create unpublished invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=False
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # Make multiple requests
+        for _ in range(3):
+            response = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+            # Should return 404 (unpublished)
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            # Cache should never be set
+            self.assertIsNone(cache.get(cache_key))
+    
+    def test_cache_bypass_for_guest_token(self):
+        """Test that guest token requests bypass cache"""
+        # Create published invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=True
+        )
+        
+        # Create guest with token
+        guest = Guest.objects.create(
+            event=self.event,
+            name='Test Guest',
+            phone='+911234567890',
+            guest_token='test-token-123'
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # Make request with guest token
+        response1 = self.client.get(f'/api/events/invite/{invite_page.slug}/?g=test-token-123')
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        
+        # Cache should not be set for guest token requests
+        # Public cache should not exist
+        self.assertIsNone(cache.get(cache_key))
+        
+        # Make another request with guest token - should hit database (not cached)
+        response2 = self.client.get(f'/api/events/invite/{invite_page.slug}/?g=test-token-123')
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        # Both should have guest context
+        self.assertIn('guest_context', response1.json())
+        self.assertIn('guest_context', response2.json())
+    
+    def test_cache_invalidation_on_update(self):
+        """Test that cache is invalidated when invite page is updated"""
+        # Create published invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=True,
+            config={'themeId': 'classic-noir'}
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # First request - cache MISS, then cached
+        response1 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(cache.get(cache_key))
+        
+        # Update invite page config
+        invite_page.config = {'themeId': 'modern-minimal'}
+        invite_page.save(update_fields=['config', 'updated_at'])
+        
+        # Cache should be invalidated
+        self.assertIsNone(cache.get(cache_key), "Cache should be invalidated after update")
+        
+        # Next request should be cache MISS (not HIT)
+        response2 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        # Verify new config is in response
+        self.assertNotEqual(response1.json(), response2.json())
+    
+    def test_cache_invalidation_on_publish(self):
+        """Test that cache is invalidated when invite page is published/unpublished"""
+        # Create unpublished invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=False
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # Publish it
+        invite_page.is_published = True
+        invite_page.save(update_fields=['is_published', 'updated_at'])
+        
+        # Cache should be invalidated (cleared)
+        self.assertIsNone(cache.get(cache_key))
+        
+        # First request after publish - cache MISS
+        response1 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        
+        # Second request - cache HIT
+        response2 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(response1.json(), response2.json())
+        
+        # Unpublish it
+        invite_page.is_published = False
+        invite_page.save(update_fields=['is_published', 'updated_at'])
+        
+        # Cache should be invalidated
+        self.assertIsNone(cache.get(cache_key))
+    
+    def test_cache_invalidation_on_subevent_change(self):
+        """Test that cache is invalidated when sub-events change"""
+        # Create published invite page with ENVELOPE event
+        self.event.event_structure = 'ENVELOPE'
+        self.event.save(update_fields=['event_structure'])
+        
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=True
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # First request - cache MISS, then cached
+        response1 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(cache.get(cache_key))
+        
+        # Add sub-event
+        sub_event = SubEvent.objects.create(
+            event=self.event,
+            title='Test Sub Event',
+            start_at=timezone.now() + timedelta(days=1),
+            is_public_visible=True
+        )
+        
+        # Cache should be invalidated (via signal)
+        self.assertIsNone(cache.get(cache_key), "Cache should be invalidated after sub-event change")
+        
+        # Next request should be cache MISS
+        response2 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+    
+    def test_cache_ttl_expiration(self):
+        """Test that cache TTL works correctly"""
+        # Create published invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=True
+        )
+        
+        cache_key = self.get_cache_key(invite_page.slug)
+        
+        # First request - cache MISS, then cached with TTL
+        response1 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(cache.get(cache_key))
+        
+        # Manually delete cache (simulating TTL expiration)
+        cache.delete(cache_key)
+        self.assertIsNone(cache.get(cache_key))
+        
+        # Next request should be cache MISS (cache expired)
+        response2 = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        # Cache should be set again
+        self.assertIsNotNone(cache.get(cache_key))
+    
+    def test_query_optimization_with_only(self):
+        """Test that query optimization with only() loads only required fields"""
+        # Create published invite page
+        invite_page = InvitePage.objects.create(
+            event=self.event,
+            slug=self.event.slug.lower(),
+            is_published=True,
+            config={'themeId': 'classic-noir'}
+        )
+        
+        # Make request and count queries
+        # Should use optimized query with only() - single query for InvitePage with select_related
+        # Note: May have additional queries for sub-events if event_structure is ENVELOPE
+        with self.assertNumQueries(1):  # Single query for InvitePage with select_related (SIMPLE event)
+            response = self.client.get(f'/api/events/invite/{invite_page.slug}/')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        
+        # Verify response has expected fields (from serializer)
+        self.assertIn('id', data)
+        self.assertIn('slug', data)
+        self.assertIn('config', data)
+        self.assertIn('event_structure', data)
+        self.assertIn('rsvp_mode', data)
+        
+        # Verify that Event fields are accessible (proving select_related worked)
+        self.assertEqual(data['event_structure'], 'SIMPLE')
+        self.assertEqual(data['rsvp_mode'], 'ONE_TAP_ALL')
 

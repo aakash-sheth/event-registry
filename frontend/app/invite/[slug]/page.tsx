@@ -143,7 +143,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       console.error('[InvitePage SSR] Invalid invite URL format:', url)
       return null
     }
-
+  
     // Detailed logging for diagnosis
     const requestStartTime = Date.now()
     const performanceTimings: any = {
@@ -163,7 +163,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       url,
       apiBase,
       hasGuestToken: !!guestToken,
-      timeout: 5000,
+      timeout: 15000,
       nodeEnv: process.env.NODE_ENV,
       backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
       publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
@@ -190,7 +190,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
 
   try {
     const controller = new AbortController()
-    const timeout = 5000 // 5 seconds max - should be plenty for a simple query
+    const timeout = 15000 // 15 seconds - increased for staging/production network latency
     
     // Log timeout setup
     console.log('[InvitePage SSR] Setting up fetch with timeout', {
@@ -211,7 +211,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       })
       controller.abort()
     }, timeout)
-
+  
     const tcpStartTime = Date.now()
     performanceTimings.tcpConnection = tcpStartTime - dnsTime
 
@@ -255,7 +255,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       }, (res) => {
         const firstByteTime = Date.now()
         performanceTimings.firstByte = firstByteTime - requestSentTime
-        clearTimeout(timeoutId)
+    clearTimeout(timeoutId)
 
         let data = ''
         res.on('data', (chunk) => {
@@ -267,13 +267,57 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
           performanceTimings.responseComplete = jsonEndTime - firstByteTime
           performanceTimings.totalDuration = jsonEndTime - requestStartTime
 
+          const statusCode = res.statusCode || 0
+          const isSuccess = statusCode >= 200 && statusCode < 300
+
+          // Check if response is HTML (starts with <) - indicates error page
+          const isHtml = data.trim().startsWith('<')
+          
+          // If it's an error status or HTML response, handle it appropriately
+          if (!isSuccess || isHtml) {
+            const errorDetails = {
+              slug,
+              url,
+              status: statusCode,
+              statusMessage: res.statusMessage,
+              contentType: res.headers['content-type'] || 'unknown',
+              dataPreview: data.substring(0, 200), // First 200 chars for debugging
+              dataSize: data.length,
+              isHtml,
+            }
+            
+            console.error('[InvitePage SSR] ❌ Error response received', errorDetails)
+            
+            // If it's HTML, try to extract error message or provide helpful error
+            if (isHtml) {
+              const errorMsg = statusCode === 404 
+                ? `Invite page not found for slug: ${slug}`
+                : statusCode === 500
+                ? `Server error (500) - backend may be experiencing issues`
+                : `Received HTML response instead of JSON (status: ${statusCode})`
+              
+              reject(new Error(errorMsg))
+              return
+            }
+            
+            // If it's not HTML but still an error, try to parse as JSON error response
+            try {
+              const errorData = JSON.parse(data)
+              reject(new Error(errorData.detail || errorData.error || `Request failed with status ${statusCode}`))
+            } catch (parseError) {
+              reject(new Error(`Request failed with status ${statusCode}: ${res.statusMessage || 'Unknown error'}`))
+            }
+            return
+          }
+
+          // Success response - try to parse JSON
           try {
             const jsonData = JSON.parse(data)
             
             console.log('[InvitePage SSR] ✅ Request successful', {
               slug,
               url,
-              status: res.statusCode,
+              status: statusCode,
               statusMessage: res.statusMessage,
               dataSize: data.length,
               totalDuration: performanceTimings.totalDuration,
@@ -281,15 +325,24 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
             })
 
             resolve({
-              ok: res.statusCode && res.statusCode >= 200 && res.statusCode < 300,
-              status: res.statusCode,
+              ok: true,
+              status: statusCode,
               statusText: res.statusMessage,
               json: async () => jsonData,
               data: jsonData,
             })
           } catch (parseError) {
-            console.error('[InvitePage SSR] JSON parse error', parseError)
-            reject(new Error(`Failed to parse JSON: ${parseError}`))
+            // Log the actual response for debugging
+            console.error('[InvitePage SSR] JSON parse error', {
+              error: parseError,
+              status: statusCode,
+              contentType: res.headers['content-type'],
+              dataPreview: data.substring(0, 200),
+              dataSize: data.length,
+              url,
+              slug,
+            })
+            reject(new Error(`Failed to parse JSON response: ${parseError}. Response may be HTML or invalid JSON.`))
           }
         })
       })
@@ -338,8 +391,8 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
 
     const errorDetails = {
       type: 'HTTP_ERROR',
-      status: response.status,
-      statusText: response.statusText,
+        status: response.status,
+        statusText: response.statusText,
       url,
       slug,
       responseBody: errorBody.substring(0, 1000),
@@ -371,7 +424,7 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     if (error.name === 'AbortError') {
       const timeoutError = {
         type: 'TIMEOUT_ERROR',
-        message: `Request timeout after 5 seconds`,
+        message: `Request timeout after 15 seconds`,
         url,
         slug,
         errorName: error.name,
@@ -418,7 +471,7 @@ async function fetchEventData(slug: string): Promise<Event | null> {
   
   try {
     const controller = new AbortController()
-    const timeout = 5000 // 5 seconds max
+    const timeout = 15000 // 15 seconds - increased for staging/production network latency
     const timeoutId = setTimeout(() => controller.abort(), timeout)
   
     // Use Node's native http/https to bypass Next.js fetch wrapper issues
@@ -440,9 +493,9 @@ async function fetchEventData(slug: string): Promise<Event | null> {
 
       const req = protocol.request(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      headers: {
+        'Content-Type': 'application/json',
+      },
         timeout: timeout,
       }, (res) => {
         clearTimeout(timeoutId)
@@ -457,7 +510,7 @@ async function fetchEventData(slug: string): Promise<Event | null> {
               statusText: res.statusMessage,
               json: async () => jsonData,
               data: jsonData,
-            })
+    })
           } catch (parseError) {
             reject(new Error(`Failed to parse JSON: ${parseError}`))
           }
@@ -465,7 +518,7 @@ async function fetchEventData(slug: string): Promise<Event | null> {
       })
 
       req.on('error', (error) => {
-        clearTimeout(timeoutId)
+    clearTimeout(timeoutId)
         reject(error)
       })
 
@@ -495,8 +548,8 @@ async function fetchEventData(slug: string): Promise<Event | null> {
 
     const errorDetails = {
       type: 'HTTP_ERROR',
-      status: response.status,
-      statusText: response.statusText,
+        status: response.status,
+        statusText: response.statusText,
       url,
       slug,
       responseBody: errorBody.substring(0, 1000),
@@ -509,7 +562,7 @@ async function fetchEventData(slug: string): Promise<Event | null> {
     if (error.name === 'AbortError') {
       const timeoutError = {
         type: 'TIMEOUT_ERROR',
-        message: `Request timeout after 5 seconds`,
+        message: `Request timeout after 15 seconds`,
         url,
         slug,
         errorName: error.name,
@@ -571,111 +624,111 @@ export async function generateMetadata({
       eventFound: !!event,
     })
 
-    // Get frontend URL for absolute URL conversion
-    const frontendUrl = getFrontendUrl()
-    const baseUrl = frontendUrl.replace('/api', '')
-    const pageUrl = `${baseUrl}/invite/${params.slug}`
+  // Get frontend URL for absolute URL conversion
+  const frontendUrl = getFrontendUrl()
+  const baseUrl = frontendUrl.replace('/api', '')
+  const pageUrl = `${baseUrl}/invite/${params.slug}`
 
-    if (!event) {
+  if (!event) {
       tracker.step('METADATA_COMPLETE', 'Metadata object created (fallback)')
-      return {
+    return {
+      title: 'Event Invitation',
+      description: 'Join us for a special celebration',
+      robots: {
+        index: false, // Don't index 404 pages
+        follow: false,
+      },
+      openGraph: {
         title: 'Event Invitation',
         description: 'Join us for a special celebration',
-        robots: {
-          index: false, // Don't index 404 pages
-          follow: false,
-        },
-        openGraph: {
-          title: 'Event Invitation',
-          description: 'Join us for a special celebration',
-          type: 'website',
-          url: pageUrl,
-        },
-        twitter: {
-          card: 'summary_large_image',
-          title: 'Event Invitation',
-          description: 'Join us for a special celebration',
-        },
-      }
-    }
-
-    // Extract title from page_config or use event title
-    let baseTitle = event.title || 'Event Invitation'
-    if (event.page_config?.tiles) {
-      const titleTile = event.page_config.tiles.find(
-        (tile: any) => tile.type === 'title' && tile.settings?.text
-      ) as any
-      if (titleTile?.settings?.text) {
-        baseTitle = titleTile.settings.text
-      }
-    }
-    
-    // Format title with suffix for branding
-    const title = `${baseTitle} | Wedding Invitation`
-
-    // Extract description
-    let description = event.description || 'Join us for a special celebration'
-    if (event.page_config?.tiles) {
-      const descTile = event.page_config.tiles.find(
-        (tile: any) => tile.type === 'description' && tile.settings?.content
-      ) as any
-      if (descTile?.settings?.content) {
-        // Strip HTML tags and limit length for description
-        description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
-      }
-    }
-
-    // Extract banner image with priority: banner_image > image tile
-    let bannerImage: string | undefined = event.banner_image
-    
-    if (!bannerImage && event.page_config?.tiles) {
-      // Find first enabled image tile with a source
-      const imageTile = event.page_config.tiles.find(
-        (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
-      ) as any
-      if (imageTile?.settings?.src) {
-        bannerImage = imageTile.settings.src
-      }
-    }
-
-    // Ensure banner image URL is absolute for Open Graph
-    let absoluteBannerImage: string | undefined = bannerImage
-    if (bannerImage) {
-      if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
-        // If relative URL (local dev), make it absolute using frontend URL
-        absoluteBannerImage = bannerImage.startsWith('/') 
-          ? `${baseUrl}${bannerImage}`
-          : `${baseUrl}/${bannerImage}`
-      } else {
-        // Already absolute (S3 URL), use as-is
-        absoluteBannerImage = bannerImage
-      }
-    }
-
-    const metadata: Metadata = {
-      title,
-      description,
-      openGraph: {
-        title,
-        description,
         type: 'website',
         url: pageUrl,
-        ...(absoluteBannerImage && { 
-          images: [{ 
-            url: absoluteBannerImage, 
-            alt: title,
-            width: 1200,
-            height: 630,
-          }] 
-        }),
       },
       twitter: {
         card: 'summary_large_image',
-        title,
-        description,
-        ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
+        title: 'Event Invitation',
+        description: 'Join us for a special celebration',
       },
     }
+  }
+
+  // Extract title from page_config or use event title
+  let baseTitle = event.title || 'Event Invitation'
+  if (event.page_config?.tiles) {
+    const titleTile = event.page_config.tiles.find(
+      (tile: any) => tile.type === 'title' && tile.settings?.text
+    ) as any
+    if (titleTile?.settings?.text) {
+      baseTitle = titleTile.settings.text
+    }
+  }
+  
+  // Format title with suffix for branding
+  const title = `${baseTitle} | Wedding Invitation`
+
+  // Extract description
+  let description = event.description || 'Join us for a special celebration'
+  if (event.page_config?.tiles) {
+    const descTile = event.page_config.tiles.find(
+      (tile: any) => tile.type === 'description' && tile.settings?.content
+    ) as any
+    if (descTile?.settings?.content) {
+      // Strip HTML tags and limit length for description
+      description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
+    }
+  }
+
+  // Extract banner image with priority: banner_image > image tile
+  let bannerImage: string | undefined = event.banner_image
+  
+  if (!bannerImage && event.page_config?.tiles) {
+    // Find first enabled image tile with a source
+    const imageTile = event.page_config.tiles.find(
+      (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
+    ) as any
+    if (imageTile?.settings?.src) {
+      bannerImage = imageTile.settings.src
+    }
+  }
+
+  // Ensure banner image URL is absolute for Open Graph
+  let absoluteBannerImage: string | undefined = bannerImage
+  if (bannerImage) {
+    if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
+      // If relative URL (local dev), make it absolute using frontend URL
+    absoluteBannerImage = bannerImage.startsWith('/') 
+      ? `${baseUrl}${bannerImage}`
+      : `${baseUrl}/${bannerImage}`
+    } else {
+      // Already absolute (S3 URL), use as-is
+      absoluteBannerImage = bannerImage
+    }
+  }
+
+  const metadata: Metadata = {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+      url: pageUrl,
+      ...(absoluteBannerImage && { 
+        images: [{ 
+          url: absoluteBannerImage, 
+          alt: title,
+          width: 1200,
+          height: 630,
+        }] 
+      }),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
+    },
+  }
 
     tracker.step('METADATA_COMPLETE', 'Metadata object created')
     tracker.logSummary('METADATA GENERATION')
@@ -685,7 +738,7 @@ export async function generateMetadata({
       totalDuration: tracker.getSummary().totalDuration,
     })
 
-    return metadata
+  return metadata
   } catch (error: any) {
     console.error('[InvitePage Metadata] ❌ ERROR in generateMetadata', {
       slug: params.slug,
@@ -733,11 +786,11 @@ export default async function InvitePage({
   tracker?.step('ROUTE_ENTRY', 'Next.js route handler called')
   console.log('[InvitePage SSR] ====== PAGE RENDER START ======', {
     timestamp: new Date().toISOString(),
-    slug,
-    hasGuestToken: !!searchParams.g,
+        slug,
+        hasGuestToken: !!searchParams.g,
     guestToken: searchParams.g ? 'present' : 'none',
     nodeEnv: process.env.NODE_ENV,
-    apiBase: getApiBase(),
+        apiBase: getApiBase(),
     backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
     publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
     processUptime: process.uptime(),
@@ -1070,7 +1123,7 @@ export default async function InvitePage({
     hasConfig: !!initialConfig,
     hasTiles: !!(initialConfig?.tiles && initialConfig.tiles.length > 0),
   })
-  
+
   // Extract hero tiles (image + title overlay if exists) and event details for SSR
   let heroSSR: React.ReactNode = null
   let eventDetailsSSR: React.ReactNode = null
@@ -1138,7 +1191,7 @@ export default async function InvitePage({
       hasEvent: !!event,
       hasConfig: !!initialConfig,
     })
-    
+
     // Extract allowed_sub_events from invite data
     const allowedSubEvents = inviteData?.allowed_sub_events || []
     
