@@ -156,3 +156,4 @@ else
     echo "   aws logs tail /ecs/$CLUSTER_NAME/backend --follow"
     exit 1
 fi
+

@@ -230,6 +230,7 @@ class SubEvent(models.Model):
     location = models.CharField(max_length=500, blank=True)
     description = models.TextField(blank=True, null=True)
     image_url = models.TextField(blank=True, null=True)
+    background_color = models.CharField(max_length=7, blank=True, null=True, help_text="Background color for sub-event image (hex format, e.g., #FFFFFF)")
     rsvp_enabled = models.BooleanField(default=True)
     is_public_visible = models.BooleanField(default=False, help_text="Visible on public invite links without guest token")
     is_removed = models.BooleanField(default=False)

@@ -8,7 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { getErrorMessage, logError } from '@/lib/error-handler'
-import { Calendar, MapPin, Clock, Plus, Edit, Trash2, Eye, EyeOff } from 'lucide-react'
+import { Calendar, MapPin, Clock, Plus, Edit, Trash2, Eye, EyeOff, Maximize2 } from 'lucide-react'
+import { extractDominantColors, rgbToHex } from '@/lib/invite/imageAnalysis'
+import RichTextEditor from '@/components/invite/RichTextEditor'
+import DescriptionEditorModal from '@/components/invite/DescriptionEditorModal'
 
 interface Event {
   id: number
@@ -26,6 +29,7 @@ interface SubEvent {
   location: string
   description?: string | null
   image_url?: string | null
+  background_color?: string | null
   rsvp_enabled: boolean
   is_public_visible: boolean
 }
@@ -51,11 +55,13 @@ export default function SubEventsPage() {
     location: '',
     description: '',
     image_url: '',
+    background_color: '#ffffff',
     rsvp_enabled: true,
     is_public_visible: false,
   })
   const [saving, setSaving] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [isDescriptionModalOpen, setIsDescriptionModalOpen] = useState(false)
 
   useEffect(() => {
     if (!eventId || isNaN(eventId)) {
@@ -105,6 +111,7 @@ export default function SubEventsPage() {
       location: '',
       description: '',
       image_url: '',
+      background_color: '#ffffff',
       rsvp_enabled: true,
       is_public_visible: false,
     })
@@ -120,6 +127,7 @@ export default function SubEventsPage() {
       location: subEvent.location || '',
       description: subEvent.description || '',
       image_url: subEvent.image_url || '',
+      background_color: subEvent.background_color || '#ffffff',
       rsvp_enabled: subEvent.rsvp_enabled,
       is_public_visible: subEvent.is_public_visible,
     })
@@ -151,6 +159,7 @@ export default function SubEventsPage() {
       end_at: formData.end_at ? new Date(formData.end_at).toISOString() : null,
       description: formData.description || null,
       image_url: formData.image_url || null,
+      background_color: formData.background_color || null,
     }
 
     try {
@@ -333,15 +342,33 @@ export default function SubEventsPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Description
-                      </label>
-                      <textarea
-                        value={formData.description}
-                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
-                        rows={3}
-                        placeholder="Event description"
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium text-gray-700">Description</label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsDescriptionModalOpen(true)}
+                          className="text-xs border-eco-green text-eco-green hover:bg-eco-green hover:text-white"
+                        >
+                          <Maximize2 className="h-3 w-3 mr-1" />
+                          Full Screen Editor
+                        </Button>
+                      </div>
+                      <RichTextEditor
+                        value={formData.description || ''}
+                        onChange={(value) => setFormData({ ...formData, description: value })}
+                        placeholder="Enter sub-event description..."
+                      />
+                      <p className="text-xs text-gray-500 mt-2">
+                        Use the toolbar to format text and add links. Click "Full Screen Editor" for a larger editing area.
+                      </p>
+                      <DescriptionEditorModal
+                        isOpen={isDescriptionModalOpen}
+                        onClose={() => setIsDescriptionModalOpen(false)}
+                        value={formData.description || ''}
+                        onChange={(value) => setFormData({ ...formData, description: value })}
+                        placeholder="Enter sub-event description..."
                       />
                     </div>
 
@@ -407,8 +434,24 @@ export default function SubEventsPage() {
                               setUploadingImage(true)
                               try {
                                 const imageUrl = await uploadImage(file, eventId)
+                                // Update UI immediately with uploaded image
                                 setFormData({ ...formData, image_url: imageUrl })
                                 showToast('Image uploaded successfully', 'success')
+                                
+                                // Extract dominant color for background asynchronously (non-blocking)
+                                extractDominantColors(imageUrl, 3)
+                                  .then((colors) => {
+                                    const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      background_color: primaryColor,
+                                    }))
+                                  })
+                                  .catch((error) => {
+                                    console.error('Error extracting dominant colors (non-critical):', error)
+                                    // Color extraction failed, but image is already uploaded and displayed
+                                    // User can manually set background color if needed
+                                  })
                               } catch (error: any) {
                                 showToast('Failed to upload image. Please try again.', 'error')
                                 logError('Error uploading image:', error)
@@ -423,6 +466,30 @@ export default function SubEventsPage() {
                         </label>
                       </div>
                     </div>
+
+                    {formData.image_url && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Background Color
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={formData.background_color || '#ffffff'}
+                            onChange={(e) => setFormData({ ...formData, background_color: e.target.value })}
+                            className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={formData.background_color || '#ffffff'}
+                            onChange={(e) => setFormData({ ...formData, background_color: e.target.value })}
+                            placeholder="#FFFFFF"
+                            className="flex-1 text-sm border rounded px-3 py-2"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Used when image doesn't fill the container</p>
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-6">
                       <label className="flex items-center gap-2">
@@ -671,15 +738,33 @@ export default function SubEventsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
-                      placeholder="Additional details about this sub-event"
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700">Description</label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsDescriptionModalOpen(true)}
+                        className="text-xs border-eco-green text-eco-green hover:bg-eco-green hover:text-white"
+                      >
+                        <Maximize2 className="h-3 w-3 mr-1" />
+                        Full Screen Editor
+                      </Button>
+                    </div>
+                    <RichTextEditor
+                      value={formData.description || ''}
+                      onChange={(value) => setFormData({ ...formData, description: value })}
+                      placeholder="Enter sub-event description..."
+                    />
+                    <p className="text-xs text-gray-500 mt-2">
+                      Use the toolbar to format text and add links. Click "Full Screen Editor" for a larger editing area.
+                    </p>
+                    <DescriptionEditorModal
+                      isOpen={isDescriptionModalOpen}
+                      onClose={() => setIsDescriptionModalOpen(false)}
+                      value={formData.description || ''}
+                      onChange={(value) => setFormData({ ...formData, description: value })}
+                      placeholder="Enter sub-event description..."
                     />
                   </div>
 
@@ -745,8 +830,24 @@ export default function SubEventsPage() {
                             setUploadingImage(true)
                             try {
                               const imageUrl = await uploadImage(file, eventId)
+                              // Update UI immediately with uploaded image
                               setFormData({ ...formData, image_url: imageUrl })
                               showToast('Image uploaded successfully', 'success')
+                              
+                              // Extract dominant color for background asynchronously (non-blocking)
+                              extractDominantColors(imageUrl, 3)
+                                .then((colors) => {
+                                  const primaryColor = rgbToHex(colors[0] || 'rgb(0,0,0)')
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    background_color: primaryColor,
+                                  }))
+                                })
+                                .catch((error) => {
+                                  console.error('Error extracting dominant colors (non-critical):', error)
+                                  // Color extraction failed, but image is already uploaded and displayed
+                                  // User can manually set background color if needed
+                                })
                             } catch (error: any) {
                               showToast('Failed to upload image. Please try again.', 'error')
                               logError('Error uploading image:', error)
@@ -761,6 +862,30 @@ export default function SubEventsPage() {
                       </label>
                     </div>
                   </div>
+
+                  {formData.image_url && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Background Color
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={formData.background_color || '#ffffff'}
+                          onChange={(e) => setFormData({ ...formData, background_color: e.target.value })}
+                          className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={formData.background_color || '#ffffff'}
+                          onChange={(e) => setFormData({ ...formData, background_color: e.target.value })}
+                          placeholder="#FFFFFF"
+                          className="flex-1 text-sm border rounded px-3 py-2"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Used when image doesn't fill the container</p>
+                    </div>
+                  )}
 
                   <div className="flex gap-4">
                     <label className="flex items-center">

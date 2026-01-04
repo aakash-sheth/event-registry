@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Tile, TileType } from '@/lib/invite/schema'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import TitleTileSettings from './TitleTileSettings'
@@ -21,6 +21,9 @@ interface TileSettingsProps {
   eventId: number
   hasRsvp?: boolean
   hasRegistry?: boolean
+  forceExpanded?: boolean
+  isDragging?: boolean
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>
 }
 
 const TILE_LABELS: Record<TileType, string> = {
@@ -34,8 +37,13 @@ const TILE_LABELS: Record<TileType, string> = {
   'event-carousel': 'Event Carousel',
 }
 
-export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId, hasRsvp = false, hasRegistry = false }: TileSettingsProps) {
-  const [isExpanded, setIsExpanded] = useState(true)
+export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId, hasRsvp = false, hasRegistry = false, forceExpanded = false, isDragging = false, dragHandleProps }: TileSettingsProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  // Sync with forceExpanded prop
+  useEffect(() => {
+    setIsExpanded(forceExpanded)
+  }, [forceExpanded])
 
   const handleSettingsChange = (settings: any) => {
     onUpdate({
@@ -104,7 +112,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
   const isMandatory = isTitleTile || tile.type === 'event-details'
 
   return (
-    <div className="border rounded-lg bg-white w-full overflow-x-hidden">
+    <div className={`border rounded-lg w-full overflow-x-hidden ${tile.enabled || isMandatory ? 'bg-white' : 'bg-gray-50 opacity-75'}`}>
       <div className="flex items-center justify-between p-3 sm:p-4 border-b w-full min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {isMandatory ? (
@@ -119,9 +127,12 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
               className="w-4 h-4 text-eco-green flex-shrink-0"
             />
           )}
-          <h3 className="font-semibold text-gray-800 text-sm sm:text-base truncate min-w-0">
+          <h3 className={`font-semibold text-sm sm:text-base truncate min-w-0 ${tile.enabled || isMandatory ? 'text-gray-800' : 'text-gray-500'}`}>
             {TILE_LABELS[tile.type]}
             {isMandatory && <span className="text-red-500 ml-1">*</span>}
+            {!tile.enabled && !isMandatory && (
+              <span className="text-xs text-gray-400 ml-2 font-normal">(Disabled)</span>
+            )}
           </h3>
         </div>
         <button

@@ -18,6 +18,7 @@ interface SubEvent {
   location: string
   description?: string | null
   image_url?: string | null
+  background_color?: string | null
   rsvp_enabled: boolean
 }
 
@@ -428,11 +429,13 @@ export default function EventCarouselTile({
 
           // Always use recommended dimensions from the start to prevent layout shift
           // The container size is fixed, and object-fit: contain will handle scaling
+          const backgroundColor = subEvent.background_color || '#e5e7eb' // Default to gray-200 if not set
           return (
             <div 
-              className={`w-full ${imageHeightClass} bg-gray-200 overflow-hidden flex items-center justify-center`} 
+              className={`w-full ${imageHeightClass} overflow-hidden flex items-center justify-center`} 
               style={{
                 ...imageAspectStyle,
+                backgroundColor,
                 maxWidth: '100%',
                 maxHeight: `${recommendedDims.maxHeight}px`,
                 height: `${recommendedDims.maxHeight}px`, // Fixed height to prevent shift

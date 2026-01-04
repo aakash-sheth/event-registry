@@ -272,7 +272,7 @@ class SubEventSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = SubEvent
-        fields = ('id', 'event', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled', 'is_public_visible', 'is_removed', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'background_color', 'rsvp_enabled', 'is_public_visible', 'is_removed', 'created_at', 'updated_at')
         read_only_fields = ('id', 'event', 'created_at', 'updated_at')
     
     def validate(self, data):
@@ -291,7 +291,7 @@ class SubEventCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = SubEvent
-        fields = ('title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'rsvp_enabled', 'is_public_visible')
+        fields = ('title', 'start_at', 'end_at', 'location', 'description', 'image_url', 'background_color', 'rsvp_enabled', 'is_public_visible')
     
     def validate(self, data):
         """Validate that end_at is after start_at if both are provided"""

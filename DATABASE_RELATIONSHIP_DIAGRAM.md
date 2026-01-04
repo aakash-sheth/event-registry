@@ -220,3 +220,4 @@ All models use custom table names:
 - `orders` (Order)
 - `notification_logs` (NotificationLog)
 
+

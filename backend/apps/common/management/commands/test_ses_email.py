@@ -264,3 +264,4 @@ This is an automated test message. You can safely ignore it.
                 self.stdout.write('')
         else:
             self.stdout.write(self.style.WARNING('  No email logs found.'))
+

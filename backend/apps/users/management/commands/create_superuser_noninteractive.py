@@ -60,3 +60,4 @@ class Command(BaseCommand):
                 self.style.ERROR(f'Error creating superuser: {str(e)}')
             )
 
+

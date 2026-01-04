@@ -16,7 +16,7 @@ import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
 import { getInvitePage, createInvitePage, publishInvitePage, getPublicInvite } from '@/lib/invite/api'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import TileList from '@/components/invite/tiles/TileList'
-import TileSettings from '@/components/invite/tiles/TileSettings'
+import TileSettingsList from '@/components/invite/tiles/TileSettingsList'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 
 interface Event {
@@ -131,6 +131,7 @@ export default function DesignInvitationPage(): JSX.Element {
   const [rightPanelStyle, setRightPanelStyle] = useState<React.CSSProperties>({})
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [spacerHeight, setSpacerHeight] = useState<number | null>(null)
+  const [allTilesExpanded, setAllTilesExpanded] = useState(false)
   const [config, setConfig] = useState<InviteConfig>({
     themeId: 'classic-noir',
     tiles: DEFAULT_TILES,
@@ -1075,33 +1076,38 @@ export default function DesignInvitationPage(): JSX.Element {
             </div>
 
             <div className="bg-white rounded-lg border-2 border-eco-green-light p-3 sm:p-4 w-full overflow-x-hidden">
-              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-3 sm:mb-4">
-                Tile Settings
-                {sortedTiles && sortedTiles.length > 0 && (
-                  <span className="text-xs text-gray-500 font-normal ml-2">
-                    ({sortedTiles.length} {sortedTiles.length === 1 ? 'tile' : 'tiles'})
-                  </span>
-                )}
-              </h2>
-              <div className="space-y-4 w-full">
-                {sortedTiles && sortedTiles.length > 0 ? (
-                  sortedTiles.map((tile) => (
-                    <TileSettings
-                      key={tile.id}
-                      tile={tile}
-                      onUpdate={handleTileUpdate}
-                      onToggle={handleTileToggle}
-                      allTiles={sortedTiles}
-                      onOverlayToggle={handleOverlayToggle}
-                      eventId={eventId}
-                      hasRsvp={event?.has_rsvp}
-                      hasRegistry={event?.has_registry}
-                    />
-                  ))
-                ) : (
-                  <p className="text-gray-500 text-sm">No tiles available</p>
-                )}
-                    </div>
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-eco-green">
+                  Tile Settings
+                  {sortedTiles && sortedTiles.length > 0 && (
+                    <span className="text-xs text-gray-500 font-normal ml-2">
+                      ({sortedTiles.length} {sortedTiles.length === 1 ? 'tile' : 'tiles'})
+                    </span>
+                  )}
+                </h2>
+                <button
+                  onClick={() => setAllTilesExpanded(!allTilesExpanded)}
+                  className="text-xs text-eco-green hover:underline px-2 py-1 rounded hover:bg-eco-green-light transition-colors"
+                  type="button"
+                >
+                  {allTilesExpanded ? 'Collapse All' : 'Expand All'}
+                </button>
+              </div>
+              {sortedTiles && sortedTiles.length > 0 ? (
+                <TileSettingsList
+                  tiles={sortedTiles}
+                  onReorder={handleTileReorder}
+                  onUpdate={handleTileUpdate}
+                  onToggle={handleTileToggle}
+                  onOverlayToggle={handleOverlayToggle}
+                  eventId={eventId}
+                  hasRsvp={event?.has_rsvp}
+                  hasRegistry={event?.has_registry}
+                  forceExpanded={allTilesExpanded}
+                />
+              ) : (
+                <p className="text-gray-500 text-sm">No tiles available</p>
+              )}
                   </div>
                 </div>
 
@@ -1123,7 +1129,14 @@ export default function DesignInvitationPage(): JSX.Element {
                 overflowY: 'auto'
               }}
             >
-              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-2">Mobile Preview</h2>
+              <h2 className="text-base sm:text-lg font-semibold text-eco-green mb-2">
+                Mobile Preview
+                {sortedTiles && (
+                  <span className="text-xs text-gray-500 font-normal ml-2">
+                    ({sortedTiles.filter(t => t.enabled).length} of {sortedTiles.length} enabled)
+                  </span>
+                )}
+              </h2>
               <p className="text-xs text-gray-600 mb-3 sm:mb-4">Customize your invitation by dragging tiles up and down to reorder them.</p>
               {/* iPhone 16 Frame - Responsive */}
               <div className="flex justify-center items-start w-full overflow-x-hidden">

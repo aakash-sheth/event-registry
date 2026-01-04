@@ -173,3 +173,4 @@ echo "  2. Review NotificationLog errors"
 echo "  3. Check CloudWatch logs for detailed errors"
 echo "  4. Verify SES is out of sandbox mode"
 echo "  5. Verify FROM email is verified in SES"
+
