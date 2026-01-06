@@ -114,7 +114,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
   return (
     <div className={`border rounded-lg w-full overflow-x-hidden ${tile.enabled || isMandatory ? 'bg-white' : 'bg-gray-50 opacity-75'}`}>
       <div className="flex items-center justify-between p-3 sm:p-4 border-b w-full min-w-0">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-8 sm:pl-10">
           {isMandatory ? (
             <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
               <span className="text-xs text-eco-green font-bold">*</span>
@@ -124,7 +124,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
               type="checkbox"
               checked={tile.enabled}
               onChange={(e) => onToggle(tile.id, e.target.checked)}
-              className="w-4 h-4 text-eco-green flex-shrink-0"
+              className="w-4 h-4 text-eco-green flex-shrink-0 cursor-pointer"
             />
           )}
           <h3 className={`font-semibold text-sm sm:text-base truncate min-w-0 ${tile.enabled || isMandatory ? 'text-gray-800' : 'text-gray-500'}`}>

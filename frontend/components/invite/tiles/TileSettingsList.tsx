@@ -49,31 +49,6 @@ export default function TileSettingsList({
     })
   )
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-
-    if (over && active.id !== over.id) {
-      const oldIndex = tiles.findIndex((t) => t.id === active.id)
-      const newIndex = tiles.findIndex((t) => t.id === over.id)
-
-      // Don't allow moving footer
-      const activeTile = tiles[oldIndex]
-      if (activeTile?.type === 'footer') return
-
-      // Don't allow moving items after footer
-      const footerIndex = tiles.findIndex((t) => t.type === 'footer')
-      if (footerIndex !== -1 && newIndex >= footerIndex) return
-
-      const newTiles = arrayMove(tiles, oldIndex, newIndex)
-      // Update order values
-      const reorderedTiles = newTiles.map((tile, index) => ({
-        ...tile,
-        order: index,
-      }))
-      onReorder(reorderedTiles)
-    }
-  }
-
   // Separate footer from other tiles
   const footerTile = tiles.find((t) => t.type === 'footer')
   const otherTiles = tiles.filter((t) => t.type !== 'footer')
@@ -86,6 +61,44 @@ export default function TileSettingsList({
     }
     return true
   })
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      // Find indices in the visible tiles list (tilesToRender + footer)
+      const visibleTiles = [...tilesToRender, ...(footerTile ? [footerTile] : [])]
+      const oldIndexInVisible = visibleTiles.findIndex((t) => t.id === active.id)
+      const newIndexInVisible = visibleTiles.findIndex((t) => t.id === over.id)
+
+      if (oldIndexInVisible === -1 || newIndexInVisible === -1) return
+
+      // Don't allow moving footer
+      const activeTile = visibleTiles[oldIndexInVisible]
+      if (activeTile?.type === 'footer') return
+
+      // Don't allow moving items after footer
+      const footerIndexInVisible = visibleTiles.findIndex((t) => t.type === 'footer')
+      if (footerIndexInVisible !== -1 && newIndexInVisible >= footerIndexInVisible) return
+
+      // Now find the actual tiles in the full tiles array and reorder
+      const activeTileInFull = tiles.find((t) => t.id === active.id)
+      const overTileInFull = tiles.find((t) => t.id === over.id)
+      
+      if (!activeTileInFull || !overTileInFull) return
+
+      const oldIndex = tiles.findIndex((t) => t.id === active.id)
+      const newIndex = tiles.findIndex((t) => t.id === over.id)
+
+      const newTiles = arrayMove(tiles, oldIndex, newIndex)
+      // Update order values based on the new position
+      const reorderedTiles = newTiles.map((tile, index) => ({
+        ...tile,
+        order: index,
+      }))
+      onReorder(reorderedTiles)
+    }
+  }
 
   return (
     <DndContext

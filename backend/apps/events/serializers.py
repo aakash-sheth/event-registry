@@ -27,12 +27,14 @@ class InvitePageSerializer(serializers.ModelSerializer):
     guest_context = serializers.SerializerMethodField()
     event_structure = serializers.CharField(source='event.event_structure', read_only=True)
     rsvp_mode = serializers.CharField(source='event.rsvp_mode', read_only=True)
+    has_rsvp = serializers.BooleanField(source='event.has_rsvp', read_only=True)
+    has_registry = serializers.BooleanField(source='event.has_registry', read_only=True)
     state = serializers.SerializerMethodField()  # Expose state property using method field
     
     class Meta:
         model = InvitePage
-        fields = ('id', 'event', 'event_slug', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'event_slug', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'event_slug', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event_slug', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
     
     def get_allowed_sub_events(self, obj):
         """Get allowed sub-events - set by view based on guest token or public visibility"""
