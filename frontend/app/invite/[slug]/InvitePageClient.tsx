@@ -27,6 +27,7 @@ interface InvitePageClientProps {
   initialEvent?: Event | null
   initialConfig?: InviteConfig | null
   heroSSR?: React.ReactNode
+  titleSSR?: React.ReactNode
   eventDetailsSSR?: React.ReactNode
   allowedSubEvents?: any[]
 }
@@ -36,6 +37,7 @@ export default function InvitePageClient({
   initialEvent = null, 
   initialConfig = null,
   heroSSR = null,
+  titleSSR = null,
   eventDetailsSSR = null,
   allowedSubEvents = [],
 }: InvitePageClientProps) {
@@ -429,7 +431,7 @@ export default function InvitePageClient({
     elapsedSinceMount: Date.now() - clientStartTime,
   })
   
-  const configForClient = heroSSR || eventDetailsSSR ? {
+  const configForClient = heroSSR || titleSSR || eventDetailsSSR ? {
     ...config,
     tiles: config.tiles?.filter((tile) => {
       // Skip image tile if heroSSR is provided
@@ -438,6 +440,10 @@ export default function InvitePageClient({
       }
       // Skip title tile if it's overlaying on image (heroSSR handles it)
       if (heroSSR && tile.type === 'title' && tile.overlayTargetId) {
+        return false
+      }
+      // Skip standalone title tile if titleSSR is provided
+      if (titleSSR && tile.type === 'title' && !tile.overlayTargetId) {
         return false
       }
       // Skip event-details tile if eventDetailsSSR is provided
@@ -474,6 +480,9 @@ export default function InvitePageClient({
       
       {/* Server-rendered hero section */}
       {heroSSR}
+      
+      {/* Server-rendered standalone title */}
+      {titleSSR}
       
       {/* Server-rendered event details */}
       {eventDetailsSSR}

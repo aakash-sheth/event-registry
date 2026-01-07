@@ -55,6 +55,7 @@ export interface EventDetailsTileSettings {
     lng: number
   } // Optional precise coordinates (auto-verifies when provided)
   showMap?: boolean // Option to display embedded map (only works if mapUrl is provided and valid and location is verified)
+  mapZoom?: number // Zoom level for embedded map (11-20: 11-15 for city/area view, 16-20 for street view, default: 15)
   fontColor?: string // Font color for event details text (hex color, e.g., "#000000")
   buttonColor?: string // Hex color for Save the Date button (e.g., "#1F2937")
   // Border styling options

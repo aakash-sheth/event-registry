@@ -83,11 +83,20 @@ export function isValidMapUrl(url: string | undefined): boolean {
  * Convert map URL to embeddable format
  * Returns null if URL cannot be embedded
  * Can also accept coordinates directly for more accurate embedding
+ * @param mapUrl - The map URL or address text
+ * @param coordinates - Optional precise coordinates (lat, lng)
+ * @param zoom - Optional zoom level (unused, always uses street level 19)
  */
-export function getEmbedUrl(mapUrl: string, coordinates?: { lat: number, lng: number }): string | null {
+export function getEmbedUrl(
+  mapUrl: string, 
+  coordinates?: { lat: number, lng: number },
+  zoom?: number
+): string | null {
+  const zoomLevel = 19 // Always use street level (19-20) for optimal detail - shows individual buildings
+  
   // Prioritize coordinates if provided (most accurate)
   if (coordinates && typeof coordinates.lat === 'number' && typeof coordinates.lng === 'number') {
-    return `https://www.google.com/maps?q=${coordinates.lat},${coordinates.lng}&output=embed`
+    return `https://www.google.com/maps?q=${coordinates.lat},${coordinates.lng}&z=${zoomLevel}&output=embed`
   }
   
   if (!mapUrl || !mapUrl.trim()) return null
@@ -109,30 +118,61 @@ export function getEmbedUrl(mapUrl: string, coordinates?: { lat: number, lng: nu
     
     // Google Maps - convert to embed format
     if (hostname.includes('google.com') || hostname.includes('maps.google.com')) {
-      // If already embed format, return as-is (with extracted URL)
-      if (pathname.includes('/embed')) {
-        return extractedUrl
-      }
+      // Extract location information from various URL formats
+      let locationQuery: string | null = null
       
-      // Extract location from q parameter
+      // Try to get location from q parameter first
       const q = url.searchParams.get('q')
       if (q) {
         // Check if q parameter contains coordinates (lat,lng format)
         const coordMatch = q.match(/^(-?\d+\.?\d*),(-?\d+\.?\d*)$/)
         if (coordMatch) {
-          // It's a coordinate-based URL, use directly
-          return `https://www.google.com/maps?q=${q}&output=embed`
+          locationQuery = q // Use coordinates directly
+        } else {
+          locationQuery = q // Use as address/place name
         }
-        
-        // Use Google Maps embed format (works without API key)
-        return `https://www.google.com/maps?q=${encodeURIComponent(q)}&output=embed`
       }
       
-      // Try to extract from pathname (e.g., /maps/place/...)
-      const placeMatch = url.pathname.match(/\/place\/([^/]+)/)
-      if (placeMatch) {
-        const placeName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' '))
-        return `https://www.google.com/maps?q=${encodeURIComponent(placeName)}&output=embed`
+      // If no q parameter, try to extract from pathname (e.g., /maps/place/...)
+      if (!locationQuery) {
+        const placeMatch = url.pathname.match(/\/place\/([^/]+)/)
+        if (placeMatch) {
+          locationQuery = decodeURIComponent(placeMatch[1].replace(/\+/g, ' '))
+        }
+      }
+      
+      // If still no location, try ll parameter (lat,lng)
+      if (!locationQuery) {
+        const ll = url.searchParams.get('ll')
+        if (ll) {
+          locationQuery = ll
+        }
+      }
+      
+      // If we found a location, rebuild URL with forced zoom level
+      if (locationQuery) {
+        // Check if it's coordinates
+        const coordMatch = locationQuery.match(/^(-?\d+\.?\d*),(-?\d+\.?\d*)$/)
+        if (coordMatch) {
+          // Coordinates - use directly
+          return `https://www.google.com/maps?q=${locationQuery}&z=${zoomLevel}&output=embed`
+        } else {
+          // Address/place name - encode it
+          return `https://www.google.com/maps?q=${encodeURIComponent(locationQuery)}&z=${zoomLevel}&output=embed`
+        }
+      }
+      
+      // If already embed format but we couldn't extract location, try to force zoom
+      if (pathname.includes('/embed')) {
+        // Remove viewport parameters that might override zoom
+        url.searchParams.delete('ll')
+        url.searchParams.delete('spn') // span/viewport
+        url.searchParams.delete('t') // map type
+        // Force zoom level
+        url.searchParams.set('z', zoomLevel.toString())
+        // Ensure output=embed is set
+        url.searchParams.set('output', 'embed')
+        return url.toString()
       }
     }
     

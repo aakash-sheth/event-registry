@@ -343,23 +343,43 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                       
                       {/* Embedded Map - only show if verified, enabled, and valid */}
                       {canDisplay && settings.showMap && mapUrl && isValidMapUrl(mapUrl) && (() => {
-                        const embedUrl = getEmbedUrl(mapUrl, settings.coordinates)
+                        const embedUrl = getEmbedUrl(mapUrl, settings.coordinates, settings.mapZoom)
                         
                         if (embedUrl) {
+                          // Get border settings to match tile styling
+                          const mapBorderColor = settings.borderColor || '#D1D5DB'
+                          const mapBorderWidth = settings.borderWidth || 1
+                          const mapBackgroundColor = settings.backgroundColor || '#FFFFFF'
+                          const mapBorderRadius = settings.borderRadius ?? 8
+                          
                           return (
-                            <div className="mt-6 w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-                              <iframe
-                                src={embedUrl}
-                                width="100%"
-                                height="300"
-                                style={{ border: 0 }}
-                                allowFullScreen
-                                loading="lazy"
-                                referrerPolicy="no-referrer-when-downgrade"
-                                title="Event location map"
-                                className="w-full"
-                              />
-                </div>
+                            <div className="mt-6">
+                              {/* Map container with enhanced styling */}
+                              <div 
+                                className="w-full rounded-xl overflow-hidden"
+                                style={{
+                                  border: `${mapBorderWidth * 2}px solid ${mapBorderColor}`,
+                                  borderRadius: `${mapBorderRadius}px`,
+                                  backgroundColor: mapBackgroundColor,
+                                  boxShadow: `0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)`,
+                                }}
+                              >
+                                <div className="relative">
+                                  <iframe
+                                    key={`map-${settings.mapZoom ?? 15}-${embedUrl}`}
+                                    src={embedUrl}
+                                    width="100%"
+                                    height="400"
+                                    style={{ border: 0 }}
+                                    allowFullScreen
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer-when-downgrade"
+                                    title="Event location map"
+                                    className="w-full"
+                                  />
+                                </div>
+                              </div>
+                            </div>
                           )
                         }
                         
@@ -531,22 +551,36 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
               
               {/* Embedded Map - only show if verified, enabled, and valid */}
               {canDisplay && settings.showMap && mapUrl && isValidMapUrl(mapUrl) && (() => {
-                const embedUrl = getEmbedUrl(mapUrl, settings.coordinates)
+                const embedUrl = getEmbedUrl(mapUrl, settings.coordinates, settings.mapZoom)
                 
                 if (embedUrl) {
                   return (
-                    <div className="mt-4 w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-                      <iframe
-                        src={embedUrl}
-                        width="100%"
-                        height="250"
-                        style={{ border: 0 }}
-                        allowFullScreen
-                        loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
-                        title="Event location map"
-                        className="w-full"
-                      />
+                    <div className="mt-4">
+                      {/* Map container with enhanced styling */}
+                      <div 
+                        className="w-full rounded-xl overflow-hidden"
+                        style={{
+                          border: `${borderWidth * 2}px solid ${borderColor}`,
+                          borderRadius: `${borderRadius}px`,
+                          backgroundColor: backgroundColor,
+                          boxShadow: `0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)`,
+                        }}
+                      >
+                        <div className="relative">
+                          <iframe
+                            key={`map-${settings.mapZoom ?? 15}-${embedUrl}`}
+                            src={embedUrl}
+                            width="100%"
+                            height="350"
+                            style={{ border: 0 }}
+                            allowFullScreen
+                            loading="lazy"
+                            referrerPolicy="no-referrer-when-downgrade"
+                            title="Event location map"
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )
                 }

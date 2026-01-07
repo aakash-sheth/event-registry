@@ -4,14 +4,15 @@ import { FONT_OPTIONS } from '@/lib/invite/fonts'
 
 interface TitleTileSSRProps {
   settings: TitleTileSettings
+  overlayMode?: boolean
 }
 
 /**
- * Server-safe version of TitleTile for overlay mode
- * Renders title text with positioning based on overlayPosition
+ * Server-safe version of TitleTile
+ * Supports both overlay mode (absolute positioning) and standalone mode
  * No client-side hooks or interactions
  */
-export default function TitleTileSSR({ settings }: TitleTileSSRProps) {
+export default function TitleTileSSR({ settings, overlayMode = false }: TitleTileSSRProps) {
   const fontFamily = settings.font || FONT_OPTIONS[0].family
   const color = settings.color || '#000000'
   const text = settings.text || 'Event Title'
@@ -26,22 +27,31 @@ export default function TitleTileSSR({ settings }: TitleTileSSRProps) {
   }
 
   const titleClassName = sizeClasses[size]
-  const position = settings.overlayPosition || { x: 50, y: 50 }
 
   // Overlay mode - position within image (matches client TitleTile overlay mode)
+  if (overlayMode) {
+    const position = settings.overlayPosition || { x: 50, y: 50 }
+    return (
+      <div
+        className="absolute z-10"
+        style={{
+          left: `${position.x}%`,
+          top: `${position.y}%`,
+          transform: 'translate(-50%, -50%)',
+          fontFamily,
+          color,
+          textAlign: 'center',
+        }}
+      >
+        <h1 className={`${titleClassName} font-bold`}>{text}</h1>
+      </div>
+    )
+  }
+
+  // Standalone mode - normal flow layout
   return (
-    <div
-      className="absolute z-10"
-      style={{
-        left: `${position.x}%`,
-        top: `${position.y}%`,
-        transform: 'translate(-50%, -50%)',
-        fontFamily,
-        color,
-        textAlign: 'center',
-      }}
-    >
-      <h1 className={`${titleClassName} font-bold`}>{text}</h1>
+    <div className="w-full py-8 px-4 text-center flex flex-col items-center justify-center" style={{ fontFamily, color }}>
+      <h1 className={`${titleClassName} font-bold text-center mx-auto`}>{text}</h1>
     </div>
   )
 }

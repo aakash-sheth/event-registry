@@ -1015,6 +1015,7 @@ export default async function InvitePage({
 
   // Extract hero tiles (image + title overlay if exists) and event details for SSR
   let heroSSR: React.ReactNode = null
+  let titleSSR: React.ReactNode = null
   let eventDetailsSSR: React.ReactNode = null
   const backgroundColor = initialConfig?.customColors?.backgroundColor || '#ffffff'
 
@@ -1025,28 +1026,40 @@ export default async function InvitePage({
     ) as Tile | undefined
 
     // Find title tile that overlays on image
-    const titleTile = imageTile ? initialConfig.tiles.find(
+    const overlayTitleTile = imageTile ? initialConfig.tiles.find(
       (t: Tile) => t.type === 'title' && t.enabled && t.overlayTargetId === imageTile.id
     ) as Tile | undefined : null
+
+    // Find standalone title tile (not overlaying on any image)
+    const standaloneTitleTile = initialConfig.tiles.find(
+      (t: Tile) => t.type === 'title' && t.enabled && !t.overlayTargetId
+    ) as Tile | undefined
 
     // Find event details tile (first enabled)
     const eventDetailsTile = initialConfig.tiles.find(
       (t: Tile) => t.type === 'event-details' && t.enabled
     ) as Tile | undefined
 
-    // Render hero section server-side
+    // Render hero section server-side (image with overlay title)
     if (imageTile) {
       const imageSettings = imageTile.settings as any
       heroSSR = (
         <div className="w-full relative">
           <ImageTileSSR 
             settings={imageSettings} 
-            hasTitleOverlay={!!titleTile} 
+            hasTitleOverlay={!!overlayTitleTile} 
           />
-          {titleTile && (
-            <TitleTileSSR settings={titleTile.settings as any} />
+          {overlayTitleTile && (
+            <TitleTileSSR settings={overlayTitleTile.settings as any} overlayMode={true} />
           )}
         </div>
+      )
+    }
+
+    // Render standalone title tile server-side
+    if (standaloneTitleTile) {
+      titleSSR = (
+        <TitleTileSSR settings={standaloneTitleTile.settings as any} overlayMode={false} />
       )
     }
 
@@ -1116,6 +1129,7 @@ export default async function InvitePage({
         initialEvent={event}
         initialConfig={initialConfig}
         heroSSR={heroSSR}
+        titleSSR={titleSSR}
         eventDetailsSSR={eventDetailsSSR}
         allowedSubEvents={allowedSubEvents}
       />

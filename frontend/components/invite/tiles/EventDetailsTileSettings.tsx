@@ -310,6 +310,7 @@ export default function EventDetailsTileSettings({ settings, onChange }: EventDe
             })()}
           </div>
         </label>
+        
       </div>
 
       {/* Additional Details */}
