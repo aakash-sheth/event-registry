@@ -36,14 +36,12 @@ class RequestLifecycleTracker {
 
     this.steps.set(name, now)
     
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[Lifecycle] STEP: ${name}`, {
-        description,
-        elapsed: `${elapsed}ms`,
-        stepDuration: `${stepDuration}ms`,
-        timestamp: new Date().toISOString(),
-      })
-    }
+    devLog(`[Lifecycle] STEP: ${name}`, {
+      description,
+      elapsed: `${elapsed}ms`,
+      stepDuration: `${stepDuration}ms`,
+      timestamp: new Date().toISOString(),
+    })
 
     return elapsed
   }
@@ -72,9 +70,7 @@ class RequestLifecycleTracker {
 
   logSummary(context: string) {
     const summary = this.getSummary()
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[Lifecycle] ${context} - COMPLETE SUMMARY`, summary)
-    }
+    devLog(`[Lifecycle] ${context} - COMPLETE SUMMARY`, summary)
   }
 }
 
@@ -136,19 +132,17 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     }
 
     // Log request initiation
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[InvitePage SSR] Starting fetch request', {
-        timestamp: new Date().toISOString(),
-        slug,
-        url,
-        apiBase,
-        hasGuestToken: !!guestToken,
-        timeout: 15000,
-        nodeEnv: process.env.NODE_ENV,
-        backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
-        publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
-      })
-    }
+    devLog('[InvitePage SSR] Starting fetch request', {
+      timestamp: new Date().toISOString(),
+      slug,
+      url,
+      apiBase,
+      hasGuestToken: !!guestToken,
+      timeout: 15000,
+      nodeEnv: process.env.NODE_ENV,
+      backendApiBase: process.env.BACKEND_API_BASE || 'NOT SET',
+      publicApiBase: process.env.NEXT_PUBLIC_API_BASE || 'NOT SET',
+    })
 
     // Try to resolve DNS (if possible in Node.js environment)
     let dnsResolved = false
@@ -156,13 +150,11 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
       const urlObj = new URL(url)
       const hostname = urlObj.hostname
       // In Node.js, we can't easily test DNS without dns module, but we can log the hostname
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[InvitePage SSR] DNS Info', {
-          hostname,
-          protocol: urlObj.protocol,
-          port: urlObj.port || (urlObj.protocol === 'https:' ? '443' : '80'),
-        })
-      }
+      devLog('[InvitePage SSR] DNS Info', {
+        hostname,
+        protocol: urlObj.protocol,
+        port: urlObj.port || (urlObj.protocol === 'https:' ? '443' : '80'),
+      })
       dnsResolved = true
     } catch (e) {
       if (process.env.NODE_ENV === 'development') {
@@ -179,13 +171,11 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     const timeout = process.env.NODE_ENV === 'production' ? 30000 : 15000 // 30s in prod, 15s in dev
     
     // Log timeout setup
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[InvitePage SSR] Setting up fetch with timeout', {
-        timeout,
-        url,
-        signalAborted: controller.signal.aborted,
-      })
-    }
+    devLog('[InvitePage SSR] Setting up fetch with timeout', {
+      timeout,
+      url,
+      signalAborted: controller.signal.aborted,
+    })
 
     const timeoutId = setTimeout(() => {
       const elapsed = Date.now() - requestStartTime
@@ -204,16 +194,14 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     performanceTimings.tcpConnection = tcpStartTime - dnsTime
 
     // Log fetch initiation
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[InvitePage SSR] Initiating fetch', {
-        url,
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        hasSignal: !!controller.signal,
-      })
-    }
+    devLog('[InvitePage SSR] Initiating fetch', {
+      url,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      hasSignal: !!controller.signal,
+    })
 
     const requestSentTime = Date.now()
     performanceTimings.requestSent = requestSentTime - tcpStartTime
@@ -304,17 +292,15 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
           try {
             const jsonData = JSON.parse(data)
             
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[InvitePage SSR] ✅ Request successful', {
-                slug,
-                url,
-                status: statusCode,
-                statusMessage: res.statusMessage,
-                dataSize: data.length,
-                totalDuration: performanceTimings.totalDuration,
-                timings: performanceTimings,
-              })
-            }
+            devLog('[InvitePage SSR] ✅ Request successful', {
+              slug,
+              url,
+              status: statusCode,
+              statusMessage: res.statusMessage,
+              dataSize: data.length,
+              totalDuration: performanceTimings.totalDuration,
+              timings: performanceTimings,
+            })
 
             resolve({
               ok: true,

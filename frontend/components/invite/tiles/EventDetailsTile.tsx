@@ -282,7 +282,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
           {topBorder && (
             <div className="mb-8">
               {topBorder}
-            </div>
+          </div>
           )}
 
           {(() => {
@@ -322,24 +322,24 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                   const canDisplay = canShowMap(settings)
                   
                   return (
-                    <div className="space-y-2">
-                      <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
-                        Location
-                      </div>
-                      <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
-                        <span>{settings.location}</span>
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
+                      Location
+                    </div>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
+                      <span>{settings.location}</span>
                         {canDisplay && mapUrl && (
-                          <a
+                        <a
                             href={mapUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
-                            aria-label="Open location in maps"
-                          >
-                            <MapPin className="w-4 h-4 text-gray-600" />
-                          </a>
-                        )}
-                      </div>
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
+                          aria-label="Open location in maps"
+                        >
+                          <MapPin className="w-4 h-4 text-gray-600" />
+                        </a>
+                      )}
+                    </div>
                       
                       {/* Embedded Map - only show if verified, enabled, and valid */}
                       {canDisplay && settings.showMap && mapUrl && isValidMapUrl(mapUrl) && (() => {
@@ -359,7 +359,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                                 title="Event location map"
                                 className="w-full"
                               />
-                            </div>
+                </div>
                           )
                         }
                         
@@ -402,7 +402,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
           {bottomBorder && (
             <div className="mt-10 mb-8">
               {bottomBorder}
-            </div>
+          </div>
           )}
         
           {/* Save the Date Button */}
@@ -524,10 +524,10 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
           
           return (
             <div>
-              <p>
-                <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Location:</span>
-                <span className="font-normal" style={{ color: fontColor }}>{settings.location}</span>
-              </p>
+          <p>
+            <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Location:</span>
+            <span className="font-normal" style={{ color: fontColor }}>{settings.location}</span>
+          </p>
               
               {/* Embedded Map - only show if verified, enabled, and valid */}
               {canDisplay && settings.showMap && mapUrl && isValidMapUrl(mapUrl) && (() => {
