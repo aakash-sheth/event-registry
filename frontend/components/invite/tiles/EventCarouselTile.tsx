@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Calendar, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
 import { EventCarouselTileSettings } from '@/lib/invite/schema'
+import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import { 
   getImageDimensions, 
   calculateOptimalDimensions, 
@@ -394,6 +395,23 @@ export default function EventCarouselTile({
     const showFields = normalizedSettings.showFields || {}
     const isActive = index === currentIndex
     
+    // Extract styling from settings with defaults
+    const titleStyling = normalizedSettings.subEventTitleStyling || {}
+    const detailsStyling = normalizedSettings.subEventDetailsStyling || {}
+    
+    const titleFont = titleStyling.font || FONT_OPTIONS[0].family
+    const titleColor = titleStyling.color || '#111827' // gray-900
+    const titleSize = titleStyling.size || 'medium'
+    const detailsColor = detailsStyling.fontColor || '#4B5563' // gray-600
+    
+    // Size class mapping (same as TitleTile)
+    const titleSizeClasses = {
+      small: 'text-xl',
+      medium: 'text-2xl',
+      large: 'text-3xl',
+      xlarge: 'text-4xl',
+    }
+    
     const cardStyleClasses = getCardStyleClasses()
     const imageHeightClass = getImageHeightClass()
     const imageAspectStyle = getImageAspectRatioStyle()
@@ -464,13 +482,22 @@ export default function EventCarouselTile({
         
         <div className={cardPaddingClass}>
           {showFields.title && (
-            <h3 className="text-2xl font-semibold text-gray-900 mb-3">
+            <h3 
+              className={`${titleSizeClasses[titleSize]} font-semibold mb-3`}
+              style={{ 
+                fontFamily: titleFont, 
+                color: titleColor 
+              }}
+            >
               {subEvent.title}
             </h3>
           )}
           
           {showFields.dateTime && (
-            <div className="flex items-start gap-2 text-gray-600 mb-2">
+            <div 
+              className="flex items-start gap-2 mb-2"
+              style={{ color: detailsColor }}
+            >
               <Calendar className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <span className="text-sm" suppressHydrationWarning>
                 {formatDateTime(subEvent.start_at, subEvent.end_at)}
@@ -479,7 +506,10 @@ export default function EventCarouselTile({
           )}
           
           {showFields.location && subEvent.location && (
-            <div className="flex items-start gap-2 text-gray-600 mb-3">
+            <div 
+              className="flex items-start gap-2 mb-3"
+              style={{ color: detailsColor }}
+            >
               <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <span className="text-sm">{subEvent.location}</span>
             </div>
@@ -521,6 +551,8 @@ export default function EventCarouselTile({
     currentIndex,
     normalizedSettings,
     normalizedSettings.showFields,
+    normalizedSettings.subEventTitleStyling,
+    normalizedSettings.subEventDetailsStyling,
     normalizedSettings.cardBackgroundColor,
     normalizedSettings.cardBorderRadius,
     normalizedSettings.cardBorderWidth,

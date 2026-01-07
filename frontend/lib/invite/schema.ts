@@ -44,11 +44,17 @@ export interface TimerTileSettings {
 }
 
 export interface EventDetailsTileSettings {
-  location: string
+  location: string // Display text for location (flexible, e.g., "Grand Ballroom", "Beachside Venue")
   date: string // ISO date string
   time?: string // Time string (e.g., "18:00")
   dressCode?: string
-  mapUrl?: string // Map URL for location (Google Maps, Apple Maps, etc.)
+  mapUrl?: string // Map location - accepts address text or Google Maps URL (auto-validated and verified)
+  locationVerified?: boolean // Auto-set by system based on map location validation (true if valid, false if invalid)
+  coordinates?: {
+    lat: number
+    lng: number
+  } // Optional precise coordinates (auto-verifies when provided)
+  showMap?: boolean // Option to display embedded map (only works if mapUrl is provided and valid and location is verified)
   fontColor?: string // Font color for event details text (hex color, e.g., "#000000")
   buttonColor?: string // Hex color for Save the Date button (e.g., "#1F2937")
 }
@@ -95,6 +101,15 @@ export interface EventCarouselTileSettings {
   // Image settings
   imageHeight?: 'small' | 'medium' | 'large' | 'full' // Default: 'medium'
   imageAspectRatio?: '16:9' | '4:3' | '1:1' | 'auto' // Default: '16:9'
+  // Global styling for sub-events (applies uniformly to all sub-events)
+  subEventTitleStyling?: {
+    font?: string // Font family from FONT_OPTIONS
+    color?: string // Hex color
+    size?: 'small' | 'medium' | 'large' | 'xlarge'
+  }
+  subEventDetailsStyling?: {
+    fontColor?: string // Hex color for date/time and location text
+  }
 }
 
 export type TextureType =

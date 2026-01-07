@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { EventCarouselTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { FONT_OPTIONS } from '@/lib/invite/fonts'
 
 interface EventCarouselTileSettingsProps {
   settings: EventCarouselTileSettings
@@ -18,6 +19,8 @@ export default function EventCarouselTileSettingsComponent({
     slideshow: true,
     cardStyling: false,
     imageSettings: false,
+    titleStyling: false,
+    detailsStyling: false,
   })
 
   const toggleSection = (section: string) => {
@@ -41,6 +44,26 @@ export default function EventCarouselTileSettingsComponent({
     onUpdate({
       ...settings,
       ...updates,
+    })
+  }
+
+  const handleTitleStylingUpdate = (updates: Partial<EventCarouselTileSettings['subEventTitleStyling']>) => {
+    onUpdate({
+      ...settings,
+      subEventTitleStyling: {
+        ...settings.subEventTitleStyling,
+        ...updates,
+      },
+    })
+  }
+
+  const handleDetailsStylingUpdate = (updates: Partial<EventCarouselTileSettings['subEventDetailsStyling']>) => {
+    onUpdate({
+      ...settings,
+      subEventDetailsStyling: {
+        ...settings.subEventDetailsStyling,
+        ...updates,
+      },
     })
   }
 
@@ -98,6 +121,125 @@ export default function EventCarouselTileSettingsComponent({
             RSVP Button
           </label>
         </div>
+      </div>
+
+      {/* Sub-Event Title Styling Section */}
+      <div className="border-t pt-4">
+        <button
+          onClick={() => toggleSection('titleStyling')}
+          className="flex items-center justify-between w-full text-left mb-2"
+        >
+          <label className="block text-sm font-medium text-gray-700">
+            Sub-Event Title Styling
+          </label>
+          {expandedSections.titleStyling ? (
+            <ChevronUp className="w-4 h-4" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
+        </button>
+        {expandedSections.titleStyling && (
+          <div className="space-y-4 pl-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Event Title Font</label>
+              <select
+                value={FONT_OPTIONS.find(f => f.family === settings.subEventTitleStyling?.font)?.id || FONT_OPTIONS[0].id}
+                onChange={(e) => {
+                  const font = FONT_OPTIONS.find(f => f.id === e.target.value)
+                  handleTitleStylingUpdate({ font: font?.family })
+                }}
+                className="w-full text-sm border rounded px-3 py-2"
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font.id} value={font.id}>
+                    {font.name} ({font.category})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Preview: <span style={{ fontFamily: settings.subEventTitleStyling?.font || FONT_OPTIONS[0].family }}>Sub-Event Title</span>
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Event Title Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={settings.subEventTitleStyling?.color || '#111827'}
+                  onChange={(e) => handleTitleStylingUpdate({ color: e.target.value })}
+                  className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={settings.subEventTitleStyling?.color || '#111827'}
+                  onChange={(e) => handleTitleStylingUpdate({ color: e.target.value })}
+                  placeholder="#111827"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Event Title Size</label>
+              <select
+                value={settings.subEventTitleStyling?.size || 'medium'}
+                onChange={(e) => handleTitleStylingUpdate({ size: e.target.value as 'small' | 'medium' | 'large' | 'xlarge' })}
+                className="w-full text-sm border rounded px-3 py-2"
+              >
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+                <option value="xlarge">Extra Large</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Preview size: {settings.subEventTitleStyling?.size || 'medium'}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sub-Event Details Styling Section */}
+      <div className="border-t pt-4">
+        <button
+          onClick={() => toggleSection('detailsStyling')}
+          className="flex items-center justify-between w-full text-left mb-2"
+        >
+          <label className="block text-sm font-medium text-gray-700">
+            Sub-Event Details Styling
+          </label>
+          {expandedSections.detailsStyling ? (
+            <ChevronUp className="w-4 h-4" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
+        </button>
+        {expandedSections.detailsStyling && (
+          <div className="space-y-4 pl-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Event Details Font Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={settings.subEventDetailsStyling?.fontColor || '#4B5563'}
+                  onChange={(e) => handleDetailsStylingUpdate({ fontColor: e.target.value })}
+                  className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={settings.subEventDetailsStyling?.fontColor || '#4B5563'}
+                  onChange={(e) => handleDetailsStylingUpdate({ fontColor: e.target.value })}
+                  placeholder="#4B5563"
+                  className="flex-1"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Color for sub-event date/time and location text
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Slideshow Section */}

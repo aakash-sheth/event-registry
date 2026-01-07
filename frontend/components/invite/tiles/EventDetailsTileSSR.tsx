@@ -3,6 +3,7 @@ import { MapPin } from 'lucide-react'
 import { EventDetailsTileSettings } from '@/lib/invite/schema'
 import { getTimezoneFromLocation, formatTimeInTimezone } from '@/lib/invite/timezone'
 import { getAutomaticLabelColor } from '@/lib/invite/colorUtils'
+import { isValidMapUrl, getEmbedUrl, canShowMap, generateMapUrlFromLocation, generateMapUrlFromCoordinates } from '@/lib/invite/mapUtils'
 
 interface EventDetailsTileSSRProps {
   settings: EventDetailsTileSettings
@@ -102,27 +103,78 @@ export default function EventDetailsTileSSR({
             </div>
           )}
 
-          {settings.location && (
-            <div className="space-y-2">
-              <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
-                Location
+          {settings.location && (() => {
+            // Determine map URL - prioritize coordinates, then mapUrl
+            let mapUrl = settings.mapUrl
+            if (settings.coordinates) {
+              mapUrl = generateMapUrlFromCoordinates(settings.coordinates.lat, settings.coordinates.lng)
+            }
+            
+            // Check if map can be shown (location must be verified)
+            const canDisplay = canShowMap(settings)
+            
+            return (
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
+                  Location
+                </div>
+                <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
+                  <span>{settings.location}</span>
+                  {canDisplay && mapUrl && (
+                    <a
+                      href={mapUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
+                      aria-label="Open location in maps"
+                    >
+                      <MapPin className="w-4 h-4 text-gray-600" />
+                    </a>
+                  )}
+                </div>
+                
+                {/* Embedded Map - only show if verified, enabled, and valid */}
+                {canDisplay && settings.showMap && mapUrl && isValidMapUrl(mapUrl) && (() => {
+                  const embedUrl = getEmbedUrl(mapUrl, settings.coordinates)
+                  
+                  if (embedUrl) {
+                    return (
+                      <div className="mt-6 w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                        <iframe
+                          src={embedUrl}
+                          width="100%"
+                          height="300"
+                          style={{ border: 0 }}
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          title="Event location map"
+                          className="w-full"
+                        />
+                      </div>
+                    )
+                  }
+                  
+                  // If URL is valid but not embeddable (e.g., Apple Maps, short links), show helpful message
+                  return (
+                    <div className="mt-4 p-3 bg-gray-50 rounded border border-gray-200">
+                      <p className="text-xs text-gray-600 text-center">
+                        Map preview not available for this link type. 
+                        <a 
+                          href={mapUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline ml-1"
+                        >
+                          Open in maps
+                        </a>
+                      </p>
+                    </div>
+                  )
+                })()}
               </div>
-              <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: settings.fontColor || '#1F2937' }}>
-                <span>{settings.location}</span>
-                {settings.mapUrl && (
-                  <a
-                    href={settings.mapUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
-                    aria-label="Open location in maps"
-                  >
-                    <MapPin className="w-4 h-4 text-gray-600" />
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
           {settings.dressCode && (
             <div className="space-y-2">

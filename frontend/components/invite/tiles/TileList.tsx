@@ -293,6 +293,7 @@ export default function TileList({
                 hasRsvp={hasRsvp}
                 hasRegistry={hasRegistry}
                 allTiles={tiles}
+                allowedSubEvents={allowedSubEvents}
               />
             )
           })}

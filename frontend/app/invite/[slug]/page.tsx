@@ -814,7 +814,7 @@ export default async function InvitePage({
   
   // STEP 1: Route Entry - Next.js calls this component
   tracker?.step('ROUTE_ENTRY', 'Next.js route handler called')
-  console.log('[InvitePage SSR] ====== PAGE RENDER START ======', {
+  devLog('[InvitePage SSR] ====== PAGE RENDER START ======', {
     timestamp: new Date().toISOString(),
         slug,
         hasGuestToken: !!searchParams.g,

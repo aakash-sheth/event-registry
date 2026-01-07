@@ -87,7 +87,7 @@ export default function TilePreview({
             key={`event-carousel-${tile.id}`}
             settings={tile.settings as any}
             allowedSubEvents={allowedSubEvents}
-            preview={false}
+            preview={true}
             eventSlug={eventSlug}
           />
         )
