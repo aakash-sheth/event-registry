@@ -41,12 +41,12 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
         <div className="w-full py-8 pr-4 pl-4 md:pl-8 lg:pl-12 xl:pl-16" style={{ backgroundColor: 'transparent' }}>
           {isHTML ? (
             <div 
-              className="prose prose-sm max-w-none description-content" 
+              className="prose prose-sm max-w-none description-content break-words" 
               style={{ backgroundColor: 'transparent' }}
               dangerouslySetInnerHTML={{ __html: settings.content }}
             />
           ) : (
-            <div className="prose prose-sm max-w-none whitespace-pre-wrap description-content" style={{ backgroundColor: 'transparent' }}>
+            <div className="prose prose-sm max-w-none whitespace-pre-wrap description-content break-words" style={{ backgroundColor: 'transparent' }}>
               {settings.content}
             </div>
           )}
@@ -75,11 +75,11 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
       <div className="w-full py-4 pr-4 pl-4 md:pl-8 lg:pl-12 border rounded">
         {isHTML ? (
           <div 
-            className="prose prose-sm max-w-none description-content"
+            className="prose prose-sm max-w-none description-content break-words"
             dangerouslySetInnerHTML={{ __html: settings.content }}
           />
         ) : (
-          <div className="prose prose-sm max-w-none whitespace-pre-wrap description-content">
+          <div className="prose prose-sm max-w-none whitespace-pre-wrap description-content break-words">
             {settings.content}
           </div>
         )}

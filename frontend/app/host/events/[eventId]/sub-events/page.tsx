@@ -631,7 +631,16 @@ export default function SubEventsPage() {
                       </div>
                     )}
                     {subEvent.description && (
-                      <p className="text-sm text-gray-700 line-clamp-2">{subEvent.description}</p>
+                      <div 
+                        className="text-sm text-gray-700 prose prose-sm max-w-none overflow-hidden break-words"
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          lineHeight: '1.5',
+                        }}
+                        dangerouslySetInnerHTML={{ __html: subEvent.description }}
+                      />
                     )}
                     <div className="flex gap-2 pt-2 border-t">
                       <span className={`text-xs px-2 py-1 rounded ${

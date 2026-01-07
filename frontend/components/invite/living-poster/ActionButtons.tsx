@@ -62,7 +62,7 @@ export default function ActionButtons({
   const baseButtonStyle: React.CSSProperties = {
     minHeight: '44px',
     borderRadius: '12px',
-    padding: '12px 24px',
+    padding: '12px clamp(16px, 4vw, 24px)',
     fontSize: '16px',
     fontWeight: '600',
     transition: 'all 0.2s',

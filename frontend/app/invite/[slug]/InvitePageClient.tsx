@@ -462,7 +462,7 @@ export default function InvitePageClient({
   })
 
   return (
-    <div className="min-h-screen w-full h-full relative" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
+    <div className="min-h-screen w-full h-full relative overflow-x-hidden" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
       {/* Texture overlay at page level */}
       <TextureOverlay 
         type={config.texture?.type || 'none'} 

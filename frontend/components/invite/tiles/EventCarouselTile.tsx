@@ -485,11 +485,35 @@ export default function EventCarouselTile({
             </div>
           )}
           
-          {subEvent.description && (
-            <p className="text-gray-700 text-sm mb-4 line-clamp-3">
-              {subEvent.description}
-            </p>
-          )}
+          {subEvent.description && (() => {
+            // Check if description contains HTML tags
+            const isHTML = /<[a-z][\s\S]*>/i.test(subEvent.description)
+            const style = {
+              display: '-webkit-box' as const,
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical' as const,
+              lineHeight: '1.5',
+            }
+            
+            if (isHTML) {
+              return (
+                <div 
+                  className="text-gray-700 text-sm mb-4 prose prose-sm max-w-none overflow-hidden break-words"
+                  style={style}
+                  dangerouslySetInnerHTML={{ __html: subEvent.description }}
+                />
+              )
+            }
+            
+            return (
+              <div 
+                className="text-gray-700 text-sm mb-4 prose prose-sm max-w-none overflow-hidden break-words"
+                style={style}
+              >
+                {subEvent.description}
+              </div>
+            )
+          })()}
         </div>
       </div>
     )
@@ -603,7 +627,7 @@ export default function EventCarouselTile({
     const base = 'w-full py-8'
     const currentLayout = normalizedSettings.cardLayout || 'centered'
     const layoutClasses: Record<string, string> = {
-      'full-width': 'px-0',
+      'full-width': 'px-2 sm:px-4',
       'centered': 'px-4 max-w-4xl mx-auto',
       'grid': 'px-4',
     }

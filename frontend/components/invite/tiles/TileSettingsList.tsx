@@ -53,14 +53,9 @@ export default function TileSettingsList({
   const footerTile = tiles.find((t) => t.type === 'footer')
   const otherTiles = tiles.filter((t) => t.type !== 'footer')
 
-  // Filter out title tiles that are in overlay mode (they'll be rendered with their image)
-  const tilesToRender = otherTiles.filter(tile => {
-    if (tile.type === 'title' && tile.overlayTargetId) {
-      // Don't render title separately if it's overlaid on an image
-      return false
-    }
-    return true
-  })
+  // Include all tiles - don't filter out title tiles in overlay mode
+  // This allows users to access and edit title tiles even when they're overlaying on images
+  const tilesToRender = otherTiles
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event

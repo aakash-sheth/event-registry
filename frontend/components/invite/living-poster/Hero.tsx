@@ -188,7 +188,7 @@ export default function Hero({ config, eventSlug, eventDate, showBadge = true }:
                       fill
                       className="object-contain"
                       quality={90}
-                      sizes="100vw"
+                      sizes="(max-width: 768px) 100vw, 100vw"
                     />
                   )}
                 </div>
@@ -226,7 +226,7 @@ export default function Hero({ config, eventSlug, eventDate, showBadge = true }:
                 style={{
                   objectPosition: position,
                 }}
-                sizes="100vw"
+                sizes="(max-width: 768px) 100vw, 100vw"
                 quality={90}
                 placeholder="blur"
                 blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
@@ -270,7 +270,7 @@ export default function Hero({ config, eventSlug, eventDate, showBadge = true }:
 
   return (
     <section
-      className="relative flex flex-col items-center justify-center px-4 py-safe overflow-hidden"
+      className="relative flex flex-col items-center justify-center px-4 py-safe overflow-hidden overflow-x-hidden"
       style={{
         fontFamily: bodyFont,
         // Fill container height, but ensure minimum viewport height on public page

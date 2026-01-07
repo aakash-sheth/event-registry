@@ -358,23 +358,34 @@ export default function DesignInvitationPage(): JSX.Element {
       
       // Set the final config
       if (finalConfig) {
-        // Ensure title tile always exists and is enabled
-        if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
-          // Add title tile if missing
-          const titleTile: Tile = {
-            id: 'tile-title-0',
-            type: 'title',
-            enabled: true,
-            order: 0,
-            settings: { text: eventData?.title || 'Event Title' },
+        // Check if there's an enabled image tile with a valid image source
+        const enabledImageTiles = finalConfig.tiles?.filter(t => t.type === 'image' && t.enabled) || []
+        const hasValidImageTile = enabledImageTiles.some(t => {
+          const imageSettings = t.settings as any
+          return imageSettings?.src && imageSettings.src.trim() !== ''
+        })
+        
+        // Title tile is required only if no valid image tile exists
+        if (!hasValidImageTile) {
+          // Ensure title tile exists and is enabled when no image
+          if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
+            // Add title tile if missing
+            const titleTile: Tile = {
+              id: 'tile-title-0',
+              type: 'title',
+              enabled: true,
+              order: 0,
+              settings: { text: eventData?.title || 'Event Title' },
+            }
+            finalConfig.tiles = [titleTile, ...(finalConfig.tiles || [])]
+          } else {
+            // Ensure title tile is enabled when no image exists
+            finalConfig.tiles = finalConfig.tiles.map(t => 
+              t.type === 'title' ? { ...t, enabled: true } : t
+            )
           }
-          finalConfig.tiles = [titleTile, ...(finalConfig.tiles || [])]
-        } else {
-          // Ensure title tile is always enabled
-          finalConfig.tiles = finalConfig.tiles.map(t => 
-            t.type === 'title' ? { ...t, enabled: true } : t
-          )
         }
+        // If image exists, title tile is optional - no need to force it
         
         setConfig(finalConfig)
       } else {
@@ -474,28 +485,62 @@ export default function DesignInvitationPage(): JSX.Element {
   const handleSave = async () => {
     setSaving(true)
     try {
-      // Validate that title tile exists and has text
-      const titleTile = config.tiles?.find(t => t.type === 'title')
-      if (!titleTile) {
-        showToast('Title tile is required. Please add a title tile.', 'error')
-        setSaving(false)
-        return
+      // Check if there's an enabled image tile with a valid image source
+      const enabledImageTiles = config.tiles?.filter(t => t.type === 'image' && t.enabled) || []
+      const hasValidImageTile = enabledImageTiles.some(t => {
+        const imageSettings = t.settings as any
+        return imageSettings?.src && imageSettings.src.trim() !== ''
+      })
+      
+      // Validate enabled image tiles have images
+      for (const imageTile of enabledImageTiles) {
+        const imageSettings = imageTile.settings as any
+        if (!imageSettings?.src || imageSettings.src.trim() === '') {
+          showToast('Image tile is enabled but no image is uploaded. Please upload an image or disable the image tile.', 'error')
+          setSaving(false)
+          return
+        }
       }
       
-      const titleText = (titleTile.settings as any)?.text?.trim()
-      if (!titleText || titleText === '') {
-        showToast('Title text is required. Please enter a title.', 'error')
-        setSaving(false)
-        return
+      // If no valid image tile, title tile is required
+      if (!hasValidImageTile) {
+        const titleTile = config.tiles?.find(t => t.type === 'title')
+        if (!titleTile) {
+          showToast('Title tile is required when no image is present. Please add a title tile or an image tile.', 'error')
+          setSaving(false)
+          return
+        }
+        
+        const titleText = (titleTile.settings as any)?.text?.trim()
+        if (!titleText || titleText === '') {
+          showToast('Title text is required when no image is present. Please enter a title or add an image.', 'error')
+          setSaving(false)
+          return
+        }
+        
+        // Ensure title tile is enabled when no image exists
+        if (!titleTile.enabled) {
+          showToast('Title tile must be enabled when no image is present. Enabling it now.', 'info')
+          setConfig(prev => ({
+            ...prev,
+            tiles: prev.tiles?.map(t => t.id === titleTile.id ? { ...t, enabled: true } : t) || [],
+          }))
+          setSaving(false)
+          return
+        }
       }
       
-      // Ensure title tile is always enabled
-      if (!titleTile.enabled) {
-        showToast('Title tile must be enabled. Enabling it now.', 'info')
-        setConfig(prev => ({
-          ...prev,
-          tiles: prev.tiles?.map(t => t.id === titleTile.id ? { ...t, enabled: true } : t) || [],
-        }))
+      // If valid image exists, title tile is optional but if it exists and is enabled, it should have text
+      if (hasValidImageTile) {
+        const titleTile = config.tiles?.find(t => t.type === 'title')
+        if (titleTile && titleTile.enabled) {
+          const titleText = (titleTile.settings as any)?.text?.trim()
+          if (!titleText || titleText === '') {
+            showToast('If title tile is enabled, title text is required. Please enter a title or disable the title tile.', 'error')
+            setSaving(false)
+            return
+          }
+        }
       }
       
       // Build config to save - ensure customColors.backgroundColor is always included if set
@@ -740,11 +785,22 @@ export default function DesignInvitationPage(): JSX.Element {
   }
 
   const handleTileToggle = (tileId: string, enabled: boolean) => {
-    // Prevent disabling the title tile (it's mandatory)
     const tile = config.tiles?.find(t => t.id === tileId)
+    
+    // Check if trying to disable title tile
     if (tile?.type === 'title' && !enabled) {
-      showToast('Title tile cannot be disabled. It is required.', 'error')
-      return
+      // Check if there's an enabled image tile with a valid image source - if yes, allow disabling title
+      const enabledImageTiles = config.tiles?.filter(t => t.type === 'image' && t.enabled) || []
+      const hasValidImageTile = enabledImageTiles.some(t => {
+        const imageSettings = t.settings as any
+        return imageSettings?.src && imageSettings.src.trim() !== ''
+      })
+      
+      if (!hasValidImageTile) {
+        showToast('Title tile cannot be disabled when no valid image is present. Please add and upload an image first.', 'error')
+        return
+      }
+      // If valid image exists, allow disabling title tile
     }
     
     setConfig(prev => ({
@@ -1209,12 +1265,6 @@ export default function DesignInvitationPage(): JSX.Element {
                           hasRegistry={event?.has_registry}
                           allowedSubEvents={allowedSubEvents}
                         />
-                        {/* Debug: Show sub-events count in development */}
-                        {process.env.NODE_ENV === 'development' && (
-                          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-                            Debug: allowedSubEvents = {allowedSubEvents.length} | Event structure: {event?.event_structure || 'unknown'}
-                          </div>
-                        )}
                       </>
                     ) : (
                       <div className="p-8 text-center text-gray-500">

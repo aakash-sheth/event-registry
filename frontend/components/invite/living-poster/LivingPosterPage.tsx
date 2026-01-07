@@ -63,7 +63,7 @@ function LivingPosterContent({
       .sort((a, b) => a.order - b.order)
 
     return (
-      <div className="min-h-screen w-full h-full relative" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
+      <div className="min-h-screen w-full h-full relative overflow-x-hidden" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
         {!skipTextureOverlay && (
           <TextureOverlay 
             type={config.texture?.type || 'none'} 

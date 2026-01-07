@@ -28,16 +28,16 @@ export default function Description({ markdown, config }: DescriptionProps) {
   const bodyFont = config.customFonts?.bodyFont || DEFAULT_FONTS.bodyFont
   return (
     <section
-      className="w-full py-16 px-4 md:px-8"
+      className="w-full py-16 px-4 md:px-8 overflow-x-hidden"
       style={{
         backgroundColor,
         color: fontColor,
         fontFamily: bodyFont,
       }}
     >
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-3xl mx-auto overflow-x-hidden">
         <div
-          className="prose prose-lg md:prose-xl max-w-none"
+          className="prose prose-lg md:prose-xl max-w-none break-words"
           style={{
             color: fontColor,
             lineHeight: '1.8',
