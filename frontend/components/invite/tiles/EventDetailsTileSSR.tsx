@@ -5,6 +5,146 @@ import { getTimezoneFromLocation, formatTimeInTimezone } from '@/lib/invite/time
 import { getAutomaticLabelColor } from '@/lib/invite/colorUtils'
 import { isValidMapUrl, getEmbedUrl, canShowMap, generateMapUrlFromLocation, generateMapUrlFromCoordinates } from '@/lib/invite/mapUtils'
 
+// Border style configurations (duplicated from EventDetailsTile for SSR)
+const BORDER_STYLES = {
+  elegant: {
+    symbol: '❦',
+    lineStyle: 'gradient',
+    showSymbol: true,
+  },
+  minimal: {
+    symbol: '',
+    lineStyle: 'solid',
+    showSymbol: false,
+  },
+  ornate: {
+    symbol: '✿',
+    lineStyle: 'gradient',
+    showSymbol: true,
+  },
+  modern: {
+    symbol: '•',
+    lineStyle: 'dotted',
+    showSymbol: true,
+  },
+  classic: {
+    symbol: '',
+    lineStyle: 'double',
+    showSymbol: false,
+  },
+  vintage: {
+    symbol: '✦',
+    lineStyle: 'gradient',
+    showSymbol: true,
+  },
+  none: {
+    symbol: '',
+    lineStyle: 'none',
+    showSymbol: false,
+  },
+} as const
+
+function renderDecorativeBorder(
+  style: string,
+  color: string,
+  width: number,
+  customSymbol?: string
+) {
+  const borderConfig = BORDER_STYLES[style as keyof typeof BORDER_STYLES] || BORDER_STYLES.elegant
+  const symbol = customSymbol !== undefined ? customSymbol : borderConfig.symbol
+  
+  if (style === 'none') {
+    return null
+  }
+  
+  // Render based on line style
+  if (borderConfig.lineStyle === 'gradient') {
+    return (
+      <div className="flex items-center justify-center">
+        <div 
+          className="flex-1 h-px bg-gradient-to-r from-transparent via-current to-transparent"
+          style={{ 
+            color,
+            height: `${width}px`,
+          }}
+        />
+        {borderConfig.showSymbol && symbol && (
+          <div 
+            className="mx-4 text-2xl"
+            style={{ color }}
+          >
+            {symbol}
+          </div>
+        )}
+        <div 
+          className="flex-1 h-px bg-gradient-to-r from-transparent via-current to-transparent"
+          style={{ 
+            color,
+            height: `${width}px`,
+          }}
+        />
+      </div>
+    )
+  }
+  
+  if (borderConfig.lineStyle === 'solid') {
+    return (
+      <div className="flex items-center justify-center">
+        <div 
+          className="flex-1"
+          style={{ 
+            borderTop: `${width}px solid ${color}`,
+          }}
+        />
+      </div>
+    )
+  }
+  
+  if (borderConfig.lineStyle === 'dotted') {
+    return (
+      <div className="flex items-center justify-center">
+        <div 
+          className="flex-1 h-px border-t-2 border-dotted"
+          style={{ 
+            borderColor: color,
+            borderTopWidth: `${width}px`,
+          }}
+        />
+        {borderConfig.showSymbol && symbol && (
+          <div 
+            className="mx-4 text-2xl"
+            style={{ color }}
+          >
+            {symbol}
+          </div>
+        )}
+        <div 
+          className="flex-1 h-px border-t-2 border-dotted"
+          style={{ 
+            borderColor: color,
+            borderTopWidth: `${width}px`,
+          }}
+        />
+      </div>
+    )
+  }
+  
+  if (borderConfig.lineStyle === 'double') {
+    return (
+      <div className="flex items-center justify-center">
+        <div 
+          className="flex-1"
+          style={{ 
+            borderTop: `${width}px double ${color}`,
+          }}
+        />
+      </div>
+    )
+  }
+  
+  return null
+}
+
 interface EventDetailsTileSSRProps {
   settings: EventDetailsTileSettings
   eventSlug?: string
@@ -70,15 +210,32 @@ export default function EventDetailsTileSSR({
 
   const labelColor = getAutomaticLabelColor(settings.fontColor)
 
+  // Get border settings with defaults
+  const borderStyle = settings.borderStyle || 'elegant'
+  const borderColor = settings.borderColor || '#D1D5DB'
+  const borderWidth = settings.borderWidth || 1
+  const decorativeSymbol = settings.decorativeSymbol
+  const backgroundColor = settings.backgroundColor
+  const borderRadius = settings.borderRadius ?? 0
+  
+  const topBorder = renderDecorativeBorder(borderStyle, borderColor, borderWidth, decorativeSymbol)
+  const bottomBorder = renderDecorativeBorder(borderStyle, borderColor, borderWidth, decorativeSymbol)
+
   return (
-    <div className="w-full py-12 px-6 text-center">
+    <div 
+      className="w-full py-12 px-6 text-center"
+      style={{
+        backgroundColor: backgroundColor || 'transparent',
+        borderRadius: `${borderRadius}px`,
+      }}
+    >
       <div className="max-w-2xl mx-auto">
         {/* Decorative top border */}
-        <div className="flex items-center justify-center mb-8">
-          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
-          <div className="mx-4 text-gray-400 text-2xl">❦</div>
-          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
-        </div>
+        {topBorder && (
+          <div className="mb-8">
+            {topBorder}
+          </div>
+        )}
 
         <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
           {settings.date && (
@@ -189,11 +346,11 @@ export default function EventDetailsTileSSR({
         </div>
 
         {/* Decorative bottom border */}
-        <div className="flex items-center justify-center mt-10 mb-8">
-          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
-          <div className="mx-4 text-gray-400 text-2xl">❦</div>
-          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
-        </div>
+        {bottomBorder && (
+          <div className="mt-10 mb-8">
+            {bottomBorder}
+          </div>
+        )}
       
         {/* Save the Date Button - SSR version with direct link to ICS */}
         <div className="relative mt-8">

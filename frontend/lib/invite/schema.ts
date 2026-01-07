@@ -57,6 +57,13 @@ export interface EventDetailsTileSettings {
   showMap?: boolean // Option to display embedded map (only works if mapUrl is provided and valid and location is verified)
   fontColor?: string // Font color for event details text (hex color, e.g., "#000000")
   buttonColor?: string // Hex color for Save the Date button (e.g., "#1F2937")
+  // Border styling options
+  borderStyle?: 'elegant' | 'minimal' | 'ornate' | 'modern' | 'classic' | 'vintage' | 'none'
+  borderColor?: string // Hex color for borders (default: based on borderStyle)
+  borderWidth?: number // 1-4 pixels (default: 1)
+  decorativeSymbol?: string // Custom symbol (❦, ✿, ✤, ✦, •, —, or empty)
+  backgroundColor?: string // Background color for the tile (default: transparent or gray-50)
+  borderRadius?: number // 0-24 pixels (default: 0 for preview, 4 for non-preview)
 }
 
 export interface DescriptionTileSettings {

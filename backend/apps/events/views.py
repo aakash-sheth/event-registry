@@ -711,7 +711,9 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         # Step 1: Try to find published invite page (most common case)
         logger.info(f"[PublicInviteViewSet.retrieve] Step 1: Looking for published invite page with slug: '{slug}'")
         try:
-            invite_page = InvitePage.objects.select_related('event').only(
+            invite_page = InvitePage.objects.select_related('event').prefetch_related(
+                'event__sub_events'
+            ).only(
                 'id', 'slug', 'background_url', 'config', 'is_published',
                 'event_id', 'created_at', 'updated_at',
                 'event__id', 'event__slug', 'event__event_structure',
@@ -732,7 +734,9 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
             query_start = time.time()
             logger.info(f"[PublicInviteViewSet.retrieve] Step 2: Looking for unpublished invite page with slug: '{slug}'")
             try:
-                invite_page = InvitePage.objects.select_related('event').only(
+                invite_page = InvitePage.objects.select_related('event').prefetch_related(
+                    'event__sub_events'
+                ).only(
                     'id', 'slug', 'background_url', 'config', 'is_published',
                     'event_id', 'created_at', 'updated_at',
                     'event__id', 'event__slug', 'event__event_structure',
@@ -851,14 +855,26 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 if event.public_sub_events_count == 0:
                     allowed_sub_events = SubEvent.objects.none()
                 else:
-                    allowed_sub_events = SubEvent.objects.filter(
-                        event=event,
-                        is_public_visible=True,
-                        is_removed=False
-                    ).only(
-                        'id', 'title', 'start_at', 'end_at', 'location',
-                        'description', 'image_url', 'rsvp_enabled'
-                    ).order_by('start_at')
+                    # Use prefetched sub-events if available (from prefetch_related)
+                    if hasattr(event, '_prefetched_objects_cache') and 'sub_events' in event._prefetched_objects_cache:
+                        # Use prefetched queryset
+                        allowed_sub_events = event.sub_events.filter(
+                            is_public_visible=True,
+                            is_removed=False
+                        ).only(
+                            'id', 'title', 'start_at', 'end_at', 'location',
+                            'description', 'image_url', 'rsvp_enabled'
+                        ).order_by('start_at')
+                    else:
+                        # Fallback to separate query if prefetch didn't happen
+                        allowed_sub_events = SubEvent.objects.filter(
+                            event=event,
+                            is_public_visible=True,
+                            is_removed=False
+                        ).only(
+                            'id', 'title', 'start_at', 'end_at', 'location',
+                            'description', 'image_url', 'rsvp_enabled'
+                        ).order_by('start_at')
 
             # Convert to list early to evaluate queryset and check count efficiently
             sub_events_list = list(allowed_sub_events)
@@ -2279,5 +2295,6 @@ def get_overall_impact(request):
         'expired_events_count': len(expired_events),
         'events': events_with_impact
     })
+
 
 

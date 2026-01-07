@@ -16,7 +16,16 @@ import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 const eventSchema = z.object({
   slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
   title: z.string().min(1, 'Title is required'),
-  event_type: z.enum(['wedding', 'engagement', 'reception', 'other']),
+  event_type: z.enum([
+    'wedding', 'engagement', 'reception', 'anniversary', 'birthday', 'baby_shower', 'bridal_shower',
+    'bachelor_party', 'bachelorette_party', 'gender_reveal', 'naming_ceremony', 'housewarming',
+    'graduation', 'retirement', 'religious_ceremony', 'puja', 'satsang', 'church_service',
+    'bar_mitzvah', 'bat_mitzvah', 'communion', 'confirmation', 'corporate_event', 'conference',
+    'seminar', 'workshop', 'networking', 'product_launch', 'team_building', 'award_ceremony',
+    'fundraiser', 'charity_event', 'community_event', 'festival', 'cultural_event', 'exhibition',
+    'art_show', 'concert', 'music_event', 'theater', 'comedy_show', 'sports_event',
+    'dinner_party', 'brunch', 'cocktail_party', 'tea_party', 'potluck', 'other'
+  ]),
   date: z.string().optional(),
   city: z.string().optional(),
   country: z.string().default('IN'),
@@ -118,10 +127,68 @@ export default function NewEventPage() {
                   {...register('event_type')}
                   className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="wedding">Wedding</option>
-                  <option value="engagement">Engagement</option>
-                  <option value="reception">Reception</option>
-                  <option value="other">Other</option>
+                  <optgroup label="Life Events">
+                    <option value="wedding">Wedding</option>
+                    <option value="engagement">Engagement</option>
+                    <option value="reception">Reception</option>
+                    <option value="anniversary">Anniversary</option>
+                    <option value="birthday">Birthday</option>
+                    <option value="baby_shower">Baby Shower</option>
+                    <option value="bridal_shower">Bridal Shower</option>
+                    <option value="bachelor_party">Bachelor Party</option>
+                    <option value="bachelorette_party">Bachelorette Party</option>
+                    <option value="gender_reveal">Gender Reveal</option>
+                    <option value="naming_ceremony">Naming Ceremony</option>
+                    <option value="housewarming">Housewarming</option>
+                    <option value="graduation">Graduation</option>
+                    <option value="retirement">Retirement</option>
+                  </optgroup>
+                  <optgroup label="Religious & Ceremonial">
+                    <option value="religious_ceremony">Religious Ceremony</option>
+                    <option value="puja">Puja</option>
+                    <option value="satsang">Satsang</option>
+                    <option value="church_service">Church Service</option>
+                    <option value="bar_mitzvah">Bar Mitzvah</option>
+                    <option value="bat_mitzvah">Bat Mitzvah</option>
+                    <option value="communion">Communion</option>
+                    <option value="confirmation">Confirmation</option>
+                  </optgroup>
+                  <optgroup label="Professional & Business">
+                    <option value="corporate_event">Corporate Event</option>
+                    <option value="conference">Conference</option>
+                    <option value="seminar">Seminar</option>
+                    <option value="workshop">Workshop</option>
+                    <option value="networking">Networking Event</option>
+                    <option value="product_launch">Product Launch</option>
+                    <option value="team_building">Team Building</option>
+                    <option value="award_ceremony">Award Ceremony</option>
+                  </optgroup>
+                  <optgroup label="Social & Community">
+                    <option value="fundraiser">Fundraiser</option>
+                    <option value="charity_event">Charity Event</option>
+                    <option value="community_event">Community Event</option>
+                    <option value="festival">Festival</option>
+                    <option value="cultural_event">Cultural Event</option>
+                    <option value="exhibition">Exhibition</option>
+                    <option value="art_show">Art Show</option>
+                  </optgroup>
+                  <optgroup label="Entertainment">
+                    <option value="concert">Concert</option>
+                    <option value="music_event">Music Event</option>
+                    <option value="theater">Theater</option>
+                    <option value="comedy_show">Comedy Show</option>
+                    <option value="sports_event">Sports Event</option>
+                  </optgroup>
+                  <optgroup label="Food & Dining">
+                    <option value="dinner_party">Dinner Party</option>
+                    <option value="brunch">Brunch</option>
+                    <option value="cocktail_party">Cocktail Party</option>
+                    <option value="tea_party">Tea Party</option>
+                    <option value="potluck">Potluck</option>
+                  </optgroup>
+                  <optgroup label="Other">
+                    <option value="other">Other</option>
+                  </optgroup>
                 </select>
               </div>
 

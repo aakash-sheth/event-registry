@@ -313,25 +313,28 @@ export default function InvitePageClient({
     devLog('[InvitePageClient] 🔄 CLIENT EFFECT: useEffect triggered (data fetch check)', {
       slug,
       hasInitialConfig: !!initialConfig,
+      hasInitialEvent: !!initialEvent,
       timestamp: new Date().toISOString(),
       elapsedSinceMount: effectStartTime - clientStartTime,
     })
     
-    // If we have initial data from server, skip fetching
-    if (initialConfig) {
-      devLog('[InvitePageClient] ✅ CLIENT EFFECT: Skipping fetch (has initial config from SSR)', {
+    // If we have initial data from server (either config or event), skip fetching
+    if (initialConfig || initialEvent) {
+      devLog('[InvitePageClient] ✅ CLIENT EFFECT: Skipping fetch (has initial data from SSR)', {
         slug,
+        hasConfig: !!initialConfig,
+        hasEvent: !!initialEvent,
         elapsedSinceMount: Date.now() - clientStartTime,
       })
       return
     }
     
-    devLog('[InvitePageClient] 📡 CLIENT EFFECT: No initial config, triggering client-side fetch', {
+    devLog('[InvitePageClient] 📡 CLIENT EFFECT: No initial data, triggering client-side fetch', {
       slug,
       elapsedSinceMount: Date.now() - clientStartTime,
     })
     fetchInvite()
-  }, [slug, initialConfig, fetchInvite])
+  }, [slug, initialConfig, initialEvent, fetchInvite])
 
   // Compute backgroundColor early (before early returns) so we can use it in useEffect
   const backgroundColor = config?.customColors?.backgroundColor || '#ffffff'

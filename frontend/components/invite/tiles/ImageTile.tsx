@@ -182,7 +182,8 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
       >
         <img 
           src={settings.src} 
-          alt="Event" 
+          alt="Event"
+          loading="lazy"
           style={{
             ...imageStyle,
             width: '100%',
@@ -203,6 +204,7 @@ export default function ImageTile({ settings, preview = false, hasTitleOverlay =
         src={settings.src}
         alt="Preview"
         className="w-full h-48 object-cover"
+        loading="lazy"
       />
     </div>
   )
