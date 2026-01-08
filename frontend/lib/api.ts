@@ -175,6 +175,18 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
+    // Silently handle 404 for system-default-template endpoint (expected when template doesn't exist)
+    if (error.response?.status === 404 && originalRequest?.url?.includes('/system-default-template/')) {
+      // Return a response object that mimics a 404 but won't throw
+      return Promise.resolve({
+        status: 404,
+        statusText: 'Not Found',
+        data: null,
+        headers: {},
+        config: originalRequest,
+      } as any)
+    }
+
     // If error is 401 and we haven't already retried
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       if (isRefreshing) {
@@ -455,9 +467,16 @@ export async function previewWhatsAppMessage(eventId: number, data: {
 
 export async function getSystemDefaultTemplate(eventId: number): Promise<WhatsAppTemplate | null> {
   try {
-    const response = await api.get(`/api/events/${eventId}/system-default-template/`)
+    // The response interceptor will handle 404s silently for this endpoint
+    const response = await api.get(`/api/events/${eventId}/system-default-template/`, {
+      validateStatus: (status) => status === 200 || status === 404
+    })
+    if (response.status === 404) {
+      return null
+    }
     return response.data
   } catch (error: any) {
+    // Fallback error handling (shouldn't reach here with interceptor + validateStatus)
     if (error.response?.status === 404) {
       return null
     }

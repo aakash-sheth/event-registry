@@ -101,7 +101,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
       case 'footer':
         return <FooterTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
       case 'event-carousel':
-        return <EventCarouselTileSettings settings={tile.settings as any} onUpdate={handleSettingsChange} />
+        return <EventCarouselTileSettings settings={tile.settings as any} onUpdate={handleSettingsChange} eventId={eventId} />
       default:
         return null
     }

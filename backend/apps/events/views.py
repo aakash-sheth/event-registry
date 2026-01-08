@@ -285,6 +285,89 @@ class EventViewSet(viewsets.ModelViewSet):
         variables = self._get_description_variables(event)
         return Response({'variables': variables})
     
+    @action(detail=True, methods=['get'], url_path='system-default-template')
+    def get_system_default_template(self, request, id=None):
+        """Get the system default WhatsApp template (global template visible in all events)"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        # Get the system default template (there should only be one globally)
+        system_template = MessageTemplate.objects.filter(is_system_default=True).first()
+        
+        if not system_template:
+            # Auto-create system default template if it doesn't exist
+            # This ensures it's always available for all events
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            # Get or create a system event for the template
+            system_event, _ = Event.objects.get_or_create(
+                slug='system-default',
+                defaults={
+                    'title': 'System Default Template Event',
+                    'host': User.objects.first(),  # Use first user as placeholder
+                    'event_type': 'other',
+                    'is_public': False,
+                }
+            )
+            
+            # Create system default template
+            system_template = MessageTemplate.objects.create(
+                event=system_event,
+                name='System Default Invitation',
+                message_type='invitation',
+                template_text='Hey [name]! 💛\n\nJust wanted to share [event_title] on [event_date]!\n\nPlease confirm here: [event_url]\n\n- [host_name]',
+                description='Default template used when no event-specific default is set. This is a global template visible in all events.',
+                is_system_default=True,
+                is_default=False,  # Not an event default, but system default
+                is_active=True,
+            )
+        
+        # Return the template serialized
+        serializer = MessageTemplateSerializer(system_template)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'], url_path='whatsapp-templates/available-variables')
+    def get_available_variables(self, request, id=None):
+        """Get available variables for WhatsApp templates (default + custom from CSV)"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        variables = []
+        
+        # Default variables
+        default_vars = [
+            {'key': '[name]', 'label': 'Guest Name', 'description': 'Name of the guest', 'example': 'Sarah'},
+            {'key': '[event_title]', 'label': 'Event Title', 'description': 'Title of the event', 'example': event.title or 'Event Title'},
+            {'key': '[event_date]', 'label': 'Event Date', 'description': 'Date of the event', 'example': event.date.strftime('%B %d, %Y') if event.date else 'TBD'},
+            {'key': '[event_url]', 'label': 'Event URL', 'description': 'Link to the event invitation', 'example': f'https://example.com/invite/{event.slug}' if event.slug else 'https://example.com/invite/event-slug'},
+            {'key': '[host_name]', 'label': 'Host Name', 'description': 'Name of the event host', 'example': getattr(event.host, 'name', None) or getattr(event.host, 'username', 'Host')},
+            {'key': '[event_location]', 'label': 'Event Location', 'description': 'Location of the event', 'example': event.city or 'Location TBD'},
+            {'key': '[map_direction]', 'label': 'Map Direction Link', 'description': 'Google Maps link to event location', 'example': 'https://maps.google.com/?q=Location'},
+        ]
+        variables.extend(default_vars)
+        
+        # Custom variables from CSV imports
+        custom_metadata = event.custom_fields_metadata or {}
+        for normalized_key, metadata in custom_metadata.items():
+            if isinstance(metadata, dict):
+                display_label = metadata.get('display_label', normalized_key)
+                example = metadata.get('example', '—')
+            else:
+                # Backward compatibility: if metadata is just a string (old format)
+                display_label = metadata
+                example = '—'
+            
+            variables.append({
+                'key': f'[{normalized_key}]',
+                'label': display_label,
+                'description': f'Custom field from CSV: {display_label}',
+                'example': example,
+                'is_custom': True,
+            })
+        
+        return Response({'variables': variables})
+    
     def _get_description_variables(self, event):
         """Get list of available variables for event descriptions (guest-safe only)"""
         variables = []
@@ -2258,6 +2341,36 @@ def whatsapp_template_increment_usage(request, id):
             raise PermissionDenied("You can only access templates for your own events.")
         
         template.increment_usage()
+        return Response(MessageTemplateSerializer(template).data)
+    except MessageTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_template_set_default(request, id):
+    """Set this template as the event's default template"""
+    try:
+        template = MessageTemplate.objects.get(id=id)
+        # Verify ownership
+        if template.event.host != request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only access templates for your own events.")
+        
+        # System default templates cannot be set as event defaults
+        if template.is_system_default:
+            return Response(
+                {'error': 'System default templates cannot be set as event defaults'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Unset other defaults for this event
+        MessageTemplate.objects.filter(event=template.event, is_default=True).exclude(id=template.id).update(is_default=False)
+        
+        # Set this template as default
+        template.is_default = True
+        template.save(update_fields=['is_default'])
+        
         return Response(MessageTemplateSerializer(template).data)
     except MessageTemplate.DoesNotExist:
         return Response({'error': 'Template not found'}, status=status.HTTP_404_NOT_FOUND)

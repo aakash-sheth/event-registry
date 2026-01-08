@@ -165,16 +165,11 @@ export default function TemplateEditor({ eventId, template, onSave, onCancel }: 
 
     setSaving(true)
     try {
-      if (template) {
-        await updateWhatsAppTemplate(template.id, {
-          name: name.trim(),
-          message_type: messageType,
-          template_text: templateText.trim(),
-          description: description.trim() || undefined,
-          is_default: isDefault,
-        })
-        showToast('Template updated successfully', 'success')
-      } else {
+      // Check if this is a new template (no id, id is 0, or id is negative)
+      // Negative IDs are used for fallback system templates that haven't been saved yet
+      const isNewTemplate = !template || !template.id || template.id <= 0
+      
+      if (isNewTemplate) {
         await createWhatsAppTemplate(eventId, {
           name: name.trim(),
           message_type: messageType,
@@ -183,6 +178,15 @@ export default function TemplateEditor({ eventId, template, onSave, onCancel }: 
           is_default: isDefault,
         })
         showToast('Template created successfully', 'success')
+      } else {
+        await updateWhatsAppTemplate(template.id, {
+          name: name.trim(),
+          message_type: messageType,
+          template_text: templateText.trim(),
+          description: description.trim() || undefined,
+          is_default: isDefault,
+        })
+        showToast('Template updated successfully', 'success')
       }
       onSave()
     } catch (error: any) {

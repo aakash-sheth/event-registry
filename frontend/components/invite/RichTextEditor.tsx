@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef, useState, useEffect, useCallback } from 'react'
 import { 
   Bold, 
   Italic, 
@@ -84,6 +84,168 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     return markdown.trim()
   }
 
+  // Function to extract formatting from current selection and update UI controls
+  const updateUIFromSelection = useCallback(() => {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || !editorRef.current) {
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    
+    // Check if selection is within the editor
+    if (!editorRef.current.contains(range.commonAncestorContainer)) {
+      return
+    }
+    if (range.collapsed) {
+      // No selection - get formatting from the element containing the cursor
+      let element = range.commonAncestorContainer as HTMLElement
+      if (element.nodeType === Node.TEXT_NODE) {
+        element = element.parentElement as HTMLElement
+      }
+
+      // Walk up to find the element with formatting
+      while (element && element !== editorRef.current) {
+        const computedStyle = window.getComputedStyle(element)
+        
+        // Check for color
+        const color = computedStyle.color
+        if (color && color !== 'rgb(0, 0, 0)' && color !== 'rgba(0, 0, 0, 0)') {
+          // Convert rgb/rgba to hex
+          const rgb = color.match(/\d+/g)
+          if (rgb && rgb.length >= 3) {
+            const hex = '#' + rgb.slice(0, 3).map(x => {
+              const val = parseInt(x).toString(16)
+              return val.length === 1 ? '0' + val : val
+            }).join('')
+            setTextColor(hex)
+          }
+        }
+
+        // Check for font size
+        const fontSize = computedStyle.fontSize
+        if (fontSize) {
+          const size = parseInt(fontSize)
+          if (!isNaN(size) && FONT_SIZES.includes(size)) {
+            setFontSize(size)
+          }
+        }
+
+        // Check for font family
+        const fontFamily = computedStyle.fontFamily
+        if (fontFamily) {
+          const matchedFont = FONTS.find(f => 
+            fontFamily.includes(f.value.split(',')[0])
+          )
+          if (matchedFont) {
+            setCurrentFont(matchedFont.value)
+          }
+        }
+
+        // If we found formatting, stop walking up
+        if (color !== 'rgb(0, 0, 0)' || fontSize || fontFamily) {
+          break
+        }
+
+        element = element.parentElement as HTMLElement
+      }
+    } else {
+      // Has selection - get formatting from the selected range
+      const container = range.commonAncestorContainer as HTMLElement
+      let element: HTMLElement | null = null
+      
+      if (container.nodeType === Node.TEXT_NODE) {
+        element = container.parentElement
+      } else {
+        element = container as HTMLElement
+      }
+
+      // Check for inline styles in spans within selection
+      const walker = document.createTreeWalker(
+        range.cloneContents(),
+        NodeFilter.SHOW_ELEMENT,
+        null
+      )
+
+      let foundColor = false
+      let foundSize = false
+      let foundFont = false
+
+      let node
+      while (node = walker.nextNode()) {
+        const el = node as HTMLElement
+        const style = el.style
+
+        if (!foundColor && style.color) {
+          setTextColor(style.color)
+          foundColor = true
+        }
+
+        if (!foundSize && style.fontSize) {
+          const size = parseInt(style.fontSize)
+          if (!isNaN(size) && FONT_SIZES.includes(size)) {
+            setFontSize(size)
+            foundSize = true
+          }
+        }
+
+        if (!foundFont && style.fontFamily) {
+          const matchedFont = FONTS.find(f => 
+            style.fontFamily.includes(f.value.split(',')[0])
+          )
+          if (matchedFont) {
+            setCurrentFont(matchedFont.value)
+            foundFont = true
+          }
+        }
+
+        if (foundColor && foundSize && foundFont) break
+      }
+
+      // If no inline styles found, check computed styles
+      if (element && (!foundColor || !foundSize || !foundFont)) {
+        const computedStyle = window.getComputedStyle(element)
+        
+        if (!foundColor) {
+          const color = computedStyle.color
+          if (color && color !== 'rgb(0, 0, 0)' && color !== 'rgba(0, 0, 0, 0)') {
+            const rgb = color.match(/\d+/g)
+            if (rgb && rgb.length >= 3) {
+              const hex = '#' + rgb.slice(0, 3).map(x => {
+                const val = parseInt(x).toString(16)
+                return val.length === 1 ? '0' + val : val
+              }).join('')
+              setTextColor(hex)
+            }
+          }
+        }
+
+        if (!foundSize) {
+          const fontSize = computedStyle.fontSize
+          if (fontSize) {
+            const size = parseInt(fontSize)
+            if (!isNaN(size) && FONT_SIZES.includes(size)) {
+              setFontSize(size)
+            }
+          }
+        }
+
+        if (!foundFont) {
+          const fontFamily = computedStyle.fontFamily
+          if (fontFamily) {
+            const matchedFont = FONTS.find(f => 
+              fontFamily.includes(f.value.split(',')[0])
+            )
+            if (matchedFont) {
+              setCurrentFont(matchedFont.value)
+            }
+          }
+        }
+      }
+    }
+  }, [FONTS, FONT_SIZES])
+
+  // Update editor content when value prop changes (only when not focused to avoid conflicts)
   useEffect(() => {
     if (editorRef.current && !isFocused) {
       // Only update if the content has actually changed to avoid overwriting user edits
@@ -96,9 +258,26 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
       // Only update if content is different to avoid losing formatting during editing
       if (currentContent !== newContent) {
         editorRef.current.innerHTML = newContent
+        // Update UI controls to reflect the content after sync
+        setTimeout(() => updateUIFromSelection(), 0)
       }
     }
-  }, [value, isFocused])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, isFocused, updateUIFromSelection])
+
+  // Listen for selection changes to update UI controls
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      if (editorRef.current && isFocused) {
+        updateUIFromSelection()
+      }
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+    }
+  }, [isFocused, updateUIFromSelection])
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -395,6 +574,8 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     setShowFontMenu(false)
     editorRef.current?.focus()
     handleInput()
+    // Update UI immediately after applying font
+    setTimeout(() => updateUIFromSelection(), 0)
   }
 
   const handleFontSizeChange = (size: number) => {
@@ -443,6 +624,8 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     setShowSizeMenu(false)
     editorRef.current?.focus()
     handleInput()
+    // Update UI immediately after applying font size
+    setTimeout(() => updateUIFromSelection(), 0)
   }
 
   const handleTextColorChange = (color: string) => {
@@ -490,6 +673,8 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     setTextColor(color)
     editorRef.current?.focus()
     handleInput()
+    // Update UI immediately after applying color
+    setTimeout(() => updateUIFromSelection(), 0)
   }
 
   const handleHighlightColorChange = (color: string) => {
@@ -875,8 +1060,16 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        onFocus={() => setIsFocused(true)}
+        onFocus={() => {
+          setIsFocused(true)
+          // Update UI controls when editor is focused
+          setTimeout(() => updateUIFromSelection(), 0)
+        }}
         onBlur={() => setIsFocused(false)}
+        onClick={() => {
+          // Update UI controls when clicking in the editor
+          setTimeout(() => updateUIFromSelection(), 0)
+        }}
         className="min-h-[200px] p-3 focus:outline-none bg-white"
         style={{
           whiteSpace: 'pre-wrap',
@@ -915,4 +1108,5 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     </div>
   )
 }
+
 

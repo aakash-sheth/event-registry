@@ -6,7 +6,7 @@ from .views import (
     SubEventViewSet, GuestInviteViewSet, MessageTemplateViewSet,
     whatsapp_template_preview, whatsapp_template_duplicate,
     whatsapp_template_archive, whatsapp_template_activate,
-    whatsapp_template_increment_usage,
+    whatsapp_template_increment_usage, whatsapp_template_set_default,
     get_event_impact, get_overall_impact,
     invite_page_by_event
 )
@@ -55,6 +55,7 @@ urlpatterns = [
     path('whatsapp-templates/<int:id>/archive/', whatsapp_template_archive, name='whatsapp-template-archive'),
     path('whatsapp-templates/<int:id>/activate/', whatsapp_template_activate, name='whatsapp-template-activate'),
     path('whatsapp-templates/<int:id>/increment-usage/', whatsapp_template_increment_usage, name='whatsapp-template-increment-usage'),
+    path('whatsapp-templates/<int:id>/set-default/', whatsapp_template_set_default, name='whatsapp-template-set-default'),
     # Detail route (must come after action routes)
     path('whatsapp-templates/<int:id>/', MessageTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='whatsapp-template-detail'),
     path('', include(router.urls)),

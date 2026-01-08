@@ -3,17 +3,19 @@
 import React, { useState } from 'react'
 import { EventCarouselTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 
 interface EventCarouselTileSettingsProps {
   settings: EventCarouselTileSettings
   onUpdate: (settings: EventCarouselTileSettings) => void
+  eventId: number
 }
 
 export default function EventCarouselTileSettingsComponent({
   settings,
   onUpdate,
+  eventId,
 }: EventCarouselTileSettingsProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     slideshow: true,
@@ -69,6 +71,19 @@ export default function EventCarouselTileSettingsComponent({
 
   return (
     <div className="space-y-4">
+      {/* Sub-Event Management Link */}
+      <div>
+        <a
+          href={`/host/events/${eventId}/sub-events`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+        >
+          <span>Manage Sub-Events</span>
+          <ExternalLink className="w-4 h-4" />
+        </a>
+      </div>
+
       {/* Show Fields Section */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -110,15 +125,6 @@ export default function EventCarouselTileSettingsComponent({
               className="mr-2"
             />
             Location
-          </label>
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={settings.showFields?.cta ?? true}
-              onChange={(e) => handleShowFieldChange('cta', e.target.checked)}
-              className="mr-2"
-            />
-            RSVP Button
           </label>
         </div>
       </div>

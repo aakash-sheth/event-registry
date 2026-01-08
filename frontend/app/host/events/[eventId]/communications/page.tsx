@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, duplicateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate } from '@/lib/api'
+import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
@@ -123,7 +123,7 @@ export default function CommunicationsPage() {
   const handleEditTemplate = (template: WhatsAppTemplate) => {
     // System default templates cannot be edited (including fallback with id -1)
     if (template.is_system_default || template.id === -1) {
-      showToast('System default templates cannot be edited. You can duplicate it to create a custom version.', 'info')
+      showToast('System default templates cannot be edited', 'info')
       return
     }
     setEditingTemplate(template)
@@ -148,31 +148,6 @@ export default function CommunicationsPage() {
     } catch (error: any) {
       logError('Failed to delete template:', error)
       showToast(error.response?.data?.error || 'Failed to delete template', 'error')
-    }
-  }
-
-  const handleDuplicateTemplate = async (template: WhatsAppTemplate) => {
-    // Fallback system default (id -1) cannot be duplicated via API
-    if (template.id === -1) {
-      // Create a new template based on the system default
-      setEditingTemplate({
-        ...template,
-        id: 0, // Will be set by API on create
-        name: `${template.name} (Copy)`,
-        is_system_default: false,
-        is_default: false,
-      })
-      setShowEditor(true)
-      return
-    }
-    
-    try {
-      await duplicateWhatsAppTemplate(template.id)
-      showToast('Template duplicated successfully', 'success')
-      fetchTemplates()
-    } catch (error: any) {
-      logError('Failed to duplicate template:', error)
-      showToast(error.response?.data?.error || 'Failed to duplicate template', 'error')
     }
   }
 
@@ -220,7 +195,7 @@ export default function CommunicationsPage() {
   }
 
   const filteredTemplates = (() => {
-    // Start with custom templates
+    // Start with custom templates (event-specific templates)
     let result = templates.filter(template => {
       const matchesType = filterType === 'all' || template.message_type === filterType
       const matchesSearch = searchQuery === '' || 
@@ -229,20 +204,20 @@ export default function CommunicationsPage() {
       return matchesType && matchesSearch
     })
     
-    // Always include system default invitation template if:
+    // Always include system default template (global template visible in all events)
+    // Show it if:
     // 1. It exists
-    // 2. Filter is "all" or "invitation"
-    // 3. It's not already in the list (in case it was created for this event)
-    if (systemDefaultTemplate && 
-        (filterType === 'all' || filterType === 'invitation') &&
-        systemDefaultTemplate.message_type === 'invitation') {
-      // Check if system default matches search query
+    // 2. Filter is "all" or matches the template's message type
+    // 3. It matches the search query (if any)
+    // 4. It's not already in the list (in case it was created for this event)
+    if (systemDefaultTemplate) {
+      const matchesType = filterType === 'all' || systemDefaultTemplate.message_type === filterType
       const matchesSearch = searchQuery === '' || 
         systemDefaultTemplate.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         systemDefaultTemplate.template_text.toLowerCase().includes(searchQuery.toLowerCase())
       
-      // Only add if it matches search and isn't already in the list
-      if (matchesSearch && !result.some(t => t.id === systemDefaultTemplate.id)) {
+      // Add system default template at the top if it matches filters and isn't already in the list
+      if (matchesType && matchesSearch && !result.some(t => t.id === systemDefaultTemplate.id)) {
         result = [systemDefaultTemplate, ...result]
       }
     }
@@ -431,7 +406,6 @@ export default function CommunicationsPage() {
             templates={filteredTemplates}
             onEdit={handleEditTemplate}
             onDelete={handleDeleteTemplate}
-            onDuplicate={handleDuplicateTemplate}
             onArchive={handleArchiveTemplate}
             onSetDefault={handleSetDefault}
           />

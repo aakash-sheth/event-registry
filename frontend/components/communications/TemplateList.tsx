@@ -9,7 +9,6 @@ interface TemplateListProps {
   templates: WhatsAppTemplate[]
   onEdit: (template: WhatsAppTemplate) => void
   onDelete: (template: WhatsAppTemplate) => void
-  onDuplicate: (template: WhatsAppTemplate) => void
   onArchive: (template: WhatsAppTemplate) => void
   onSetDefault?: (template: WhatsAppTemplate) => void
 }
@@ -28,7 +27,6 @@ export default function TemplateList({
   templates,
   onEdit,
   onDelete,
-  onDuplicate,
   onArchive,
   onSetDefault,
 }: TemplateListProps) {
@@ -126,11 +124,11 @@ export default function TemplateList({
                   size="sm"
                   className="flex-1 border-eco-green text-eco-green hover:bg-eco-green-light"
                   disabled={template.is_system_default || template.id === -1}
-                  title={template.is_system_default || template.id === -1 ? 'System default templates cannot be edited. Duplicate it to create a custom version.' : ''}
+                  title={template.is_system_default || template.id === -1 ? 'System default templates cannot be edited' : ''}
                 >
                   Edit
                 </Button>
-                {onSetDefault && !template.is_default && template.id !== -1 && (
+                {onSetDefault && !template.is_default && template.id !== -1 && !template.is_system_default && (
                   <Button
                     onClick={() => onSetDefault(template)}
                     variant="outline"
@@ -140,14 +138,6 @@ export default function TemplateList({
                     Set Default
                   </Button>
                 )}
-                <Button
-                  onClick={() => onDuplicate(template)}
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50"
-                >
-                  Duplicate
-                </Button>
                 <Button
                   onClick={() => onArchive(template)}
                   variant="outline"
@@ -162,7 +152,11 @@ export default function TemplateList({
                   onClick={() => onDelete(template)}
                   variant="outline"
                   size="sm"
-                  className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                  className={`flex-1 ${
+                    template.is_system_default || template.id === -1
+                      ? 'border-gray-300 text-gray-400 bg-gray-50 cursor-not-allowed'
+                      : 'border-red-300 text-red-600 hover:bg-red-50'
+                  }`}
                   disabled={template.is_system_default || template.id === -1}
                   title={template.is_system_default || template.id === -1 ? 'System default templates cannot be deleted' : ''}
                 >

@@ -544,31 +544,52 @@ export default function DesignInvitationPage(): JSX.Element {
       }
       
       // Build config to save - ensure customColors.backgroundColor is always included if set
-      // Build tiles first
-      const tilesToSave = config.tiles?.map(t => {
-          if (t.type === 'title') {
-            return { ...t, enabled: true }
+      // Build tiles first - ensure they're sorted by order and order is explicitly preserved
+      // IMPORTANT: This respects user's manual ordering (from drag-and-drop) because:
+      // 1. When user reorders tiles, handleDragEnd sets order: index for each tile
+      // 2. We sort by those order values (which reflect user's choice)
+      // 3. Then we set order: index based on sorted position to ensure sequential values
+      // This ensures the saved order matches what the user sees and expects
+      const sortedTilesForSave = [...(config.tiles || [])].sort((a, b) => {
+        // Handle undefined order values (treat as 0)
+        const orderA = a.order !== undefined ? a.order : 0
+        const orderB = b.order !== undefined ? b.order : 0
+        return orderA - orderB
+      })
+      
+      const tilesToSave = sortedTilesForSave.map((t, index) => {
+          // Explicitly ensure order is set correctly - use the sorted index to ensure consistency
+          // This guarantees that order values are sequential (0, 1, 2, 3...) and match the actual position
+          // The sorted order respects the user's manual reordering because we sort by the order
+          // values that were set when the user dragged and dropped tiles
+          const baseTile = { 
+            ...t, 
+            order: index, // Set order to match sorted position (preserves user's choice)
+          }
+          
+          if (baseTile.type === 'title') {
+            return { ...baseTile, enabled: true }
           }
           // For image tiles, explicitly preserve all settings including coverPosition
-          if (t.type === 'image') {
-            const imageSettings = t.settings as any
+          if (baseTile.type === 'image') {
+            const imageSettings = baseTile.settings as any
             // Log to help debug position saving
             if (imageSettings.coverPosition) {
             }
-            return { ...t, settings: { ...imageSettings } }
+            return { ...baseTile, settings: { ...imageSettings } }
           }
           // For feature-buttons tiles, explicitly preserve all settings including custom labels
-          if (t.type === 'feature-buttons') {
-            const featureButtonsSettings = t.settings as any
-            return { ...t, settings: { ...featureButtonsSettings } }
+          if (baseTile.type === 'feature-buttons') {
+            const featureButtonsSettings = baseTile.settings as any
+            return { ...baseTile, settings: { ...featureButtonsSettings } }
           }
           // For event-carousel tiles, explicitly preserve all settings including slideshow and styling options
-          if (t.type === 'event-carousel') {
-            const carouselSettings = t.settings as any
-            return { ...t, settings: { ...carouselSettings } }
+          if (baseTile.type === 'event-carousel') {
+            const carouselSettings = baseTile.settings as any
+            return { ...baseTile, settings: { ...carouselSettings } }
           }
-          return t
-      }) || []
+          return baseTile
+      })
       
       // Build customColors - always include backgroundColor if it exists
       let customColorsToSave = undefined
