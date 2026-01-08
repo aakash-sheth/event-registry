@@ -315,7 +315,7 @@ export async function getGuestInvites(eventId: number) {
 }
 
 export async function updateGuestInvites(eventId: number, guestId: number, subEventIds: number[]) {
-  const response = await api.put(`/api/events/envelopes/${eventId}/guests/${guestId}/invites/`, {
+  const response = await api.put(`/api/events/guests/${guestId}/invites/`, {
     sub_event_ids: subEventIds
   })
   return response.data
@@ -424,6 +424,17 @@ export async function getAvailableVariables(eventId: number): Promise<Array<{
   is_custom?: boolean
 }>> {
   const response = await api.get(`/api/events/${eventId}/whatsapp-templates/available-variables/`)
+  return response.data.variables || []
+}
+
+export async function getDescriptionVariables(eventId: number): Promise<Array<{
+  key: string
+  label: string
+  description: string
+  example: string
+  is_custom?: boolean
+}>> {
+  const response = await api.get(`/api/events/${eventId}/description-variables/`)
   return response.data.variables || []
 }
 

@@ -287,7 +287,7 @@ export default function GuestsPage() {
   const handleSaveSubEventAssignments = async (guestId: number) => {
     try {
       const subEventIds = guestSubEventAssignments[guestId] || []
-      await api.put(`/api/events/envelopes/${eventId}/guests/${guestId}/invites/`, {
+      await api.put(`/api/events/guests/${guestId}/invites/`, {
         sub_event_ids: subEventIds
       })
       showToast('Sub-event assignments updated', 'success')

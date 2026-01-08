@@ -46,6 +46,7 @@ urlpatterns = [
     path('<int:event_id>/whatsapp-templates/', MessageTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='event-whatsapp-templates'),
     # Event-level template endpoints
     path('<int:id>/whatsapp-templates/available-variables/', EventViewSet.as_view({'get': 'get_available_variables'}), name='event-available-variables'),
+    path('<int:id>/description-variables/', EventViewSet.as_view({'get': 'description_variables'}), name='event-description-variables'),
     path('<int:id>/whatsapp-preview/', EventViewSet.as_view({'post': 'whatsapp_preview'}), name='event-whatsapp-preview'),
     path('<int:id>/system-default-template/', EventViewSet.as_view({'get': 'get_system_default_template'}), name='event-system-default-template'),
     # Action routes - using standalone view functions for better routing

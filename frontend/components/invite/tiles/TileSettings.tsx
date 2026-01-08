@@ -95,7 +95,7 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
       case 'event-details':
         return <EventDetailsTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
       case 'description':
-        return <DescriptionTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
+        return <DescriptionTileSettings settings={tile.settings as any} onChange={handleSettingsChange} eventId={eventId} />
       case 'feature-buttons':
         return <FeatureButtonsTileSettings settings={tile.settings as any} onChange={handleSettingsChange} hasRsvp={hasRsvp} hasRegistry={hasRegistry} />
       case 'footer':

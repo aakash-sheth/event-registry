@@ -578,3 +578,73 @@ def render_template_with_guest(template_text: str, event, guest=None, base_url: 
     
     return message, warnings
 
+
+def render_description_with_guest(description_text: str, event, guest=None, base_url: str = None):
+    """
+    Render event description with guest-specific variables only.
+    Only supports [name] and custom CSV fields - other variables are excluded
+    since they're already displayed on the invitation page.
+    
+    Args:
+        description_text: Description HTML/text with variables like [name], [custom_field]
+        event: Event instance
+        guest: Guest instance (optional, for guest-specific variables)
+        base_url: Base URL (optional, not used but kept for consistency)
+    
+    Returns:
+        Tuple of (rendered_description, warnings_dict)
+        warnings_dict contains:
+        - unresolved_variables: List of variables that couldn't be resolved
+        - missing_custom_fields: List of custom field keys that are missing for this guest
+    """
+    import re
+    
+    warnings = {
+        'unresolved_variables': [],
+        'missing_custom_fields': [],
+    }
+    
+    description = description_text
+    
+    # Only guest-specific variables allowed
+    replacements = {}
+    
+    # Guest name (only if guest provided)
+    if guest:
+        replacements['[name]'] = guest.name
+    else:
+        # If no guest, leave [name] as-is (will show as [name] in description)
+        replacements['[name]'] = ''
+    
+    # Custom fields from CSV (only if guest provided)
+    if guest and guest.custom_fields:
+        custom_metadata = event.custom_fields_metadata or {}
+        for normalized_key, value in guest.custom_fields.items():
+            variable_key = f'[{normalized_key}]'
+            if value:
+                replacements[variable_key] = str(value)
+            else:
+                replacements[variable_key] = '—'
+                warnings['missing_custom_fields'].append(normalized_key)
+    
+    # Replace all known variables
+    for variable, value in replacements.items():
+        # Escape special regex characters in variable
+        escaped_variable = re.escape(variable)
+        description = re.sub(escaped_variable, value, description)
+    
+    # Find unresolved variables (excluding event-related ones that are intentionally not supported)
+    unresolved_pattern = r'\[([a-z0-9_]+)\]'
+    unresolved_matches = re.findall(unresolved_pattern, description, re.IGNORECASE)
+    
+    # Filter out variables that were already replaced
+    for match in unresolved_matches:
+        variable = f'[{match}]'
+        if variable in description:
+            # Only warn about non-event variables (event variables are intentionally not supported)
+            event_variables = ['event_title', 'event_date', 'event_location', 'event_url', 'map_direction', 'host_name']
+            if match.lower() not in event_variables:
+                warnings['unresolved_variables'].append(variable)
+    
+    return description, warnings
+

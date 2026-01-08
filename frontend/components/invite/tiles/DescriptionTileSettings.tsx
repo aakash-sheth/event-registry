@@ -1,19 +1,39 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Maximize2 } from 'lucide-react'
 import type { DescriptionTileSettings } from '@/lib/invite/schema'
 import RichTextEditor from '@/components/invite/RichTextEditor'
 import DescriptionEditorModal from '@/components/invite/DescriptionEditorModal'
 import { Button } from '@/components/ui/button'
+import { getDescriptionVariables } from '@/lib/api'
 
 interface DescriptionTileSettingsProps {
   settings: DescriptionTileSettings
   onChange: (settings: DescriptionTileSettings) => void
+  eventId: number
 }
 
-export default function DescriptionTileSettings({ settings, onChange }: DescriptionTileSettingsProps) {
+export default function DescriptionTileSettings({ settings, onChange, eventId }: DescriptionTileSettingsProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [showMoreInfo, setShowMoreInfo] = useState(false)
+  const [availableVariables, setAvailableVariables] = useState<Array<{
+    key: string
+    label: string
+    description: string
+    example: string
+    is_custom?: boolean
+  }>>([])
+
+  useEffect(() => {
+    if (eventId) {
+      getDescriptionVariables(eventId)
+        .then(setAvailableVariables)
+        .catch((error) => {
+          console.error('Failed to load description variables:', error)
+        })
+    }
+  }, [eventId])
 
   return (
     <div className="space-y-4">
@@ -40,6 +60,76 @@ export default function DescriptionTileSettings({ settings, onChange }: Descript
           Use the toolbar to format text and add links. Click "Full Screen Editor" for a larger editing area.
         </p>
       </div>
+
+      {/* Available Variables Panel */}
+      <details className="bg-gray-50 p-3 rounded-md border border-gray-200">
+        <summary className="cursor-pointer text-sm font-medium text-gray-700 mb-2">
+          📝 Available Variables (click to expand)
+        </summary>
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-gray-600 mb-2">
+            Use these variables to personalize the description for each guest.{' '}
+            {!showMoreInfo ? (
+              <button
+                type="button"
+                onClick={() => setShowMoreInfo(true)}
+                className="text-eco-green hover:underline font-medium"
+              >
+                (more)
+              </button>
+            ) : (
+              <>
+                <span className="block mt-1">
+                  Variables will be replaced when guests access the invite page using their guest-specific link (with token). On public links without a token, variables will appear as-is (e.g., [name]).
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowMoreInfo(false)}
+                  className="text-eco-green hover:underline font-medium mt-1"
+                >
+                  (less)
+                </button>
+              </>
+            )}
+          </p>
+          
+          {availableVariables.length === 0 ? (
+            <p className="text-xs text-gray-500">Loading variables...</p>
+          ) : (
+            <>
+              {/* Guest Name */}
+              {availableVariables.filter(v => !v.is_custom).map((variable) => (
+                <div key={variable.key} className="bg-white p-2 rounded border border-gray-200">
+                  <code className="bg-gray-100 px-1.5 py-0.5 rounded text-eco-green font-mono text-xs">
+                    {variable.key}
+                  </code>
+                  <span className="ml-2 text-sm text-gray-700">{variable.label}</span>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {variable.description}
+                  </p>
+                </div>
+              ))}
+              
+              {/* Custom Variables */}
+              {availableVariables.filter(v => v.is_custom).length > 0 && (
+                <div className="mt-3">
+                  <h4 className="text-xs font-semibold text-gray-600 mb-2">Custom Fields</h4>
+                  <div className="space-y-2">
+                    {availableVariables.filter(v => v.is_custom).map((variable) => (
+                      <div key={variable.key} className="bg-white p-2 rounded border border-gray-200">
+                        <code className="bg-gray-100 px-1.5 py-0.5 rounded text-eco-green font-mono text-xs">
+                          {variable.key}
+                        </code>
+                        <span className="ml-2 text-sm text-gray-700">{variable.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </details>
 
       {/* Full Screen Editor Modal */}
       <DescriptionEditorModal

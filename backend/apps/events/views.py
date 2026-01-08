@@ -274,6 +274,49 @@ class EventViewSet(viewsets.ModelViewSet):
                 {'error': f'Failed to update design: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    @action(detail=True, methods=['get'], url_path='description-variables')
+    def description_variables(self, request, id=None):
+        """Get available variables for event descriptions (name + custom fields only)"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        # Get variables (only [name] and custom CSV fields)
+        variables = self._get_description_variables(event)
+        return Response({'variables': variables})
+    
+    def _get_description_variables(self, event):
+        """Get list of available variables for event descriptions (guest-safe only)"""
+        variables = []
+        
+        # Only guest-specific variables
+        variables.append({
+            'key': '[name]',
+            'label': 'Guest Name',
+            'description': 'Name of the guest (personalizes the description)',
+            'example': 'Sarah',
+        })
+        
+        # Custom variables from CSV
+        custom_metadata = event.custom_fields_metadata or {}
+        for normalized_key, metadata in custom_metadata.items():
+            if isinstance(metadata, dict):
+                display_label = metadata.get('display_label', normalized_key)
+                example = metadata.get('example', '—')
+            else:
+                # Backward compatibility: if metadata is just a string (old format)
+                display_label = metadata
+                example = '—'
+            
+            variables.append({
+                'key': f'[{normalized_key}]',
+                'label': display_label,
+                'description': f'Custom field from CSV: {display_label}',
+                'example': example,
+                'is_custom': True,
+            })
+        
+        return variables
 
 
 # Helper function to handle invite page operations by event_id
@@ -887,6 +930,27 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         guest_context = None
         if guest:
             guest_context = GuestSerializer(guest).data
+        
+        # Process description tiles with guest variables if guest token is provided
+        if guest and invite_page.config and 'tiles' in invite_page.config:
+            from .utils import render_description_with_guest
+            
+            base_url = request.build_absolute_uri('/').rstrip('/')
+            for tile in invite_page.config['tiles']:
+                if tile.get('type') == 'description' and tile.get('settings', {}).get('content'):
+                    original_content = tile['settings']['content']
+                    rendered_content, warnings = render_description_with_guest(
+                        original_content,
+                        event,
+                        guest,
+                        base_url=base_url
+                    )
+                    tile['settings']['content'] = rendered_content
+                    # Optionally log warnings for debugging
+                    if warnings.get('unresolved_variables'):
+                        logger.debug(
+                            f"[PublicInviteViewSet] Unresolved variables in description: {warnings['unresolved_variables']}"
+                        )
 
         # Serialize with context
         serializer = self.get_serializer(

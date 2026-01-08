@@ -436,18 +436,17 @@ export default function EventDetailPage() {
                 <span className="capitalize">{event.event_type}</span> • {event.city || 'No location'}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Link href={`/host/events/${eventId}/design`}>
-                <Button className="bg-eco-green hover:bg-green-600 text-white">
-                  Design Invitation
-                </Button>
-              </Link>
-            </div>
           </div>
         </div>
 
         {/* Stats Section */}
-        <div className={totalGuests > 0 ? 'grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8' : 'grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8'}>
+        <div className={
+          (totalGuests > 0 || totalRSVPs > 0) && (event?.has_registry && !event?.is_expired)
+            ? 'grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8'
+            : (totalGuests > 0 || totalRSVPs > 0) || (event?.has_registry && !event?.is_expired)
+            ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8'
+            : 'grid grid-cols-1 gap-6 mb-8'
+        }>
           {/* Show Impact Stats if expired, otherwise show Total Gifts */}
           {event.is_expired && impact ? (
             <Card className="bg-white border-2 border-eco-green-light">
@@ -482,19 +481,21 @@ export default function EventDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Total Gifts</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold text-eco-green">
-                  ₹{(totalAmount / 100).toLocaleString('en-IN')}
-                </p>
-                <p className="text-sm text-gray-600 mt-2">
-                  {orders.filter((o) => o.status === 'paid').length} gifts received
-                </p>
-              </CardContent>
-            </Card>
+            event?.has_registry && (
+              <Card className="bg-white border-2 border-eco-green-light">
+                <CardHeader>
+                  <CardTitle className="text-eco-green">Total Gifts</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold text-eco-green">
+                    ₹{(totalAmount / 100).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    {orders.filter((o) => o.status === 'paid').length} gifts received
+                  </p>
+                </CardContent>
+              </Card>
+            )
           )}
 
           {/* Show card if there are guests OR RSVPs */}
@@ -571,45 +572,49 @@ export default function EventDetailPage() {
             <CardHeader>
               <CardTitle className="text-eco-green">Quick Actions</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <Link href={`/host/events/${eventId}/design`}>
-                <Button className="w-full bg-eco-green hover:bg-green-600 text-white py-6 text-base font-semibold">
-                  Design Invitation Page
-                </Button>
-              </Link>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <Link href={`/host/items/${eventId}`}>
-                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3">
-                    Manage Items
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Link href={`/host/events/${eventId}/design`}>
+                  <Button className="w-full bg-eco-green hover:bg-green-600 text-white py-4 text-sm font-semibold">
+                    Design Invitation Page
                   </Button>
                 </Link>
+                {event?.has_registry && (
+                  <Link href={`/host/items/${eventId}`}>
+                    <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
+                      Manage Items
+                    </Button>
+                  </Link>
+                )}
                 <Link href={`/host/events/${eventId}/guests`}>
-                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3">
+                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
                     Manage Guests
                   </Button>
                 </Link>
+                {event?.event_structure === 'ENVELOPE' && (
+                  <Link href={`/host/events/${eventId}/sub-events`}>
+                    <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
+                      Manage Sub-Events
+                    </Button>
+                  </Link>
+                )}
+                <Link href={`/host/events/${eventId}/communications`}>
+                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
+                    Communication Management
+                  </Button>
+                </Link>
               </div>
-              <Link href={`/host/events/${eventId}/sub-events`}>
-                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3">
-                  Manage Sub-Events
-                </Button>
-              </Link>
-              <Link href={`/host/events/${eventId}/communications`}>
-                <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-3">
-                  Communication Management
-                </Button>
-              </Link>
             </CardContent>
           </Card>
         </div>
 
         {/* Recent Gifts Section */}
-        <div className="mb-8">
-          <Card className="bg-white border-2 border-eco-green-light">
-            <CardHeader>
-              <CardTitle className="text-eco-green">Recent Gifts</CardTitle>
-            </CardHeader>
+        {event?.has_registry && (
+          <div className="mb-8">
+            <Card className="bg-white border-2 border-eco-green-light">
+              <CardHeader>
+                <CardTitle className="text-eco-green">Recent Gifts</CardTitle>
+              </CardHeader>
             <CardContent>
               {orders.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No gifts received yet</p>
@@ -664,7 +669,8 @@ export default function EventDetailPage() {
               )}
             </CardContent>
           </Card>
-        </div>
+          </div>
+        )}
 
         {/* Settings & Configuration Section */}
         <div className="mb-8">

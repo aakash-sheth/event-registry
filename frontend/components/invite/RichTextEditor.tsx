@@ -154,37 +154,98 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Handle Enter key to preserve empty lines
+    // Handle Enter key to create proper paragraphs
     if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault() // Prevent default behavior
+      
       const selection = window.getSelection()
-      if (selection && selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0)
-        const currentElement = range.startContainer.parentElement
-        
-        // Check if we're in a paragraph or div
-        if (currentElement && (currentElement.tagName === 'P' || currentElement.tagName === 'DIV')) {
-          const isEmpty = currentElement.textContent?.trim() === '' || 
-                         currentElement.innerHTML === '<br>' || 
-                         currentElement.innerHTML.trim() === ''
-          
-          // If current element is empty, allow default behavior but ensure it creates a visible empty line
-          if (isEmpty) {
-            // Let the browser create the new paragraph, then we'll ensure it's visible
-            setTimeout(() => {
-              if (editorRef.current) {
-                // Find all empty paragraphs and ensure they have content
-                const emptyElements = editorRef.current.querySelectorAll('p:empty, div:empty')
-                emptyElements.forEach((el) => {
-                  if (el.innerHTML === '' || el.innerHTML === '<br>') {
-                    el.innerHTML = '<br>'
-                  }
-                })
-                handleInput()
-              }
-            }, 0)
+      if (!selection || selection.rangeCount === 0 || !editorRef.current) {
+        return
+      }
+      
+      const range = selection.getRangeAt(0)
+      
+      // Find the current block element (p or div) that's a direct child of editor
+      let currentBlock: HTMLElement | null = null
+      let node: Node | null = range.startContainer
+      
+      // Walk up the DOM tree to find the block element
+      while (node && node !== editorRef.current) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement
+          if ((el.tagName === 'P' || el.tagName === 'DIV') && el.parentElement === editorRef.current) {
+            currentBlock = el
+            break
           }
         }
+        node = node.parentNode
       }
+      
+      // If no block found, create one
+      if (!currentBlock) {
+        currentBlock = document.createElement('p')
+        editorRef.current.appendChild(currentBlock)
+      }
+      
+      // Split the current block at the cursor position
+      const clonedRange = range.cloneRange()
+      clonedRange.setStartBefore(currentBlock)
+      clonedRange.setEnd(range.startContainer, range.startOffset)
+      
+      // Get content before cursor
+      const beforeContent = clonedRange.extractContents()
+      
+      // Get content after cursor
+      const afterRange = range.cloneRange()
+      afterRange.setStart(range.startContainer, range.startOffset)
+      afterRange.setEndAfter(currentBlock.lastChild || currentBlock)
+      const afterContent = afterRange.extractContents()
+      
+      // Create new paragraph for content after cursor
+      const newP = document.createElement('p')
+      newP.innerHTML = '<br>'
+      
+      // If there's content after cursor, put it in the new paragraph
+      if (afterContent.textContent?.trim() || afterContent.querySelector('span, strong, em, u, s, a')) {
+        newP.innerHTML = ''
+        newP.appendChild(afterContent)
+      }
+      
+      // Update current block with content before cursor
+      currentBlock.innerHTML = ''
+      if (beforeContent.textContent?.trim() || beforeContent.querySelector('span, strong, em, u, s, a')) {
+        currentBlock.appendChild(beforeContent)
+      } else {
+        currentBlock.innerHTML = '<br>'
+      }
+      
+      // Insert new paragraph after current block
+      if (currentBlock.nextSibling) {
+        currentBlock.parentNode?.insertBefore(newP, currentBlock.nextSibling)
+      } else {
+        currentBlock.parentNode?.appendChild(newP)
+      }
+      
+      // Move cursor to the new paragraph
+      const newRange = document.createRange()
+      newRange.setStart(newP, 0)
+      newRange.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(newRange)
+      
+      // Normalize and update
+      setTimeout(() => {
+        if (editorRef.current) {
+          // Ensure all empty paragraphs have <br>
+          const emptyElements = editorRef.current.querySelectorAll('p:empty, div:empty')
+          emptyElements.forEach((el) => {
+            if (el.innerHTML === '' || el.innerHTML.trim() === '<br>' || el.innerHTML.trim() === '<br/>') {
+              el.innerHTML = '<br>'
+            }
+          })
+          handleInput()
+        }
+      }, 0)
     }
   }
 
@@ -443,34 +504,77 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
 
   const handleAlignment = (align: string) => {
     const selection = window.getSelection()
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0)
+    if (!selection || selection.rangeCount === 0 || !editorRef.current) {
+      // Fallback to execCommand
+      handleFormat('justify' + align.charAt(0).toUpperCase() + align.slice(1))
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    const alignValue = align.toLowerCase()
+    let alignmentStyle: string
+    
+    if (alignValue === 'left') {
+      alignmentStyle = 'left'
+    } else if (alignValue === 'center') {
+      alignmentStyle = 'center'
+    } else if (alignValue === 'right') {
+      alignmentStyle = 'right'
+    } else if (alignValue === 'full') {
+      alignmentStyle = 'justify'
+    } else {
+      alignmentStyle = 'left'
+    }
+
+    // Get all paragraphs/divs in the selection
+    const selectedElements: HTMLElement[] = []
+    const walker = document.createTreeWalker(
+      editorRef.current,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          const el = node as HTMLElement
+          if ((el.tagName === 'P' || el.tagName === 'DIV') && range.intersectsNode(el)) {
+            return NodeFilter.FILTER_ACCEPT
+          }
+          return NodeFilter.FILTER_SKIP
+        }
+      }
+    )
+
+    let node
+    while (node = walker.nextNode()) {
+      selectedElements.push(node as HTMLElement)
+    }
+
+    // If no paragraphs found, find the paragraph containing the cursor
+    if (selectedElements.length === 0) {
       let element = range.commonAncestorContainer as HTMLElement
+      if (element.nodeType === Node.TEXT_NODE) {
+        element = element.parentElement as HTMLElement
+      }
       
-      // Find the paragraph or div element
       while (element && element !== editorRef.current) {
         if (element.tagName === 'P' || element.tagName === 'DIV') {
-          // Apply alignment to the paragraph/div
-          const alignValue = align.toLowerCase()
-          if (alignValue === 'left') {
-            element.style.textAlign = 'left'
-          } else if (alignValue === 'center') {
-            element.style.textAlign = 'center'
-          } else if (alignValue === 'right') {
-            element.style.textAlign = 'right'
-          } else if (alignValue === 'full') {
-            element.style.textAlign = 'justify'
-          }
-          handleInput()
-          editorRef.current?.focus()
-          return
+          selectedElements.push(element)
+          break
         }
         element = element.parentElement as HTMLElement
       }
     }
-    
-    // Fallback to execCommand
-    handleFormat('justify' + align.charAt(0).toUpperCase() + align.slice(1))
+
+    // Apply alignment to all selected paragraphs
+    selectedElements.forEach(el => {
+      el.style.textAlign = alignmentStyle
+    })
+
+    // If no elements found, use execCommand as fallback
+    if (selectedElements.length === 0) {
+      handleFormat('justify' + align.charAt(0).toUpperCase() + align.slice(1))
+    } else {
+      handleInput()
+      editorRef.current?.focus()
+    }
   }
 
   const handleList = (type: 'unordered' | 'ordered') => {
