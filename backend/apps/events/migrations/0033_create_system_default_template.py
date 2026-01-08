@@ -1,14 +1,12 @@
 # Generated migration - Auto-create system default template
 from django.db import migrations
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
 
 
 def create_system_default_template(apps, schema_editor):
     """Create the global system default WhatsApp template"""
     Event = apps.get_model('events', 'Event')
     MessageTemplate = apps.get_model('events', 'MessageTemplate')
+    User = apps.get_model('users', 'User')  # Use historical model
     
     # Check if system default already exists
     existing = MessageTemplate.objects.filter(is_system_default=True).first()
@@ -17,11 +15,18 @@ def create_system_default_template(apps, schema_editor):
     
     # Get or create a system event for the template
     # We need an event because MessageTemplate requires it
+    # Get first user as placeholder, or create event without host if no users exist
+    first_user = User.objects.first()
+    if not first_user:
+        # If no users exist, skip creating the system event
+        # The template can be created later when a user exists
+        return
+    
     system_event, created = Event.objects.get_or_create(
         slug='system-default',
         defaults={
             'title': 'System Default Template Event',
-            'host': User.objects.first(),  # Use first user as placeholder
+            'host': first_user,  # Use first user as placeholder
             'event_type': 'other',
             'is_public': False,
         }
