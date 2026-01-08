@@ -778,7 +778,8 @@ export default function DesignInvitationPage(): JSX.Element {
           })
           setInvitePage(newInvite)
           showToast('Invite page created. Opening preview...', 'success')
-          window.open(`/invite/${event.slug}`, '_blank')
+          // Add preview=true to bypass cache for editor
+          window.open(`/invite/${event.slug}?preview=true`, '_blank')
         } catch (error) {
           logError('Failed to create invite page:', error)
           showToast('Failed to create invite page', 'error')
@@ -795,7 +796,9 @@ export default function DesignInvitationPage(): JSX.Element {
       )
     }
     
-    window.open(`/invite/${event.slug}`, '_blank')
+    // Add preview=true to bypass cache for editor
+    // This ensures editor sees immediate updates
+    window.open(`/invite/${event.slug}?preview=true`, '_blank')
   }
 
   const handleTileUpdate = (updatedTile: Tile) => {

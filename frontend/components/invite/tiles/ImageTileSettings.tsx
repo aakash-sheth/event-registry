@@ -263,7 +263,9 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
               >
                 <img 
                   src={settings.src} 
-                  alt="Preview" 
+                  alt="Preview"
+                  loading="lazy"
+                  decoding="async"
                   style={{
                     position: 'absolute',
                     top: 0,

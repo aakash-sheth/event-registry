@@ -108,7 +108,9 @@ export default function ImageTileSSR({ settings, hasTitleOverlay = false }: Imag
         <img 
           src={settings.src} 
           alt="Event"
-          loading="lazy"
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
           style={{
             filter: blurValue > 0 ? `blur(${blurValue}px)` : 'none',
             width: '100%',
@@ -144,7 +146,9 @@ export default function ImageTileSSR({ settings, hasTitleOverlay = false }: Imag
       <img 
         src={settings.src} 
         alt="Event"
-        loading="lazy"
+        loading="eager"
+        decoding="async"
+        fetchPriority="high"
         style={{
           ...imageStyle,
           width: '100%',

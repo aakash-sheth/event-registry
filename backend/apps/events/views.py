@@ -795,9 +795,12 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         invite_page = None
         event = None
 
-        # Check cache for published pages without guest tokens
+        # Check if this is an editor preview request
+        is_preview = request.query_params.get('preview', '').lower() == 'true'
+        
+        # Check cache for published pages without guest tokens AND not editor preview
         guest_token = request.query_params.get('g', '').strip()
-        if not guest_token:  # Only cache public (non-guest) responses
+        if not guest_token and not is_preview:  # Only cache if not editor preview
             cache_key = get_invite_page_cache_key(slug)
             cache_check_start = time.time()
             cached_response = cache.get(cache_key)
@@ -819,7 +822,10 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                         'cache_check_time_ms': cache_check_time
                     }
                 )
-                return Response(cached_response)
+                # Return cached response with stale-while-revalidate headers for guests
+                response = Response(cached_response)
+                response['Cache-Control'] = 'public, s-maxage=3600, stale-while-revalidate=86400, max-age=60'
+                return response
             logger.info(
                 f"[Cache] MISS - slug: {slug}, key: {cache_key}, "
                 f"cache_check: {cache_check_time:.2f}ms"
@@ -837,14 +843,14 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         # Step 1: Try to find published invite page (most common case)
         logger.info(f"[PublicInviteViewSet.retrieve] Step 1: Looking for published invite page with slug: '{slug}'")
         try:
-            invite_page = InvitePage.objects.select_related('event').prefetch_related(
+            invite_page = InvitePage.objects.select_related('event', 'event__host').prefetch_related(
                 'event__sub_events'
             ).only(
                 'id', 'slug', 'background_url', 'config', 'is_published',
                 'event_id', 'created_at', 'updated_at',
                 'event__id', 'event__slug', 'event__event_structure',
                 'event__rsvp_mode', 'event__public_sub_events_count',
-                'event__total_sub_events_count'
+                'event__total_sub_events_count', 'event__host_id'  # host_id needed for editor check
             ).get(slug=slug, is_published=True)
             event = invite_page.event
             query_time = time.time() - query_start
@@ -1054,8 +1060,36 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 f"(sub-events: {sub_events_total_time:.2f}s) for slug: {slug}"
             )
 
-        # Cache response for published pages without guest tokens
-        if invite_page.is_published and not guest_token:
+        # Determine if this is an editor preview (authenticated host with preview parameter)
+        is_event_host = False
+        if event and request.user.is_authenticated:
+            is_event_host = event.host == request.user
+        
+        bypass_cache = is_preview and is_event_host
+
+        # Create response
+        response = Response(serializer.data)
+        
+        # Set cache headers based on request type
+        if bypass_cache:
+            # Editor preview: No cache, always fresh
+            response['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+            response['Pragma'] = 'no-cache'
+            response['Expires'] = '0'
+            logger.info(
+                f"[Cache] BYPASS - Editor preview for slug: {slug}, "
+                f"user: {request.user.id if request.user.is_authenticated else 'anonymous'}"
+            )
+        else:
+            # Guest/public: Use stale-while-revalidate
+            response['Cache-Control'] = 'public, s-maxage=3600, stale-while-revalidate=86400, max-age=60'
+            logger.info(
+                f"[Cache] SET - Guest/public request for slug: {slug}, "
+                f"cache_control: stale-while-revalidate"
+            )
+
+        # Cache response for published pages without guest tokens AND not editor preview
+        if invite_page.is_published and not guest_token and not bypass_cache:
             cache_key = get_invite_page_cache_key(slug)
             cache.set(cache_key, serializer.data, 300)  # 5 minute TTL
             logger.info(
@@ -1073,7 +1107,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 }
             )
 
-        return Response(serializer.data)
+        return response
 
     @action(detail=True, methods=['get'], url_path='guests.csv')
     def guests_csv(self, request, id=None):

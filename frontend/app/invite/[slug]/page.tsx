@@ -6,6 +6,7 @@ import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
 import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
+import { BRAND_NAME } from '@/lib/brand_utility'
 import http from 'http'
 import https from 'https'
 
@@ -97,9 +98,9 @@ function getFrontendUrl(): string {
   return process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || process.env.NEXT_PUBLIC_API_BASE || 'https://eventregistry.com'
 }
 
-// Fetch invite page data (supports guest token)
+// Fetch invite page data (supports guest token and preview mode)
 // Single attempt - no retries for simple page rendering
-async function fetchInviteData(slug: string, guestToken?: string): Promise<any | null> {
+async function fetchInviteData(slug: string, guestToken?: string, isPreview?: boolean): Promise<any | null> {
     // CRITICAL: Always use slug, never event ID for public invite pages
     // The public endpoint is /api/events/invite/{slug}/, NOT /api/events/{id}/invite/
     if (!slug || typeof slug !== 'string') {
@@ -108,9 +109,19 @@ async function fetchInviteData(slug: string, guestToken?: string): Promise<any |
     }
     
     const apiBase = getApiBase()
+    // Build query parameters
+    const queryParams = new URLSearchParams()
+    if (guestToken) {
+      queryParams.append('g', guestToken)
+    }
+    if (isPreview) {
+      queryParams.append('preview', 'true')
+    }
+    const queryString = queryParams.toString()
+    
     // ALWAYS use the public invite endpoint with slug (never event ID)
-    const url = guestToken 
-      ? `${apiBase}/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+    const url = queryString
+      ? `${apiBase}/api/events/invite/${slug}/?${queryString}`
       : `${apiBase}/api/events/invite/${slug}/`
     
     // Validate URL format - must use /api/events/invite/{slug}/ pattern
@@ -621,9 +632,10 @@ export async function generateMetadata({
 
     const fetchStart = Date.now()
     // Use fetchInviteData instead of fetchEventData to get background_url
+    // Note: Metadata generation doesn't have searchParams, so no preview mode
     let inviteData: any = null
     try {
-      inviteData = await fetchInviteData(params.slug)
+      inviteData = await fetchInviteData(params.slug, undefined, false)
     } catch (error: any) {
       console.error('[InvitePage Metadata] Error fetching invite data for metadata', {
         slug: params.slug,
@@ -681,7 +693,7 @@ export async function generateMetadata({
   }
   
   // Format title with suffix for branding
-  const title = `${baseTitle} | Wedding Invitation`
+  const title = `${baseTitle} | ${BRAND_NAME}`
 
   // Extract description
   let description = inviteData.description || 'Join us for a special celebration'
@@ -783,7 +795,7 @@ export default async function InvitePage({
   searchParams
 }: { 
   params: { slug: string }
-  searchParams: { g?: string }
+  searchParams: { g?: string; preview?: string }
 }) {
   let tracker: RequestLifecycleTracker | null = null
   const startTime = Date.now()
@@ -837,7 +849,8 @@ export default async function InvitePage({
         hasGuestToken: !!searchParams.g,
       })
       
-      inviteData = await fetchInviteData(slug, searchParams.g)
+      const isPreview = searchParams.preview === 'true'
+      inviteData = await fetchInviteData(slug, searchParams.g, isPreview)
       
       tracker?.step('FETCH_COMPLETE', 'Backend API call completed successfully')
       devLog('[InvitePage SSR] ✅ COMMUNICATION: Backend API call succeeded', {

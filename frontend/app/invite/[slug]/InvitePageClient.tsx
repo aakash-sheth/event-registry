@@ -90,13 +90,24 @@ export default function InvitePageClient({
         throw new Error('Invalid slug provided')
       }
       
-      // Extract guest token from URL
+      // Extract guest token and preview flag from URL
       const urlParams = new URLSearchParams(window.location.search)
       const guestToken = urlParams.get('g')
+      const isPreview = urlParams.get('preview') === 'true'
+      
+      // Build query parameters
+      const queryParams = new URLSearchParams()
+      if (guestToken) {
+        queryParams.append('g', guestToken)
+      }
+      if (isPreview) {
+        queryParams.append('preview', 'true')
+      }
+      const queryString = queryParams.toString()
       
       // ALWAYS use the public invite endpoint with slug (never event ID)
-      const inviteUrl = guestToken 
-        ? `/api/events/invite/${slug}/?g=${encodeURIComponent(guestToken)}`
+      const inviteUrl = queryString
+        ? `/api/events/invite/${slug}/?${queryString}`
         : `/api/events/invite/${slug}/`
       
       // Validate URL format - must use /api/events/invite/{slug}/ pattern
