@@ -620,24 +620,25 @@ export async function generateMetadata({
     })
 
     const fetchStart = Date.now()
-    let event: Event | null = null
+    // Use fetchInviteData instead of fetchEventData to get background_url
+    let inviteData: any = null
     try {
-      event = await fetchEventData(params.slug)
+      inviteData = await fetchInviteData(params.slug)
     } catch (error: any) {
-      console.error('[InvitePage Metadata] Error fetching event data for metadata', {
+      console.error('[InvitePage Metadata] Error fetching invite data for metadata', {
         slug: params.slug,
         error: error.message,
         errorType: error.name,
       })
-      // Continue with null event - will use fallback metadata
+      // Continue with null inviteData - will use fallback metadata
     }
     const fetchEnd = Date.now()
     
-    tracker.step('METADATA_FETCH_COMPLETE', 'Event data fetched for metadata')
-    devLog('[InvitePage Metadata] Event data fetch', {
+    tracker.step('METADATA_FETCH_COMPLETE', 'Invite data fetched for metadata')
+    devLog('[InvitePage Metadata] Invite data fetch', {
       slug: params.slug,
       duration: `${fetchEnd - fetchStart}ms`,
-      eventFound: !!event,
+      inviteDataFound: !!inviteData,
     })
 
   // Get frontend URL for absolute URL conversion
@@ -645,7 +646,7 @@ export async function generateMetadata({
   const baseUrl = frontendUrl.replace('/api', '')
   const pageUrl = `${baseUrl}/invite/${params.slug}`
 
-  if (!event) {
+  if (!inviteData) {
       tracker.step('METADATA_COMPLETE', 'Metadata object created (fallback)')
     return {
       title: 'Event Invitation',
@@ -668,10 +669,10 @@ export async function generateMetadata({
     }
   }
 
-  // Extract title from page_config or use event title
-  let baseTitle = event.title || 'Event Invitation'
-  if (event.page_config?.tiles) {
-    const titleTile = event.page_config.tiles.find(
+  // Extract title from config or use invite title
+  let baseTitle = inviteData.title || 'Event Invitation'
+  if (inviteData.config?.tiles) {
+    const titleTile = inviteData.config.tiles.find(
       (tile: any) => tile.type === 'title' && tile.settings?.text
     ) as any
     if (titleTile?.settings?.text) {
@@ -683,9 +684,9 @@ export async function generateMetadata({
   const title = `${baseTitle} | Wedding Invitation`
 
   // Extract description
-  let description = event.description || 'Join us for a special celebration'
-  if (event.page_config?.tiles) {
-    const descTile = event.page_config.tiles.find(
+  let description = inviteData.description || 'Join us for a special celebration'
+  if (inviteData.config?.tiles) {
+    const descTile = inviteData.config.tiles.find(
       (tile: any) => tile.type === 'description' && tile.settings?.content
     ) as any
     if (descTile?.settings?.content) {
@@ -694,12 +695,13 @@ export async function generateMetadata({
     }
   }
 
-  // Extract banner image with priority: banner_image > image tile
-  let bannerImage: string | undefined = event.banner_image
+  // Extract banner image with priority: background_url > image tile
+  // Use background_url from invite data (this is the main invite image)
+  let bannerImage: string | undefined = inviteData.background_url
   
-  if (!bannerImage && event.page_config?.tiles) {
+  if (!bannerImage && inviteData.config?.tiles) {
     // Find first enabled image tile with a source
-    const imageTile = event.page_config.tiles.find(
+    const imageTile = inviteData.config.tiles.find(
       (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
     ) as any
     if (imageTile?.settings?.src) {
