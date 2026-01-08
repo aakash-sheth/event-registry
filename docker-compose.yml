@@ -53,7 +53,7 @@ services:
     environment:
       - NEXT_PUBLIC_API_BASE=http://host.docker.internal:8000
       - NEXT_PUBLIC_RAZORPAY_KEY_ID=${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
-      - NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-EkFern}
+      - NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-Ekfern}
       - NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE:-${NEXT_PUBLIC_API_BASE:-https://eventregistry.com}}
     depends_on:
       - backend

@@ -105,8 +105,8 @@ create_param "${PARAM_PREFIX}/FRONTEND_ORIGIN" "String" "$FRONTEND_URL" "Fronten
 
 # Prompt for brand name
 echo ""
-read -p "Enter BRAND_NAME (default: EkFern): " BRAND_NAME
-BRAND_NAME=${BRAND_NAME:-EkFern}
+read -p "Enter BRAND_NAME (default: Ekfern): " BRAND_NAME
+BRAND_NAME=${BRAND_NAME:-Ekfern}
 create_param "${PARAM_PREFIX}/NEXT_PUBLIC_BRAND_NAME" "String" "$BRAND_NAME" "Brand name for frontend (baked at build time)"
 
 # Note: COMPANY_HOMEPAGE will be automatically derived from FRONTEND_URL during build (no separate SSM parameter needed)
