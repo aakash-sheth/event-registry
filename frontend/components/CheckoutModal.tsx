@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast'
 import { formatPhoneWithCountryCode } from '@/lib/countryCodesFull'
 import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
+import { BRAND_NAME } from '@/lib/brand_utility'
 
 const checkoutSchema = z.object({
   buyer_name: z.string().min(1, 'Name is required'),
@@ -101,7 +102,7 @@ export default function CheckoutModal({
           key: rzp_key_id,
           amount: amount,
           currency: currency,
-          name: 'Event Registry',
+          name: BRAND_NAME,
           description: item.name,
           order_id: rzp_order_id,
           handler: function (response: any) {

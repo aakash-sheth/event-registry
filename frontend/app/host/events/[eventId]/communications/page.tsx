@@ -77,7 +77,7 @@ export default function CommunicationsPage() {
           name: 'System Default Invitation',
           message_type: 'invitation',
           template_text: 'Hey [name]! 💛\n\nJust wanted to share [event_title] on [event_date]!\n\nPlease confirm here: [event_url]\n\n- [host_name]',
-          description: 'Default template used when no event-specific default is set',
+          description: 'Default template used when no event-specific default is set. This is a global template visible in all events.',
           usage_count: 0,
           is_active: true,
           last_used_at: null,
@@ -98,7 +98,7 @@ export default function CommunicationsPage() {
         name: 'System Default Invitation',
         message_type: 'invitation',
         template_text: 'Hey [name]! 💛\n\nJust wanted to share [event_title] on [event_date]!\n\nPlease confirm here: [event_url]\n\n- [host_name]',
-        description: 'Default template used when no event-specific default is set',
+        description: 'Default template used when no event-specific default is set. This is a global template visible in all events.',
         usage_count: 0,
         is_active: true,
         last_used_at: null,
@@ -217,7 +217,12 @@ export default function CommunicationsPage() {
         systemDefaultTemplate.template_text.toLowerCase().includes(searchQuery.toLowerCase())
       
       // Add system default template at the top if it matches filters and isn't already in the list
-      if (matchesType && matchesSearch && !result.some(t => t.id === systemDefaultTemplate.id)) {
+      // Check both ID match and is_system_default flag to prevent duplicates
+      const isDuplicate = result.some(t => 
+        t.id === systemDefaultTemplate.id || 
+        (t.is_system_default && systemDefaultTemplate.is_system_default)
+      )
+      if (matchesType && matchesSearch && !isDuplicate) {
         result = [systemDefaultTemplate, ...result]
       }
     }
@@ -290,7 +295,7 @@ export default function CommunicationsPage() {
                   </Button>
                 ))}
               </div>
-              <div className="flex gap-2 w-full md:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                 <input
                   type="text"
                   placeholder="Search templates..."
@@ -298,19 +303,21 @@ export default function CommunicationsPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="flex-1 md:w-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
                 />
-                <Button
-                  onClick={() => setShowVariablesPanel(!showVariablesPanel)}
-                  variant="outline"
-                  className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                >
-                  {showVariablesPanel ? 'Hide' : 'Show'} Variables
-                </Button>
-                <Button
-                  onClick={handleCreateTemplate}
-                  className="bg-eco-green hover:bg-green-600 text-white"
-                >
-                  + Create Template
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => setShowVariablesPanel(!showVariablesPanel)}
+                    variant="outline"
+                    className="border-eco-green text-eco-green hover:bg-eco-green-light flex-1 sm:flex-none"
+                  >
+                    {showVariablesPanel ? 'Hide' : 'Show'} Variables
+                  </Button>
+                  <Button
+                    onClick={handleCreateTemplate}
+                    className="bg-eco-green hover:bg-green-600 text-white flex-1 sm:flex-none whitespace-nowrap"
+                  >
+                    + Create Template
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>

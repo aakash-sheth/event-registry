@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/toast'
 import { generateWhatsAppShareLink, generateEventMessage, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
+import { getInvitePage } from '@/lib/invite/api'
 
 const QRCode = dynamic(() => import('react-qr-code'), {
   ssr: false,
@@ -59,6 +60,7 @@ export default function EventDetailPage() {
   const eventId = params.eventId as string
   const { showToast } = useToast()
   const [event, setEvent] = useState<Event | null>(null)
+  const [invitePage, setInvitePage] = useState<any>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [guests, setGuests] = useState<any[]>([])
   const [rsvps, setRsvps] = useState<any[]>([])
@@ -82,6 +84,7 @@ export default function EventDetailPage() {
       return
     }
     fetchEvent()
+    fetchInvitePage()
     fetchOrders()
     fetchGuests()
     fetchRsvps()
@@ -120,6 +123,22 @@ export default function EventDetailPage() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchInvitePage = async () => {
+    if (!eventId || eventId === 'undefined') {
+      return
+    }
+    try {
+      const invite = await getInvitePage(parseInt(eventId))
+      setInvitePage(invite)
+    } catch (error: any) {
+      // 404 is expected if invite page doesn't exist yet - that's okay
+      if (error.response?.status !== 404) {
+        logError('Failed to fetch invite page:', error)
+      }
+      setInvitePage(null)
     }
   }
 
@@ -980,8 +999,8 @@ export default function EventDetailPage() {
             )}
 
             {/* Event URL & Sharing */}
-            {event.is_public && (
-              <Card className="bg-white border-2 border-eco-green-light">
+            {/* Share link is always visible for hosts */}
+            <Card className="bg-white border-2 border-eco-green-light">
                 <CardHeader>
                   <CardTitle className="text-eco-green">Event URL & Sharing</CardTitle>
                 </CardHeader>
@@ -1057,7 +1076,6 @@ export default function EventDetailPage() {
                   </div>
                 </CardContent>
               </Card>
-            )}
             </div>
           </div>
         </div>

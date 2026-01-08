@@ -2,6 +2,8 @@
  * Calendar utilities for Google Calendar and ICS file generation
  */
 
+import { BRAND_NAME } from '@/lib/brand_utility'
+
 export interface CalendarEvent {
   title: string
   details?: string
@@ -56,7 +58,7 @@ export function generateICS(event: CalendarEvent): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Event Registry//Invitation//EN',
+    `PRODID:-//${BRAND_NAME}//Invitation//EN`,
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',

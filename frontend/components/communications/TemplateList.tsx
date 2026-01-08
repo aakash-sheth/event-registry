@@ -49,7 +49,7 @@ export default function TemplateList({
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {templates.map((template) => {
         const daysAgo = getDaysAgo(template.last_used_at)
-        const previewText = template.template_text.substring(0, 100) + (template.template_text.length > 100 ? '...' : '')
+        const previewText = template.template_text.substring(0, 200) + (template.template_text.length > 200 ? '...' : '')
 
         return (
           <Card

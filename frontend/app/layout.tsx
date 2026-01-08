@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { ToastProvider } from '@/components/ui/toast'
+import { BRAND_NAME } from '@/lib/brand_utility'
 
 // Get frontend URL for metadata base (used for resolving relative URLs in Open Graph images)
 function getMetadataBase(): string {
@@ -13,8 +14,8 @@ function getMetadataBase(): string {
 
 export const metadata: Metadata = {
   metadataBase: new URL(getMetadataBase()),
-  title: 'Event Registry',
-  description: 'Event Registry - Invitations, RSVP, and Gift Registry for any celebration',
+  title: BRAND_NAME,
+  description: `${BRAND_NAME} - Invitations, RSVP, and Gift Registry for any celebration`,
 }
 
 export default function RootLayout({

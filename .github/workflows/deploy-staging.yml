@@ -134,8 +134,8 @@ jobs:
           # Get FRONTEND_URL for display purposes (company homepage, meta tags, etc.)
           FRONTEND_URL=$(aws ssm get-parameter --name "/event-registry-staging/FRONTEND_URL" --query "Parameter.Value" --output text 2>/dev/null || echo "")
           
-          # Fetch brand name from SSM (default: Celebrate Mindfully)
-          NEXT_PUBLIC_BRAND_NAME=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_BRAND_NAME" --query "Parameter.Value" --output text 2>/dev/null || echo "Celebrate Mindfully")
+          # Fetch brand name from SSM (default: ekfern)
+          NEXT_PUBLIC_BRAND_NAME=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_BRAND_NAME" --query "Parameter.Value" --output text 2>/dev/null || echo "ekfern")
           
           # Company homepage uses FRONTEND_URL if available, otherwise NEXT_PUBLIC_API_BASE
           NEXT_PUBLIC_COMPANY_HOMEPAGE="${FRONTEND_URL:-$NEXT_PUBLIC_API_BASE}"
