@@ -110,7 +110,11 @@ export default function EventDetailsTileSettings({ settings, onChange }: EventDe
         <Input
           type="time"
           value={settings.time || ''}
-          onChange={(e) => onChange({ ...settings, time: e.target.value })}
+          onChange={(e) => {
+            // Preserve time value - convert empty string to undefined for cleaner JSON
+            const timeValue = e.target.value.trim() || undefined
+            onChange({ ...settings, time: timeValue })
+          }}
         />
       </div>
 

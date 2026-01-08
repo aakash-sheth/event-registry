@@ -588,6 +588,18 @@ export default function DesignInvitationPage(): JSX.Element {
             const carouselSettings = baseTile.settings as any
             return { ...baseTile, settings: { ...carouselSettings } }
           }
+          // For event-details tiles, explicitly preserve all settings including time
+          if (baseTile.type === 'event-details') {
+            const eventDetailsSettings = baseTile.settings as any
+            // Explicitly preserve all fields including time, date, location, etc.
+            // Use Object.assign to ensure all properties are copied, including potentially undefined ones
+            const preservedSettings = Object.assign({}, eventDetailsSettings)
+            // Explicitly ensure time is preserved if it exists (even if empty string)
+            if ('time' in eventDetailsSettings) {
+              preservedSettings.time = eventDetailsSettings.time
+            }
+            return { ...baseTile, settings: preservedSettings }
+          }
           return baseTile
       })
       
