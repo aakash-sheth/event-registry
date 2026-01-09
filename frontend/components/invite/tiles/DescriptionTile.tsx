@@ -130,21 +130,21 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
         <style dangerouslySetInnerHTML={{ __html: styleContent }} />
         <div className="w-full py-12 px-6" style={{ backgroundColor: 'transparent' }}>
           <div className="max-w-2xl mx-auto">
-            {isHTML ? (
-              <div 
+          {isHTML ? (
+            <div 
                 ref={contentRef}
                 className="prose prose-lg max-w-none description-content break-words" 
-                style={{ backgroundColor: 'transparent' }}
-                dangerouslySetInnerHTML={{ __html: settings.content }}
-              />
-            ) : (
+              style={{ backgroundColor: 'transparent' }}
+              dangerouslySetInnerHTML={{ __html: settings.content }}
+            />
+          ) : (
               <div 
                 className="prose prose-lg max-w-none whitespace-pre-wrap description-content break-words" 
                 style={{ backgroundColor: 'transparent' }}
               >
-                {settings.content}
-              </div>
-            )}
+              {settings.content}
+            </div>
+          )}
           </div>
         </div>
       </>
@@ -228,17 +228,17 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
         }}
       >
         <div className="max-w-2xl mx-auto">
-          {isHTML ? (
-            <div 
+        {isHTML ? (
+          <div 
               ref={contentRef}
               className="prose prose-lg max-w-none description-content break-words"
-              dangerouslySetInnerHTML={{ __html: settings.content }}
-            />
-          ) : (
+            dangerouslySetInnerHTML={{ __html: settings.content }}
+          />
+        ) : (
             <div className="prose prose-lg max-w-none whitespace-pre-wrap description-content break-words">
-              {settings.content}
-            </div>
-          )}
+            {settings.content}
+          </div>
+        )}
         </div>
       </div>
     </>

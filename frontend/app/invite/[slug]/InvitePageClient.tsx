@@ -6,6 +6,7 @@ import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage
 import { logError, logDebug } from '@/lib/error-handler'
 import api from '@/lib/api'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
+import EnvelopeAnimation from '@/components/invite/EnvelopeAnimation'
 
 // Helper for development-only logging
 const isDev = process.env.NODE_ENV === 'development'
@@ -63,6 +64,10 @@ export default function InvitePageClient({
   const [loading, setLoading] = useState(!initialConfig)
   const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
   const [error, setError] = useState<any>(null)
+  
+  // Always show animation on initial load (EnvelopeAnimation component will check sessionStorage)
+  // Animation should be the FIRST thing users see
+  const [showEnvelopeAnimation, setShowEnvelopeAnimation] = useState(true)
   
   // Log initial state
   if (typeof window !== 'undefined') {
@@ -365,6 +370,9 @@ export default function InvitePageClient({
     document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
     document.body.style.setProperty('background', backgroundColor, 'important')
     document.documentElement.style.setProperty('background', backgroundColor, 'important')
+    // Ensure body/html don't force extra height that creates unnecessary scrollbar
+    document.body.style.setProperty('min-height', 'auto', 'important')
+    document.documentElement.style.setProperty('min-height', 'auto', 'important')
 
     return () => {
       devLog('[InvitePageClient] 🧹 CLIENT EFFECT: Cleaning up background color', {
@@ -372,8 +380,10 @@ export default function InvitePageClient({
       })
       document.body.style.removeProperty('background-color')
       document.body.style.removeProperty('background')
+      document.body.style.removeProperty('min-height')
       document.documentElement.style.removeProperty('background-color')
       document.documentElement.style.removeProperty('background')
+      document.documentElement.style.removeProperty('min-height')
     }
   }, [backgroundColor, slug])
 
@@ -405,13 +415,24 @@ export default function InvitePageClient({
       elapsedSinceMount: Date.now() - clientStartTime,
     })
     
+    // Get animation config from initialConfig if available, default to enabled
+    const animationEnabled = initialConfig?.animations?.envelope !== false
+    
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="text-4xl mb-4">🌿</div>
-          <p className="text-gray-600">Loading invitation...</p>
+      <EnvelopeAnimation 
+        showAnimation={true}
+        enabled={animationEnabled}
+        onAnimationComplete={() => {
+          devLog('[InvitePageClient] ✨ Envelope animation completed')
+        }}
+      >
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <div className="text-4xl mb-4">🌿</div>
+            <p className="text-gray-600">Loading invitation...</p>
+          </div>
         </div>
-      </div>
+      </EnvelopeAnimation>
     )
   }
 
@@ -481,35 +502,47 @@ export default function InvitePageClient({
     timestamp: new Date().toISOString(),
   })
 
+  // Get animation config, default to enabled
+  const animationEnabled = config.animations?.envelope !== false
+
   return (
-    <div className="min-h-screen w-full h-full relative overflow-x-hidden" style={{ backgroundColor, background: backgroundColor } as React.CSSProperties}>
-      {/* Texture overlay at page level */}
-      <TextureOverlay 
-        type={config.texture?.type || 'none'} 
-        intensity={config.texture?.intensity || 40} 
+    <EnvelopeAnimation 
+      showAnimation={showEnvelopeAnimation}
+      enabled={animationEnabled}
+      onAnimationComplete={() => {
+        setShowEnvelopeAnimation(false)
+        devLog('[InvitePageClient] ✨ Envelope animation completed')
+      }}
+    >
+      <div className="w-full relative overflow-x-hidden" style={{ backgroundColor, background: backgroundColor, minHeight: 'auto', height: 'auto' } as React.CSSProperties}>
+        {/* Texture overlay at page level */}
+        <TextureOverlay 
+          type={config.texture?.type || 'none'} 
+          intensity={config.texture?.intensity || 40} 
+        />
+        
+        {/* Server-rendered hero section */}
+        {heroSSR}
+        
+        {/* Server-rendered standalone title */}
+        {titleSSR}
+        
+        {/* Server-rendered event details */}
+        {eventDetailsSSR}
+        
+        {/* Client-rendered remaining tiles */}
+      <LivingPosterPage
+          config={configForClient}
+        eventSlug={slug}
+        eventDate={event?.date}
+        hasRsvp={event?.has_rsvp}
+        hasRegistry={event?.has_registry}
+          skipTextureOverlay={true}
+          skipBackgroundColor={true}
+          allowedSubEvents={subEvents}
       />
-      
-      {/* Server-rendered hero section */}
-      {heroSSR}
-      
-      {/* Server-rendered standalone title */}
-      {titleSSR}
-      
-      {/* Server-rendered event details */}
-      {eventDetailsSSR}
-      
-      {/* Client-rendered remaining tiles */}
-    <LivingPosterPage
-        config={configForClient}
-      eventSlug={slug}
-      eventDate={event?.date}
-      hasRsvp={event?.has_rsvp}
-      hasRegistry={event?.has_registry}
-        skipTextureOverlay={true}
-        skipBackgroundColor={true}
-        allowedSubEvents={subEvents}
-    />
-    </div>
+      </div>
+    </EnvelopeAnimation>
   )
 }
 

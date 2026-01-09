@@ -169,6 +169,10 @@ export interface InviteConfig {
   }
   // Background texture (CSS-based)
   texture?: TextureSettings
+  // Animation settings
+  animations?: {
+    envelope?: boolean // Enable/disable envelope opening animation (default: true)
+  }
   // New tile-based structure
   tiles?: Tile[]
   // Legacy structure (for backward compatibility)

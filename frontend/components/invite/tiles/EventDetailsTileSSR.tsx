@@ -223,7 +223,7 @@ export default function EventDetailsTileSSR({
 
   return (
     <div 
-      className="w-full py-12 px-6 text-center"
+      className="w-full pt-8 pb-4 px-6 text-center"
       style={{
         backgroundColor: backgroundColor || 'transparent',
         borderRadius: `${borderRadius}px`,
@@ -232,12 +232,12 @@ export default function EventDetailsTileSSR({
       <div className="max-w-2xl mx-auto">
         {/* Decorative top border */}
         {topBorder && (
-          <div className="mb-8">
+          <div className="mb-6">
             {topBorder}
           </div>
         )}
 
-        <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+        <div className="space-y-6" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
           {settings.date && (
             <div className="space-y-2">
               <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
@@ -365,13 +365,13 @@ export default function EventDetailsTileSSR({
 
         {/* Decorative bottom border */}
         {bottomBorder && (
-          <div className="mt-10 mb-8">
+          <div className="mt-6 mb-4">
             {bottomBorder}
           </div>
         )}
       
         {/* Save the Date Button - SSR version with direct link to ICS */}
-        <div className="relative mt-8">
+        <div className="relative mt-4">
           {eventSlug ? (
             <a
               href={`/api/ics?slug=${eventSlug}`}

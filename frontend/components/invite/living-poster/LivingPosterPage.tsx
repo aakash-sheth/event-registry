@@ -63,7 +63,7 @@ function LivingPosterContent({
       .sort((a, b) => a.order - b.order)
 
     return (
-      <div className="min-h-screen w-full h-full relative overflow-x-hidden" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
+      <div className="w-full relative overflow-x-hidden" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
         {!skipTextureOverlay && (
           <TextureOverlay 
             type={config.texture?.type || 'none'} 
@@ -125,7 +125,7 @@ function LivingPosterContent({
 
   // Fallback to legacy hero/description layout
   return (
-    <div className="min-h-screen h-full relative" style={skipBackgroundColor ? { height: '100%' } : { backgroundColor, background: backgroundColor, height: '100%' } as React.CSSProperties}>
+    <div className="relative" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
       {!skipTextureOverlay && (
         <TextureOverlay 
           type={config.texture?.type || 'none'} 

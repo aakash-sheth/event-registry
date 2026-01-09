@@ -592,11 +592,12 @@ export default function DesignInvitationPage(): JSX.Element {
           if (baseTile.type === 'event-details') {
             const eventDetailsSettings = baseTile.settings as any
             // Explicitly preserve all fields including time, date, location, etc.
-            // Use Object.assign to ensure all properties are copied, including potentially undefined ones
-            const preservedSettings = Object.assign({}, eventDetailsSettings)
-            // Explicitly ensure time is preserved if it exists (even if empty string)
-            if ('time' in eventDetailsSettings) {
-              preservedSettings.time = eventDetailsSettings.time
+            // Ensure time is preserved - it can be a string (valid time) or undefined, but should not be lost
+            const preservedSettings = {
+              ...eventDetailsSettings,
+              // Explicitly preserve time field - if it exists in the original settings, keep it
+              // This ensures time values are not lost during save
+              time: eventDetailsSettings.hasOwnProperty('time') ? eventDetailsSettings.time : undefined
             }
             return { ...baseTile, settings: preservedSettings }
           }
