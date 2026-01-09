@@ -480,7 +480,7 @@ export default function EventCarouselTile({
           )
         })()}
         
-        <div className={cardPaddingClass}>
+        <div className={`${cardPaddingClass} flex flex-col items-center text-center`}>
           {showFields.title && (
             <h3 
               className={`${titleSizeClasses[titleSize]} font-semibold mb-3`}
@@ -495,10 +495,10 @@ export default function EventCarouselTile({
           
           {showFields.dateTime && (
             <div 
-              className="flex items-start gap-2 mb-2"
+              className="flex items-center gap-2 mb-2"
               style={{ color: detailsColor }}
             >
-              <Calendar className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <Calendar className="w-5 h-5 flex-shrink-0" />
               <span className="text-sm" suppressHydrationWarning>
                 {formatDateTime(subEvent.start_at, subEvent.end_at)}
               </span>
@@ -507,10 +507,10 @@ export default function EventCarouselTile({
           
           {showFields.location && subEvent.location && (
             <div 
-              className="flex items-start gap-2 mb-3"
+              className="flex items-center gap-2 mb-3"
               style={{ color: detailsColor }}
             >
-              <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <MapPin className="w-5 h-5 flex-shrink-0" />
               <span className="text-sm">{subEvent.location}</span>
             </div>
           )}
@@ -528,7 +528,7 @@ export default function EventCarouselTile({
             if (isHTML) {
               return (
                 <div 
-                  className="text-gray-700 text-sm mb-4 prose prose-sm max-w-none overflow-hidden break-words"
+                  className="text-gray-700 text-sm prose prose-sm max-w-none overflow-hidden break-words"
                   style={style}
                   dangerouslySetInnerHTML={{ __html: subEvent.description }}
                 />
@@ -537,7 +537,7 @@ export default function EventCarouselTile({
             
             return (
               <div 
-                className="text-gray-700 text-sm mb-4 prose prose-sm max-w-none overflow-hidden break-words"
+                className="text-gray-700 text-sm prose prose-sm max-w-none overflow-hidden break-words"
                 style={style}
               >
                 {subEvent.description}
@@ -698,7 +698,6 @@ export default function EventCarouselTile({
         <div 
           className="relative overflow-hidden rounded-lg"
           style={{ 
-            minHeight: '400px',
             transition: reducedMotion ? 'none' : designTokens.transitions.default,
           }}
         >

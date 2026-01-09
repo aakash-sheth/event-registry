@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import { unstable_noStore } from 'next/cache'
 import React from 'react'
 import InvitePageClient from './InvitePageClient'
 import { InviteConfig, Tile } from '@/lib/invite/schema'
@@ -10,7 +11,8 @@ import { BRAND_NAME, GENERIC_ENVELOPE_IMAGE } from '@/lib/brand_utility'
 import http from 'http'
 import https from 'https'
 
-// ISR: Revalidate every hour (3600 seconds)
+// ISR: Revalidate every hour (3600 seconds) for public pages
+// Preview mode will bypass cache via fetch options in fetchInviteData
 export const revalidate = 3600
 
 // Helper for development-only logging
@@ -811,6 +813,12 @@ export default async function InvitePage({
   params: { slug: string }
   searchParams: { g?: string; preview?: string }
 }) {
+  // Bypass ISR cache for preview mode to always show latest data
+  const isPreview = searchParams.preview === 'true'
+  if (isPreview) {
+    unstable_noStore()
+  }
+  
   let tracker: RequestLifecycleTracker | null = null
   const startTime = Date.now()
   const slug = params.slug
@@ -1004,6 +1012,31 @@ export default async function InvitePage({
         ? pageConfig.customColors 
         : undefined,
     } as InviteConfig
+    
+    // DEBUG: Log order values received from backend
+    if (isDev && initialConfig.tiles) {
+      devLog('[TILE ORDER DEBUG] Server-side: Order received from backend', {
+        totalTiles: initialConfig.tiles.length,
+        tiles: initialConfig.tiles.map((t: Tile) => ({
+          id: t.id,
+          type: t.type,
+          enabled: t.enabled,
+          order: t.order,
+          previewOrder: (t as any).previewOrder,
+        })),
+        enabledTiles: initialConfig.tiles
+          .filter((t: Tile) => t.enabled)
+          .sort((a: Tile, b: Tile) => a.order - b.order)
+          .map((t: Tile) => ({
+            id: t.id,
+            type: t.type,
+            order: t.order,
+          })),
+        hasTitle: initialConfig.tiles.some((t: Tile) => t.type === 'title'),
+        hasEventDetails: initialConfig.tiles.some((t: Tile) => t.type === 'event-details'),
+        hasDescription: initialConfig.tiles.some((t: Tile) => t.type === 'description'),
+      })
+    }
   } else {
     // Fallback config
     initialConfig = {
@@ -1085,27 +1118,9 @@ export default async function InvitePage({
       )
     }
 
-    // Render standalone title tile server-side
-    if (standaloneTitleTile) {
-      titleSSR = (
-        <TitleTileSSR settings={standaloneTitleTile.settings as any} overlayMode={false} />
-      )
-    }
-
-    // Render event details server-side
-    if (eventDetailsTile) {
-      const eventDetailsSettings = eventDetailsTile.settings as any
-      eventDetailsSSR = (
-        <div style={{ backgroundColor }}>
-          <EventDetailsTileSSR 
-            settings={eventDetailsSettings}
-            eventSlug={params.slug}
-            eventTitle={event.title}
-            eventDate={event.date}
-          />
-        </div>
-      )
-    }
+    // Don't render standalone title or event-details server-side
+    // Let them render client-side so they respect the order field
+    // Only render hero (image with overlay title) server-side for SEO
   }
   
   tracker?.step('SSR_RENDER_COMPLETE', 'Server-side components rendered')

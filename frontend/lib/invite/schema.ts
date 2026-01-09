@@ -155,7 +155,8 @@ export interface Tile {
   id: string
   type: TileType
   enabled: boolean
-  order: number // Display order (0-based, footer should be last)
+  order: number // Saved order (snapshot when save button clicked) - used by invite page
+  previewOrder?: number // Real-time order for mobile preview (not saved to backend)
   settings: TileSettings
   overlayTargetId?: string // If this tile is overlaid on another (e.g., title on image)
 }

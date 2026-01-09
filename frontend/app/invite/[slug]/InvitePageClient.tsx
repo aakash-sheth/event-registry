@@ -65,6 +65,29 @@ export default function InvitePageClient({
   const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
   const [error, setError] = useState<any>(null)
   
+  // DEBUG: Log initial config order when invite page loads
+  useEffect(() => {
+    if (initialConfig?.tiles && typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      console.log('[TILE ORDER DEBUG] Invite page initial config order:', {
+        tiles: initialConfig.tiles.map(t => ({
+          id: t.id,
+          type: t.type,
+          enabled: t.enabled,
+          order: t.order,
+          previewOrder: t.previewOrder,
+        })),
+        enabledTiles: initialConfig.tiles
+          .filter(t => t.enabled)
+          .sort((a, b) => a.order - b.order)
+          .map(t => ({
+            id: t.id,
+            type: t.type,
+            order: t.order,
+          })),
+      })
+    }
+  }, [initialConfig])
+  
   // Always show animation on initial load (EnvelopeAnimation component will check sessionStorage)
   // Animation should be the FIRST thing users see
   const [showEnvelopeAnimation, setShowEnvelopeAnimation] = useState(true)
@@ -463,7 +486,7 @@ export default function InvitePageClient({
     elapsedSinceMount: Date.now() - clientStartTime,
   })
   
-  const configForClient = heroSSR || titleSSR || eventDetailsSSR ? {
+  const configForClient = heroSSR ? {
     ...config,
     tiles: config.tiles?.filter((tile) => {
       // Skip image tile if heroSSR is provided
@@ -474,17 +497,43 @@ export default function InvitePageClient({
       if (heroSSR && tile.type === 'title' && tile.overlayTargetId) {
         return false
       }
-      // Skip standalone title tile if titleSSR is provided
-      if (titleSSR && tile.type === 'title' && !tile.overlayTargetId) {
-        return false
-      }
-      // Skip event-details tile if eventDetailsSSR is provided
-      if (eventDetailsSSR && tile.type === 'event-details') {
-        return false
-      }
+      // Don't skip standalone title or event-details - let them render client-side in correct order
       return true
     }) || []
   } : config
+  
+  // DEBUG: Log filtered config after SSR filtering
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.log('[TILE ORDER DEBUG] Config after SSR filtering:', {
+      hasHeroSSR: !!heroSSR,
+      hasTitleSSR: !!titleSSR,
+      hasEventDetailsSSR: !!eventDetailsSSR,
+      originalTilesCount: config.tiles?.length || 0,
+      filteredTilesCount: configForClient.tiles?.length || 0,
+      filteredTiles: configForClient.tiles?.map(t => ({
+        id: t.id,
+        type: t.type,
+        enabled: t.enabled,
+        order: t.order,
+      })),
+      removedTiles: config.tiles?.filter(t => {
+        if (heroSSR && t.type === 'image') return true
+        if (heroSSR && t.type === 'title' && t.overlayTargetId) return true
+        if (titleSSR && t.type === 'title' && !t.overlayTargetId) return true
+        if (eventDetailsSSR && t.type === 'event-details') return true
+        return false
+      }).map(t => ({
+        id: t.id,
+        type: t.type,
+        enabled: t.enabled,
+        order: t.order,
+        reason: heroSSR && t.type === 'image' ? 'heroSSR' :
+                heroSSR && t.type === 'title' && t.overlayTargetId ? 'overlayTitleSSR' :
+                titleSSR && t.type === 'title' && !t.overlayTargetId ? 'titleSSR' :
+                eventDetailsSSR && t.type === 'event-details' ? 'eventDetailsSSR' : 'unknown'
+      })),
+    })
+  }
 
   const renderTime = Date.now()
   devLog('[InvitePageClient] ✅ CLIENT RENDER: Rendering LivingPosterPage', {
@@ -521,16 +570,10 @@ export default function InvitePageClient({
           intensity={config.texture?.intensity || 40} 
         />
         
-        {/* Server-rendered hero section */}
+        {/* Server-rendered hero section (image with overlay title for SEO) */}
         {heroSSR}
         
-        {/* Server-rendered standalone title */}
-        {titleSSR}
-        
-        {/* Server-rendered event details */}
-        {eventDetailsSSR}
-        
-        {/* Client-rendered remaining tiles */}
+        {/* All other tiles (including title and event-details) render client-side in correct order */}
       <LivingPosterPage
           config={configForClient}
         eventSlug={slug}

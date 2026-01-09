@@ -61,6 +61,23 @@ function LivingPosterContent({
     const sortedTiles = [...config.tiles]
       .filter(tile => tile.enabled)
       .sort((a, b) => a.order - b.order)
+    
+    // DEBUG: Log order on invite page
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      console.log('[TILE ORDER DEBUG] Invite page order:', {
+        allTiles: config.tiles.map(t => ({
+          id: t.id,
+          type: t.type,
+          enabled: t.enabled,
+          order: t.order,
+        })),
+        enabledTiles: sortedTiles.map(t => ({
+          id: t.id,
+          type: t.type,
+          order: t.order,
+        })),
+      })
+    }
 
     return (
       <div className="w-full relative overflow-x-hidden" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>

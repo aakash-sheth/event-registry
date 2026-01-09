@@ -245,11 +245,36 @@ export default function TileList({
       const newIndex = tiles.findIndex((t) => t.id === over.id)
 
       const newTiles = arrayMove(tiles, oldIndex, newIndex)
-      // Update order values based on the new position
-      const reorderedTiles = newTiles.map((tile, index) => ({
-        ...tile,
-        order: index,
-      }))
+      
+      // Calculate previewOrder based on visible tile positions
+      // This is the real-time order that will be used for preview
+      const visibleTilesAfterMove = newTiles.filter(tile => {
+        if (tile.type === 'footer') return true
+        if (tile.type === 'title' && tile.overlayTargetId) return false
+        return true
+      })
+      
+      // Create previewOrder map based on visible positions
+      const previewOrderMap = new Map<string, number>()
+      visibleTilesAfterMove.forEach((tile, visibleIndex) => {
+        previewOrderMap.set(tile.id, visibleIndex)
+        // Overlay titles get same previewOrder as their target image
+        const overlayTitle = newTiles.find(t => t.type === 'title' && t.overlayTargetId === tile.id)
+        if (overlayTitle) {
+          previewOrderMap.set(overlayTitle.id, visibleIndex)
+        }
+      })
+      
+      // Update tiles with previewOrder (but keep saved order unchanged)
+      const reorderedTiles = newTiles.map((tile) => {
+        const previewOrder = previewOrderMap.get(tile.id)
+        if (previewOrder !== undefined) {
+          return { ...tile, previewOrder }
+        }
+        // If tile not in visible list, keep its existing previewOrder or order
+        return { ...tile, previewOrder: tile.previewOrder ?? tile.order }
+      })
+      
       onReorder(reorderedTiles)
     }
   }

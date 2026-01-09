@@ -139,6 +139,8 @@ export default function DesignInvitationPage(): JSX.Element {
     themeId: 'classic-noir',
     tiles: DEFAULT_TILES,
   })
+  // Preview order state - tracks real-time order for mobile preview (not saved to backend)
+  const [previewOrder, setPreviewOrder] = useState<Map<string, number>>(new Map())
   // Fix 2: Add state for InvitePage and publish modal
   const [invitePage, setInvitePage] = useState<InvitePage | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
@@ -311,7 +313,7 @@ export default function DesignInvitationPage(): JSX.Element {
             const existingTileTypes = new Set(existingTiles.map(t => t.type))
             const missingTiles = defaultTiles.filter(t => !existingTileTypes.has(t.type))
             
-            // Merge existing tiles with missing default tiles, preserving order
+            // Merge existing tiles with missing default tiles, preserving saved order
             const allTiles = [...existingTiles, ...missingTiles]
               .sort((a, b) => {
                 // Keep existing tiles in their current order, new tiles go after
@@ -319,9 +321,25 @@ export default function DesignInvitationPage(): JSX.Element {
                 const bExists = existingTiles.some(t => t.id === b.id)
                 if (aExists && !bExists) return -1
                 if (!aExists && bExists) return 1
-                return a.order - b.order
+                // Sort by saved order value - preserve what was saved
+                const orderA = a.order !== undefined ? a.order : (aExists ? 999 : 1000)
+                const orderB = b.order !== undefined ? b.order : (bExists ? 999 : 1000)
+                return orderA - orderB
               })
-              .map((tile, index) => ({ ...tile, order: index }))
+              .map((tile) => {
+                // CRITICAL: Preserve existing order values from saved config
+                // Only assign order to new tiles that don't have one
+                const existingTile = existingTiles.find(t => t.id === tile.id)
+                if (existingTile && existingTile.order !== undefined) {
+                  // Preserve the saved order value - this is what the user set!
+                  return { ...tile, order: existingTile.order }
+                }
+                // For new tiles, assign order after existing tiles
+                const maxExistingOrder = existingTiles.length > 0 
+                  ? Math.max(...existingTiles.map(t => t.order !== undefined ? t.order : 0), 0)
+                  : -1
+                return { ...tile, order: maxExistingOrder + 1 }
+              })
             
             finalConfig = {
               ...preservedConfig,
@@ -361,36 +379,18 @@ export default function DesignInvitationPage(): JSX.Element {
       
       // Set the final config
       if (finalConfig) {
-        // Check if there's an enabled image tile with a valid image source
-        const enabledImageTiles = finalConfig.tiles?.filter(t => t.type === 'image' && t.enabled) || []
-        const hasValidImageTile = enabledImageTiles.some(t => {
-          const imageSettings = t.settings as any
-          return imageSettings?.src && imageSettings.src.trim() !== ''
-        })
-        
-        // Title tile is required only if no valid image tile exists
-        if (!hasValidImageTile) {
-          // Ensure title tile exists and is enabled when no image
-          if (!finalConfig.tiles || finalConfig.tiles.length === 0 || !finalConfig.tiles.some(t => t.type === 'title')) {
-            // Add title tile if missing
-            const titleTile: Tile = {
-              id: 'tile-title-0',
-              type: 'title',
-              enabled: true,
-              order: 0,
-              settings: { text: eventData?.title || 'Event Title' },
-            }
-            finalConfig.tiles = [titleTile, ...(finalConfig.tiles || [])]
-          } else {
-            // Ensure title tile is enabled when no image exists
-            finalConfig.tiles = finalConfig.tiles.map(t => 
-              t.type === 'title' ? { ...t, enabled: true } : t
-            )
-          }
-        }
-        // If image exists, title tile is optional - no need to force it
-        
         setConfig(finalConfig)
+        
+        // Initialize previewOrder from saved order values (fallback when previewOrder is empty)
+        if (finalConfig.tiles && finalConfig.tiles.length > 0) {
+          const initialPreviewOrder = new Map<string, number>()
+          finalConfig.tiles.forEach(tile => {
+            if (tile.order !== undefined) {
+              initialPreviewOrder.set(tile.id, tile.order)
+            }
+          })
+          setPreviewOrder(initialPreviewOrder)
+        }
       } else {
         logError('Final config is null - this should not happen')
       }
@@ -488,14 +488,16 @@ export default function DesignInvitationPage(): JSX.Element {
   const handleSave = async () => {
     setSaving(true)
     try {
-      // Check if there's an enabled image tile with a valid image source
-      const enabledImageTiles = config.tiles?.filter(t => t.type === 'image' && t.enabled) || []
-      const hasValidImageTile = enabledImageTiles.some(t => {
-        const imageSettings = t.settings as any
-        return imageSettings?.src && imageSettings.src.trim() !== ''
-      })
+      // Validate that at least one tile is enabled
+      const enabledTilesCount = config.tiles?.filter(t => t.enabled !== false).length || 0
+      if (enabledTilesCount === 0) {
+        showToast('At least one tile must be enabled to save the invite page design.', 'error')
+        setSaving(false)
+        return
+      }
       
       // Validate enabled image tiles have images
+      const enabledImageTiles = config.tiles?.filter(t => t.type === 'image' && t.enabled) || []
       for (const imageTile of enabledImageTiles) {
         const imageSettings = imageTile.settings as any
         if (!imageSettings?.src || imageSettings.src.trim() === '') {
@@ -505,107 +507,154 @@ export default function DesignInvitationPage(): JSX.Element {
         }
       }
       
-      // If no valid image tile, title tile is required
-      if (!hasValidImageTile) {
-        const titleTile = config.tiles?.find(t => t.type === 'title')
-        if (!titleTile) {
-          showToast('Title tile is required when no image is present. Please add a title tile or an image tile.', 'error')
-          setSaving(false)
-          return
-        }
-        
+      // Validate enabled title tiles have text
+      const enabledTitleTiles = config.tiles?.filter(t => t.type === 'title' && t.enabled && !t.overlayTargetId) || []
+      for (const titleTile of enabledTitleTiles) {
         const titleText = (titleTile.settings as any)?.text?.trim()
         if (!titleText || titleText === '') {
-          showToast('Title text is required when no image is present. Please enter a title or add an image.', 'error')
+          showToast('Title tile is enabled but has no text. Please enter a title or disable the title tile.', 'error')
           setSaving(false)
           return
-        }
-        
-        // Ensure title tile is enabled when no image exists
-        if (!titleTile.enabled) {
-          showToast('Title tile must be enabled when no image is present. Enabling it now.', 'info')
-          setConfig(prev => ({
-            ...prev,
-            tiles: prev.tiles?.map(t => t.id === titleTile.id ? { ...t, enabled: true } : t) || [],
-          }))
-          setSaving(false)
-          return
-        }
-      }
-      
-      // If valid image exists, title tile is optional but if it exists and is enabled, it should have text
-      if (hasValidImageTile) {
-        const titleTile = config.tiles?.find(t => t.type === 'title')
-        if (titleTile && titleTile.enabled) {
-          const titleText = (titleTile.settings as any)?.text?.trim()
-          if (!titleText || titleText === '') {
-            showToast('If title tile is enabled, title text is required. Please enter a title or disable the title tile.', 'error')
-            setSaving(false)
-            return
-          }
         }
       }
       
       // Build config to save - ensure customColors.backgroundColor is always included if set
-      // Build tiles first - ensure they're sorted by order and order is explicitly preserved
+      // Build tiles first - sort by previewOrder (real-time order) and snapshot to order field
       // IMPORTANT: This respects user's manual ordering (from drag-and-drop) because:
-      // 1. When user reorders tiles, handleDragEnd sets order: index for each tile
-      // 2. We sort by those order values (which reflect user's choice)
-      // 3. Then we set order: index based on sorted position to ensure sequential values
+      // 1. When user reorders tiles, previewOrder is updated in state
+      // 2. We sort by previewOrder (which reflects what user sees in preview)
+      // 3. Then we snapshot previewOrder values into order field sequentially (0, 1, 2...)
+      // CRITICAL: Only assign order to enabled tiles to match what invite page shows
       // This ensures the saved order matches what the user sees and expects
       const sortedTilesForSave = [...(config.tiles || [])].sort((a, b) => {
-        // Handle undefined order values (treat as 0)
-        const orderA = a.order !== undefined ? a.order : 0
-        const orderB = b.order !== undefined ? b.order : 0
+        // Use previewOrder from state map, fallback to tile's previewOrder, then saved order
+        const orderA = previewOrder.get(a.id) ?? a.previewOrder ?? a.order ?? 0
+        const orderB = previewOrder.get(b.id) ?? b.previewOrder ?? b.order ?? 0
         return orderA - orderB
       })
       
-      const tilesToSave = sortedTilesForSave.map((t, index) => {
-          // Explicitly ensure order is set correctly - use the sorted index to ensure consistency
-          // This guarantees that order values are sequential (0, 1, 2, 3...) and match the actual position
-          // The sorted order respects the user's manual reordering because we sort by the order
-          // values that were set when the user dragged and dropped tiles
+      // DEBUG: Log preview order before saving
+      console.log('[TILE ORDER DEBUG] Preview order before save:', {
+        previewOrderMap: Array.from(previewOrder.entries()).map(([id, order]) => ({
+          id,
+          order,
+          tile: config.tiles?.find(t => t.id === id)?.type,
+        })),
+        sortedTilesForSave: sortedTilesForSave.map(t => ({
+          id: t.id,
+          type: t.type,
+          enabled: t.enabled,
+          previewOrder: previewOrder.get(t.id) ?? t.previewOrder,
+          savedOrder: t.order,
+        })),
+      })
+      
+      // Separate enabled and disabled tiles (simple filter, no special requirements)
+      let enabledTiles = sortedTilesForSave.filter(t => t.enabled !== false)
+      let disabledTiles = sortedTilesForSave.filter(t => t.enabled === false)
+      
+      // Ensure all enabled tiles have previewOrder before assigning final order values
+      enabledTiles = enabledTiles.map(tile => {
+        // If tile doesn't have previewOrder, use its position in sortedTilesForSave
+        if (!previewOrder.has(tile.id) && tile.previewOrder === undefined) {
+          const positionInSorted = sortedTilesForSave.findIndex(t => t.id === tile.id)
+          if (positionInSorted >= 0) {
+            // Use position in sorted array as previewOrder
+            return { ...tile, previewOrder: positionInSorted }
+          }
+        }
+        return tile
+      })
+      
+      // Sort enabled tiles by previewOrder
+      enabledTiles.sort((a, b) => {
+        const orderA = previewOrder.get(a.id) ?? a.previewOrder ?? a.order ?? 999
+        const orderB = previewOrder.get(b.id) ?? b.previewOrder ?? b.order ?? 999
+        return orderA - orderB
+      })
+      
+      // Assign order values only to enabled tiles (sequential: 0, 1, 2...)
+      // Disabled tiles keep their existing order (or get a high value) but won't be shown on invite page
+      const tilesToSave = [
+        ...enabledTiles.map((t, index) => {
+          // Snapshot: copy previewOrder to order field for saving (only for enabled tiles)
           const baseTile = { 
             ...t, 
-            order: index, // Set order to match sorted position (preserves user's choice)
+            order: index, // Snapshot previewOrder as sequential order values for enabled tiles
+            previewOrder: undefined, // Don't save previewOrder to backend
           }
           
+          // DEBUG: Log each tile being saved
+          if (t.type === 'event-details' || index < 5) {
+            console.log(`[TILE ORDER DEBUG] Saving tile ${index}:`, {
+              id: baseTile.id,
+              type: baseTile.type,
+              enabled: baseTile.enabled,
+              savedOrder: baseTile.order,
+              previewOrderBeforeSave: previewOrder.get(t.id) ?? t.previewOrder,
+              originalSavedOrder: t.order,
+            })
+          }
+          
+          // CRITICAL: Always get latest settings from current config state (not from sorted array which might be stale)
+          // This ensures all tile updates are saved, not just initial values
+          const currentTileInConfig = config.tiles?.find(t => t.id === baseTile.id)
+          const latestSettings = currentTileInConfig?.settings || baseTile.settings
+          
           if (baseTile.type === 'title') {
-            return { ...baseTile, enabled: true }
+            return { ...baseTile, enabled: true, settings: { ...latestSettings } as any }
           }
           // For image tiles, explicitly preserve all settings including coverPosition
           if (baseTile.type === 'image') {
-            const imageSettings = baseTile.settings as any
-            // Log to help debug position saving
-            if (imageSettings.coverPosition) {
-            }
+            const imageSettings = latestSettings as any
             return { ...baseTile, settings: { ...imageSettings } }
           }
           // For feature-buttons tiles, explicitly preserve all settings including custom labels
           if (baseTile.type === 'feature-buttons') {
-            const featureButtonsSettings = baseTile.settings as any
+            const featureButtonsSettings = latestSettings as any
             return { ...baseTile, settings: { ...featureButtonsSettings } }
           }
           // For event-carousel tiles, explicitly preserve all settings including slideshow and styling options
           if (baseTile.type === 'event-carousel') {
-            const carouselSettings = baseTile.settings as any
+            const carouselSettings = latestSettings as any
             return { ...baseTile, settings: { ...carouselSettings } }
           }
           // For event-details tiles, explicitly preserve all settings including time
           if (baseTile.type === 'event-details') {
-            const eventDetailsSettings = baseTile.settings as any
-            // Explicitly preserve all fields including time, date, location, etc.
-            // Ensure time is preserved - it can be a string (valid time) or undefined, but should not be lost
+            const eventDetailsSettings = latestSettings as any
+            // Explicitly preserve ALL fields from the latest settings
             const preservedSettings = {
-              ...eventDetailsSettings,
-              // Explicitly preserve time field - if it exists in the original settings, keep it
-              // This ensures time values are not lost during save
-              time: eventDetailsSettings.hasOwnProperty('time') ? eventDetailsSettings.time : undefined
+              ...eventDetailsSettings, // Spread all current settings
+              // Explicitly preserve each field to ensure nothing is lost
+              location: eventDetailsSettings.location || '',
+              date: eventDetailsSettings.date || '',
+              time: eventDetailsSettings.time, // Can be undefined, that's fine
+              dressCode: eventDetailsSettings.dressCode,
+              mapUrl: eventDetailsSettings.mapUrl,
+              locationVerified: eventDetailsSettings.locationVerified,
+              coordinates: eventDetailsSettings.coordinates,
+              showMap: eventDetailsSettings.showMap,
+              mapZoom: eventDetailsSettings.mapZoom,
+              fontColor: eventDetailsSettings.fontColor,
+              buttonColor: eventDetailsSettings.buttonColor,
+              borderStyle: eventDetailsSettings.borderStyle,
+              borderColor: eventDetailsSettings.borderColor,
+              borderWidth: eventDetailsSettings.borderWidth,
+              decorativeSymbol: eventDetailsSettings.decorativeSymbol,
+              backgroundColor: eventDetailsSettings.backgroundColor,
+              borderRadius: eventDetailsSettings.borderRadius,
             }
             return { ...baseTile, settings: preservedSettings }
           }
-          return baseTile
-      })
+          // For all other tile types, use latest settings
+          return { ...baseTile, settings: { ...latestSettings } as any }
+        }),
+        // Disabled tiles keep their existing order (won't be shown on invite page anyway)
+        ...disabledTiles.map(t => ({
+          ...t,
+          previewOrder: undefined, // Don't save previewOrder to backend
+        }))
+      ]
       
       // Build customColors - always include backgroundColor if it exists
       let customColorsToSave = undefined
@@ -628,6 +677,29 @@ export default function DesignInvitationPage(): JSX.Element {
         ...(config.customFonts && { customFonts: config.customFonts }),
         ...(config.texture && { texture: config.texture }),
       }
+      
+      // DEBUG: Log final saved order
+      console.log('[TILE ORDER DEBUG] Final saved order:', {
+        totalTilesToSave: tilesToSave.length,
+        enabledTilesCount: enabledTiles.length,
+        disabledTilesCount: disabledTiles.length,
+        tilesToSave: tilesToSave.map(t => ({
+          id: t.id,
+          type: t.type,
+          enabled: t.enabled,
+          order: t.order,
+        })),
+        enabledTiles: enabledTiles.map(t => ({
+          id: t.id,
+          type: t.type,
+          enabled: t.enabled,
+          previewOrder: previewOrder.get(t.id) ?? t.previewOrder,
+          savedOrder: t.order,
+        })),
+        hasTitle: tilesToSave.some(t => t.type === 'title'),
+        hasEventDetails: tilesToSave.some(t => t.type === 'event-details'),
+        hasDescription: tilesToSave.some(t => t.type === 'description'),
+      })
       
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
       if (imageTile) {
@@ -972,9 +1044,51 @@ export default function DesignInvitationPage(): JSX.Element {
   }
 
   const handleTileReorder = (reorderedTiles: Tile[]) => {
+    // CRITICAL: Calculate previewOrder for ALL tiles based on their position in the reordered array
+    // This ensures every tile has a previewOrder that reflects its actual position, not just moved tiles
+    const newPreviewOrder = new Map<string, number>()
+    
+    // Filter out overlay titles for ordering calculation (they'll get same order as their target)
+    const tilesForOrdering = reorderedTiles.filter(tile => {
+      if (tile.type === 'title' && tile.overlayTargetId) return false
+      return true
+    })
+    
+    // Assign previewOrder based on actual position in reordered array
+    tilesForOrdering.forEach((tile, index) => {
+      newPreviewOrder.set(tile.id, index)
+      // Overlay titles get same previewOrder as their target
+      const overlayTitle = reorderedTiles.find(t => t.type === 'title' && t.overlayTargetId === tile.id)
+      if (overlayTitle) {
+        newPreviewOrder.set(overlayTitle.id, index)
+      }
+    })
+    
+    // Ensure ALL tiles have previewOrder (including any that might have been missed)
+    reorderedTiles.forEach((tile) => {
+      if (!newPreviewOrder.has(tile.id)) {
+        // If tile doesn't have previewOrder yet, use its position in the array
+        const position = reorderedTiles.findIndex(t => t.id === tile.id)
+        if (position >= 0) {
+          newPreviewOrder.set(tile.id, position)
+        } else {
+          // Fallback to existing previewOrder or saved order
+          newPreviewOrder.set(tile.id, previewOrder.get(tile.id) ?? tile.order ?? 0)
+        }
+      }
+    })
+    
+    setPreviewOrder(newPreviewOrder)
+    
+    // Update tiles with their previewOrder values
+    const tilesWithPreviewOrder = reorderedTiles.map(tile => ({
+      ...tile,
+      previewOrder: newPreviewOrder.get(tile.id),
+    }))
+    
     setConfig(prev => ({
       ...prev,
-      tiles: reorderedTiles,
+      tiles: tilesWithPreviewOrder,
     }))
   }
 
@@ -1028,7 +1142,28 @@ export default function DesignInvitationPage(): JSX.Element {
   const selectedTile = config.tiles?.find(t => t.id === selectedTileId)
   let sortedTiles: Tile[] = []
   if (config.tiles && config.tiles.length > 0) {
-    sortedTiles = [...config.tiles].sort((a, b) => a.order - b.order)
+    // Sort by previewOrder (real-time order) with fallback to saved order
+    sortedTiles = [...config.tiles].sort((a, b) => {
+      const orderA = previewOrder.get(a.id) ?? a.previewOrder ?? a.order ?? 0
+      const orderB = previewOrder.get(b.id) ?? b.previewOrder ?? b.order ?? 0
+      return orderA - orderB
+    })
+    
+    // DEBUG: Log preview order on render
+    console.log('[TILE ORDER DEBUG] Design page preview order:', {
+      previewOrderMap: Array.from(previewOrder.entries()).map(([id, order]) => ({
+        id,
+        order,
+        tile: config.tiles?.find(t => t.id === id)?.type,
+      })),
+      sortedTiles: sortedTiles.map(t => ({
+        id: t.id,
+        type: t.type,
+        enabled: t.enabled,
+        previewOrder: previewOrder.get(t.id) ?? t.previewOrder,
+        savedOrder: t.order,
+      })),
+    })
   } else {
     logError('No tiles in config, using DEFAULT_TILES')
     sortedTiles = DEFAULT_TILES

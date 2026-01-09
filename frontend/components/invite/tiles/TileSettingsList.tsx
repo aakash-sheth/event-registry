@@ -86,11 +86,49 @@ export default function TileSettingsList({
       const newIndex = tiles.findIndex((t) => t.id === over.id)
 
       const newTiles = arrayMove(tiles, oldIndex, newIndex)
-      // Update order values based on the new position
-      const reorderedTiles = newTiles.map((tile, index) => ({
-        ...tile,
-        order: index,
-      }))
+      
+      // Calculate previewOrder based on the actual position in the reordered array
+      // This matches what the user sees in the settings panel (all tiles, enabled or disabled)
+      // Include ALL tiles in ordering calculation (overlay titles will get same order as their target)
+      const tilesForOrdering = newTiles.filter(tile => {
+        // Include all tiles except overlay titles (they'll get assigned order from their target)
+        if (tile.type === 'title' && tile.overlayTargetId) return false
+        return true
+      })
+      
+      // Create previewOrder map based on position in reordered array
+      const previewOrderMap = new Map<string, number>()
+      tilesForOrdering.forEach((tile, index) => {
+        previewOrderMap.set(tile.id, index)
+        // Overlay titles get same previewOrder as their target image
+        const overlayTitle = newTiles.find(t => t.type === 'title' && t.overlayTargetId === tile.id)
+        if (overlayTitle) {
+          previewOrderMap.set(overlayTitle.id, index)
+        }
+      })
+      
+      // CRITICAL: Ensure ALL tiles get a previewOrder (including overlay titles and any missed tiles)
+      // Update tiles with previewOrder (but keep saved order unchanged)
+      const reorderedTiles = newTiles.map((tile) => {
+        // First check if this tile already has previewOrder in map
+        let previewOrder = previewOrderMap.get(tile.id)
+        
+        // If overlay title, get order from its target
+        if (tile.type === 'title' && tile.overlayTargetId) {
+          const targetTile = newTiles.find(t => t.id === tile.overlayTargetId)
+          if (targetTile) {
+            previewOrder = previewOrderMap.get(targetTile.id)
+          }
+        }
+        
+        // If still no previewOrder, use existing or fallback to order
+        if (previewOrder === undefined) {
+          previewOrder = tile.previewOrder ?? tile.order ?? 0
+        }
+        
+        return { ...tile, previewOrder }
+      })
+      
       onReorder(reorderedTiles)
     }
   }

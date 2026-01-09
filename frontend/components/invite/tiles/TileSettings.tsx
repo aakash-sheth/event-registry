@@ -107,43 +107,22 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
     }
   }
 
-  // Title tile is mandatory only if no valid image tile exists
-  const isTitleTile = tile.type === 'title'
-  const enabledImageTiles = allTiles.filter(t => t.type === 'image' && t.enabled)
-  const hasValidImageTile = enabledImageTiles.some(t => {
-    const imageSettings = t.settings as any
-    return imageSettings?.src && imageSettings.src.trim() !== ''
-  })
-  // Title is mandatory only if there's no valid enabled image tile
-  // Event details is always mandatory
-  const isMandatory = (isTitleTile && !hasValidImageTile) || tile.type === 'event-details'
-
   return (
-    <div className={`border rounded-lg w-full overflow-x-hidden ${tile.enabled || isMandatory ? 'bg-white' : 'bg-gray-50 opacity-75'}`}>
+    <div className={`border rounded-lg w-full overflow-x-hidden ${tile.enabled ? 'bg-white' : 'bg-gray-50 opacity-75'}`}>
       <div className="flex items-center justify-between p-3 sm:p-4 border-b w-full min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-8 sm:pl-10">
-          {isMandatory ? (
-            <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs text-eco-green font-bold">*</span>
-            </div>
-          ) : (
-            <input
-              type="checkbox"
-              checked={tile.enabled}
-              onChange={(e) => onToggle(tile.id, e.target.checked)}
-              className="w-4 h-4 text-eco-green flex-shrink-0 cursor-pointer"
-            />
-          )}
-          <h3 className={`font-semibold text-sm sm:text-base truncate min-w-0 ${tile.enabled || isMandatory ? 'text-gray-800' : 'text-gray-500'}`}>
+          <input
+            type="checkbox"
+            checked={tile.enabled}
+            onChange={(e) => onToggle(tile.id, e.target.checked)}
+            className="w-4 h-4 text-eco-green flex-shrink-0 cursor-pointer"
+          />
+          <h3 className={`font-semibold text-sm sm:text-base truncate min-w-0 ${tile.enabled ? 'text-gray-800' : 'text-gray-500'}`}>
             {TILE_LABELS[tile.type]}
-            {isMandatory && <span className="text-red-500 ml-1">*</span>}
             {tile.type === 'title' && tile.overlayTargetId && (
               <span className="text-xs text-blue-600 ml-2 font-normal">(Overlaying on Image)</span>
             )}
-            {tile.type === 'title' && hasValidImageTile && !isMandatory && (
-              <span className="text-xs text-gray-500 ml-2 font-normal">(Optional - Image present)</span>
-            )}
-            {!tile.enabled && !isMandatory && (
+            {!tile.enabled && (
               <span className="text-xs text-gray-400 ml-2 font-normal">(Disabled)</span>
             )}
           </h3>
