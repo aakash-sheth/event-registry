@@ -80,6 +80,7 @@ interface Event {
   whatsapp_message_template?: string
   event_structure?: 'SIMPLE' | 'ENVELOPE'
   rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
+  host_name?: string
 }
 
 interface SubEvent {
@@ -587,7 +588,7 @@ export default function GuestsPage() {
           event_date: event.date,
           event_location: event.city || '',
           event_url: eventUrl,
-          host_name: undefined,
+          host_name: event.host_name || undefined,
           map_direction: mapDirection,
           custom_fields: (selectedGuest as any).custom_fields || {},
         })
@@ -607,7 +608,7 @@ export default function GuestsPage() {
           event.title || 'Event',
           event.date,
           eventUrl,
-          undefined, // Host name
+          event.host_name || undefined, // Host name
           event.city || '', // Event location
           (event as any).whatsapp_message_template // Custom template
         )

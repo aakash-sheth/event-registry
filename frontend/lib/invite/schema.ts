@@ -135,6 +135,12 @@ export interface TextureSettings {
   intensity?: number // 0-100, default 20
 }
 
+export interface LinkMetadata {
+  title?: string // Custom title for link previews (WhatsApp, Facebook, Twitter) - overrides auto-generated
+  description?: string // Custom description for link previews - overrides auto-generated
+  image?: string // Custom image URL for link previews - overrides auto-generated (recommended: 1200x630px)
+}
+
 export type TileSettings = 
   | TitleTileSettings
   | ImageTileSettings
@@ -173,6 +179,8 @@ export interface InviteConfig {
   animations?: {
     envelope?: boolean // Enable/disable envelope opening animation (default: true)
   }
+  // Link preview metadata (Open Graph, Twitter Cards, WhatsApp)
+  linkMetadata?: LinkMetadata
   // New tile-based structure
   tiles?: Tile[]
   // Legacy structure (for backward compatibility)

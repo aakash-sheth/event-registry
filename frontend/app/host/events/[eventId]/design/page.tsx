@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import PublishModal from '@/components/invite/PublishModal'
-import api from '@/lib/api'
+import api, { uploadImage } from '@/lib/api'
 import { InviteConfig, Tile, InvitePage } from '@/lib/invite/schema'
 import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
 import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
@@ -128,8 +128,11 @@ export default function DesignInvitationPage(): JSX.Element {
   const headerRef = useRef<HTMLDivElement>(null)
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const gridContainerRef = useRef<HTMLDivElement>(null)
+  const previewImageInputRef = useRef<HTMLInputElement>(null)
   const [rightPanelStyle, setRightPanelStyle] = useState<React.CSSProperties>({})
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+  const [showLinkMetadata, setShowLinkMetadata] = useState(false)
+  const [uploadingPreviewImage, setUploadingPreviewImage] = useState(false)
   const [spacerHeight, setSpacerHeight] = useState<number | null>(null)
   const [allTilesExpanded, setAllTilesExpanded] = useState(false)
   const [config, setConfig] = useState<InviteConfig>({
@@ -682,6 +685,128 @@ export default function DesignInvitationPage(): JSX.Element {
     }
   }
 
+  // Resize and optimize image for link previews (1200x630px)
+  const resizeImageForPreview = (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'))
+            return
+          }
+
+          // Target dimensions for link previews (Open Graph standard)
+          const targetWidth = 1200
+          const targetHeight = 630
+
+          // Calculate dimensions maintaining aspect ratio
+          let width = img.width
+          let height = img.height
+          const aspectRatio = width / height
+          const targetAspectRatio = targetWidth / targetHeight
+
+          if (aspectRatio > targetAspectRatio) {
+            // Image is wider - fit to height
+            height = targetHeight
+            width = height * aspectRatio
+          } else {
+            // Image is taller - fit to width
+            width = targetWidth
+            height = width / aspectRatio
+          }
+
+          // Set canvas size
+          canvas.width = targetWidth
+          canvas.height = targetHeight
+
+          // Fill with white background (for images that don't fill the entire space)
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, targetWidth, targetHeight)
+
+          // Calculate center position
+          const x = (targetWidth - width) / 2
+          const y = (targetHeight - height) / 2
+
+          // Draw resized image
+          ctx.drawImage(img, x, y, width, height)
+
+          // Convert to blob with compression
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Failed to create blob'))
+                return
+              }
+              // Create a new File with optimized image
+              const optimizedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              })
+              resolve(optimizedFile)
+            },
+            'image/jpeg',
+            0.85 // 85% quality for good balance between size and quality
+          )
+        }
+        img.onerror = () => reject(new Error('Failed to load image'))
+        img.src = e.target?.result as string
+      }
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  // Handle preview image upload
+  const handlePreviewImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      showToast('Please upload an image file', 'error')
+      return
+    }
+
+    // Validate file size (max 10MB before optimization)
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Image must be less than 10MB', 'error')
+      return
+    }
+
+    setUploadingPreviewImage(true)
+    try {
+      // Resize and optimize image for link previews
+      const optimizedFile = await resizeImageForPreview(file)
+      
+      // Upload optimized image
+      const imageUrl = await uploadImage(optimizedFile, eventId)
+      
+      // Update config with uploaded image URL
+      setConfig(prev => ({
+        ...prev,
+        linkMetadata: {
+          ...prev.linkMetadata,
+          image: imageUrl,
+        },
+      }))
+      
+      showToast('Preview image uploaded and optimized successfully', 'success')
+    } catch (error) {
+      logError('Failed to upload preview image:', error)
+      showToast('Failed to upload image. Please try again.', 'error')
+    } finally {
+      setUploadingPreviewImage(false)
+      // Reset file input
+      if (e.target) {
+        e.target.value = ''
+      }
+    }
+  }
+
   // Fix 2: Add publish handler
   const handlePublish = async () => {
     let currentInvitePage = invitePage
@@ -1162,6 +1287,177 @@ export default function DesignInvitationPage(): JSX.Element {
                           </p>
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Link Preview Settings - Collapsible */}
+                <div className="border-t border-gray-200 pt-4 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkMetadata(!showLinkMetadata)}
+                    className="flex items-center justify-between w-full text-left focus:outline-none focus:ring-2 focus:ring-eco-green rounded-md p-2 -m-2"
+                  >
+                    <div>
+                      <h3 className="text-sm font-semibold text-eco-green">Link Preview Settings</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Customize how your invite appears when shared on WhatsApp, Facebook, and other platforms</p>
+                    </div>
+                    <svg
+                      className={`w-5 h-5 text-gray-500 transition-transform ${showLinkMetadata ? 'transform rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showLinkMetadata && (
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Preview Title
+                          <span className="text-gray-400 font-normal ml-1">(optional)</span>
+                        </label>
+                        <Input
+                          type="text"
+                          value={config.linkMetadata?.title || ''}
+                          onChange={(e) => setConfig(prev => ({
+                            ...prev,
+                            linkMetadata: {
+                              ...prev.linkMetadata,
+                              title: e.target.value || undefined,
+                            },
+                          }))}
+                          placeholder="Leave empty to use page title"
+                          className="w-full"
+                          maxLength={60}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Custom title for link previews (recommended: 50-60 characters). Leave empty to auto-generate from page title.
+                        </p>
+                        {config.linkMetadata?.title && (
+                          <p className="text-xs mt-1 text-gray-400">
+                            {config.linkMetadata.title.length} / 60 characters
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Preview Description
+                          <span className="text-gray-400 font-normal ml-1">(optional)</span>
+                        </label>
+                        <textarea
+                          value={config.linkMetadata?.description || ''}
+                          onChange={(e) => setConfig(prev => ({
+                            ...prev,
+                            linkMetadata: {
+                              ...prev.linkMetadata,
+                              description: e.target.value || undefined,
+                            },
+                          }))}
+                          placeholder="Leave empty to use page description"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green resize-none"
+                          rows={3}
+                          maxLength={200}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Custom description for link previews (recommended: 150-200 characters). Leave empty to auto-generate from page content.
+                        </p>
+                        {config.linkMetadata?.description && (
+                          <p className="text-xs mt-1 text-gray-400">
+                            {config.linkMetadata.description.length} / 200 characters
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Preview Image
+                          <span className="text-gray-400 font-normal ml-1">(optional)</span>
+                        </label>
+                        {config.linkMetadata?.image ? (
+                          <div className="space-y-2">
+                            <div className="relative">
+                              <img
+                                src={config.linkMetadata.image}
+                                alt="Preview"
+                                className="w-full max-w-md h-48 object-cover rounded border border-gray-300"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none'
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setConfig(prev => ({
+                                  ...prev,
+                                  linkMetadata: {
+                                    ...prev.linkMetadata,
+                                    image: undefined,
+                                  },
+                                }))}
+                                className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                                title="Remove image"
+                              >
+                                ×
+                              </button>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                previewImageInputRef.current?.click()
+                              }}
+                              disabled={uploadingPreviewImage}
+                              className="w-full"
+                            >
+                              {uploadingPreviewImage ? 'Uploading...' : 'Replace Image'}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div>
+                            <input
+                              ref={previewImageInputRef}
+                              type="file"
+                              accept="image/*"
+                              onChange={handlePreviewImageUpload}
+                              className="hidden"
+                              id="preview-image-upload"
+                              disabled={uploadingPreviewImage}
+                            />
+                            <label
+                              htmlFor="preview-image-upload"
+                              className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
+                            >
+                              {uploadingPreviewImage ? (
+                                <div className="flex flex-col items-center">
+                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-eco-green mb-2"></div>
+                                  <span className="text-sm text-gray-600">Uploading and optimizing...</span>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center">
+                                  <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                  </svg>
+                                  <span className="text-sm text-gray-600">Click to upload preview image</span>
+                                  <span className="text-xs text-gray-400 mt-1">Recommended: 1200x630px (will be auto-optimized)</span>
+                                </div>
+                              )}
+                            </label>
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-500 mt-2">
+                          Custom image for link previews. Image will be automatically resized to 1200x630px and optimized for fast loading. Leave empty to use page background image.
+                        </p>
+                      </div>
+
+                      <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                        <p className="text-xs text-blue-800">
+                          <strong>💡 Tip:</strong> These settings control how your invite appears when shared on WhatsApp, Facebook, Twitter, and other platforms. If left empty, the system will automatically generate previews from your page content.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>

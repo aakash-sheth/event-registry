@@ -6,7 +6,7 @@ import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
 import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
-import { BRAND_NAME } from '@/lib/brand_utility'
+import { BRAND_NAME, GENERIC_ENVELOPE_IMAGE } from '@/lib/brand_utility'
 import http from 'http'
 import https from 'https'
 
@@ -681,7 +681,10 @@ export async function generateMetadata({
     }
   }
 
-  // Extract title from config or use invite title
+  // Check for custom link metadata first (user-defined)
+  const customMetadata = inviteData.config?.linkMetadata
+  
+  // Extract title: custom metadata > auto-generated from tiles/event
   let baseTitle = inviteData.title || 'Event Invitation'
   if (inviteData.config?.tiles) {
     const titleTile = inviteData.config.tiles.find(
@@ -692,10 +695,12 @@ export async function generateMetadata({
     }
   }
   
-  // Format title with suffix for branding
-  const title = `${baseTitle} | ${BRAND_NAME}`
+  // Use custom title if provided, otherwise format with brand suffix
+  const title = customMetadata?.title 
+    ? customMetadata.title 
+    : `${baseTitle} | ${BRAND_NAME}`
 
-  // Extract description
+  // Extract description: custom metadata > auto-generated from tiles/event
   let description = inviteData.description || 'Join us for a special celebration'
   if (inviteData.config?.tiles) {
     const descTile = inviteData.config.tiles.find(
@@ -706,11 +711,15 @@ export async function generateMetadata({
       description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
     }
   }
-
-  // Extract banner image with priority: background_url > image tile
-  // Use background_url from invite data (this is the main invite image)
-  let bannerImage: string | undefined = inviteData.background_url
   
+  // Use custom description if provided
+  const finalDescription = customMetadata?.description || description
+
+  // Extract banner image with priority: preview image > image tile > generic envelope image
+  // Priority 1: Custom preview image (from Link Preview Settings)
+  let bannerImage: string | undefined = customMetadata?.image
+  
+  // Priority 2: Image tile (first enabled image tile from config)
   if (!bannerImage && inviteData.config?.tiles) {
     // Find first enabled image tile with a source
     const imageTile = inviteData.config.tiles.find(
@@ -721,14 +730,19 @@ export async function generateMetadata({
     }
   }
 
+  // Priority 3: Generic envelope image (common fallback for everyone)
+  if (!bannerImage) {
+    bannerImage = GENERIC_ENVELOPE_IMAGE
+  }
+
   // Ensure banner image URL is absolute for Open Graph
   let absoluteBannerImage: string | undefined = bannerImage
   if (bannerImage) {
     if (!bannerImage.startsWith('http://') && !bannerImage.startsWith('https://')) {
       // If relative URL (local dev), make it absolute using frontend URL
-    absoluteBannerImage = bannerImage.startsWith('/') 
-      ? `${baseUrl}${bannerImage}`
-      : `${baseUrl}/${bannerImage}`
+      absoluteBannerImage = bannerImage.startsWith('/') 
+        ? `${baseUrl}${bannerImage}`
+        : `${baseUrl}/${bannerImage}`
     } else {
       // Already absolute (S3 URL), use as-is
       absoluteBannerImage = bannerImage
@@ -737,10 +751,10 @@ export async function generateMetadata({
 
   const metadata: Metadata = {
     title,
-    description,
+    description: finalDescription,
     openGraph: {
       title,
-      description,
+      description: finalDescription,
       type: 'website',
       url: pageUrl,
       ...(absoluteBannerImage && { 
@@ -755,7 +769,7 @@ export async function generateMetadata({
     twitter: {
       card: 'summary_large_image',
       title,
-      description,
+      description: finalDescription,
       ...(absoluteBannerImage && { images: [absoluteBannerImage] }),
     },
   }
