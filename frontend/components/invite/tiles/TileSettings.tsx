@@ -111,12 +111,12 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
     <div className={`border rounded-lg w-full overflow-x-hidden ${tile.enabled ? 'bg-white' : 'bg-gray-50 opacity-75'}`}>
       <div className="flex items-center justify-between p-3 sm:p-4 border-b w-full min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-8 sm:pl-10">
-          <input
-            type="checkbox"
-            checked={tile.enabled}
-            onChange={(e) => onToggle(tile.id, e.target.checked)}
-            className="w-4 h-4 text-eco-green flex-shrink-0 cursor-pointer"
-          />
+            <input
+              type="checkbox"
+              checked={tile.enabled}
+              onChange={(e) => onToggle(tile.id, e.target.checked)}
+              className="w-4 h-4 text-eco-green flex-shrink-0 cursor-pointer"
+            />
           <h3 className={`font-semibold text-sm sm:text-base truncate min-w-0 ${tile.enabled ? 'text-gray-800' : 'text-gray-500'}`}>
             {TILE_LABELS[tile.type]}
             {tile.type === 'title' && tile.overlayTargetId && (

@@ -387,7 +387,7 @@ export default function DesignInvitationPage(): JSX.Element {
           finalConfig.tiles.forEach(tile => {
             if (tile.order !== undefined) {
               initialPreviewOrder.set(tile.id, tile.order)
-            }
+          }
           })
           setPreviewOrder(initialPreviewOrder)
         }

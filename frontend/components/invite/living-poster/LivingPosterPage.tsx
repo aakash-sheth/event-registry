@@ -61,7 +61,7 @@ function LivingPosterContent({
     const sortedTiles = [...config.tiles]
       .filter(tile => tile.enabled)
       .sort((a, b) => a.order - b.order)
-    
+
     // DEBUG: Log order on invite page
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       console.log('[TILE ORDER DEBUG] Invite page order:', {

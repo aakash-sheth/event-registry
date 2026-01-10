@@ -92,10 +92,34 @@ function LoginForm() {
         email,
         code: data.code,
       })
+      
+      // Set tokens
       localStorage.setItem('access_token', response.data.access)
       localStorage.setItem('refresh_token', response.data.refresh)
+      
+      // CRITICAL: Verify token is actually set (handles slow localStorage on new devices)
+      // Wait up to 500ms (10 attempts × 50ms) to verify token is saved
+      const verifyTokenSet = async (maxAttempts = 10, delay = 50) => {
+        for (let i = 0; i < maxAttempts; i++) {
+          const token = localStorage.getItem('access_token')
+          if (token === response.data.access) {
+            return true
+          }
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+        return false
+      }
+      
+      const tokenVerified = await verifyTokenSet()
+      if (!tokenVerified) {
+        throw new Error('Failed to save authentication token. Please try again.')
+      }
+      
       showToast('Login successful!', 'success')
-      router.push('/host/dashboard')
+      
+      // Use window.location.href for full page reload (ensures clean state)
+      // This is more reliable than router.push for post-login navigation
+      window.location.href = '/host/dashboard'
     } catch (error: any) {
       logError('OTP verification error:', error)
       showToast(getErrorMessage(error), 'error')

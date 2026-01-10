@@ -46,19 +46,53 @@ export default function DashboardPage() {
   const [impact, setImpact] = useState<ImpactData | null>(null)
   const [loadingImpact, setLoadingImpact] = useState(false)
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set())
+  const [isHydrated, setIsHydrated] = useState(false)
 
+  // Hydration check - only run auth checks after hydration completes
   useEffect(() => {
-    const token = localStorage.getItem('access_token')
-    if (!token) {
+    setIsHydrated(true)
+  }, [])
+
+  // Wait for token to be available (handles race condition after login)
+  useEffect(() => {
+    // Only run after hydration completes
+    if (!isHydrated) return
+
+    const checkAuthAndFetch = async () => {
+      let attempts = 0
+      const maxAttempts = 20 // Wait up to 1 second (20 * 50ms)
+      
+      while (attempts < maxAttempts) {
+        const token = localStorage.getItem('access_token')
+        if (token) {
+          // Token found, proceed with data fetching
+          try {
+            await Promise.all([
+              fetchEvents(),
+              fetchImpact()
+            ])
+          } catch (error: any) {
+            // Handle errors
+            if (error.response?.status === 401) {
+              setLoading(false) // Clear loading before redirect
+              router.push('/host/login')
+            }
+          }
+          return
+        }
+        // Wait before checking again
+        await new Promise(resolve => setTimeout(resolve, 50))
+        attempts++
+      }
+      
+      // No token found after waiting, redirect to login
+      setLoading(false) // Ensure loading state is cleared
       router.push('/host/login')
-      return
     }
     
-    // Only fetch data if authenticated
-    fetchEvents()
-    fetchImpact()
+    checkAuthAndFetch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [isHydrated])
 
   useEffect(() => {
     // Auto-select all expired events when impact data loads
@@ -71,6 +105,7 @@ export default function DashboardPage() {
     // Double-check auth before making request
     const token = localStorage.getItem('access_token')
     if (!token) {
+      setLoading(false) // CRITICAL: Clear loading state before redirect
       router.push('/host/login')
       return
     }
@@ -80,12 +115,14 @@ export default function DashboardPage() {
       setEvents(response.data.results || response.data)
     } catch (error: any) {
       if (error.response?.status === 401) {
+        setLoading(false) // Clear loading before redirect
         router.push('/host/login')
       } else {
         showToast('Failed to load events', 'error')
+        setLoading(false) // Always clear loading on error
       }
     } finally {
-      setLoading(false)
+      setLoading(false) // Always clear loading
     }
   }
 
@@ -93,6 +130,7 @@ export default function DashboardPage() {
     // Double-check auth before making request
     const token = localStorage.getItem('access_token')
     if (!token) {
+      setLoadingImpact(false)
       return
     }
     
@@ -106,7 +144,7 @@ export default function DashboardPage() {
         logError('Failed to load impact data:', error)
       }
     } finally {
-      setLoadingImpact(false)
+      setLoadingImpact(false) // Always clear loading
     }
   }
 

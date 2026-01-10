@@ -117,11 +117,36 @@ api.interceptors.request.use((config) => {
     }
   }
   
-  // Add auth token
+  // Add auth token with retry logic for new devices (handles slow localStorage)
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('access_token')
+    let token = localStorage.getItem('access_token')
+    
+    // If token is null, wait a bit and retry (handles slow localStorage writes on new devices)
+    if (!token) {
+      // Small delay to allow localStorage write to complete
+      // This is a synchronous operation, but browser I/O can be slow on new devices
+      const retryToken = () => {
+        for (let i = 0; i < 3; i++) {
+          token = localStorage.getItem('access_token')
+          if (token) break
+          // Synchronous wait (blocking, but very short - max 30ms total)
+          const start = Date.now()
+          while (Date.now() - start < 10) {} // 10ms max wait per attempt
+        }
+        return token
+      }
+      token = retryToken()
+    }
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    } else {
+      // Token still not available - this might be a public request
+      // Don't fail, let the backend handle it
+      // Log warning for debugging but don't block the request
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[API] No access token available for request:', config.url)
+      }
     }
   }
   
