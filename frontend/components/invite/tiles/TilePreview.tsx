@@ -82,6 +82,10 @@ export default function TilePreview({
       case 'footer':
         return <FooterTile settings={tile.settings as any} preview />
       case 'event-carousel':
+        // Don't render carousel if there are no sub-events to show
+        if (!allowedSubEvents || allowedSubEvents.length === 0) {
+          return null
+        }
         return (
           <EventCarouselTile
             key={`event-carousel-${tile.id}`}
