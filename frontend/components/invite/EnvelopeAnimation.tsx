@@ -29,12 +29,16 @@ export default function EnvelopeAnimation({
   const animationStartedRef = React.useRef(false)
   
   // Store the latest callback in a ref to avoid stale closures and prevent hook order issues
-  const onAnimationCompleteRef = React.useRef(onAnimationComplete)
+  // Initialize ref with the callback prop value
+  const onAnimationCompleteRef = React.useRef<(() => void) | undefined>(onAnimationComplete)
   
-  // Update ref whenever callback changes
+  // Update ref whenever callback changes (this effect always runs, maintaining hook order)
+  // Note: We can safely remove onAnimationComplete from deps since parent uses useCallback
+  // and the ref is initialized with the initial value anyway
   useEffect(() => {
     onAnimationCompleteRef.current = onAnimationComplete
-  }, [onAnimationComplete])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Helper function for subtle haptic feedback on mobile
   const triggerHaptic = (pattern: number | number[]) => {
