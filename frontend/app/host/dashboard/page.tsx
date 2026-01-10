@@ -63,7 +63,7 @@ export default function DashboardPage() {
       const maxAttempts = 20 // Wait up to 1 second (20 * 50ms)
       
       while (attempts < maxAttempts) {
-        const token = localStorage.getItem('access_token')
+    const token = localStorage.getItem('access_token')
         if (token) {
           // Token found, proceed with data fetching
           try {

@@ -3,6 +3,7 @@ import { unstable_noStore } from 'next/cache'
 import React from 'react'
 import InvitePageClient from './InvitePageClient'
 import { InviteConfig, Tile } from '@/lib/invite/schema'
+import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
 import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
@@ -998,65 +999,147 @@ export default async function InvitePage({
   let initialConfig: InviteConfig | null = null
   // Check if page_config exists and has meaningful content (not just empty object)
   const pageConfig = event.page_config
-  const hasValidConfig = pageConfig && 
+  const hasConfig = pageConfig && 
     typeof pageConfig === 'object' && 
-    Object.keys(pageConfig).length > 0 &&
-    (pageConfig.tiles || pageConfig.themeId || pageConfig.hero)
+    Object.keys(pageConfig).length > 0
   
-  if (hasValidConfig && pageConfig) {
-    initialConfig = {
-      ...pageConfig,
-      // Ensure themeId is set if it's missing (required by InviteConfig)
-      themeId: pageConfig.themeId || 'classic-noir',
-      customColors: pageConfig.customColors !== undefined 
-        ? pageConfig.customColors 
-        : undefined,
-    } as InviteConfig
-    
-    // DEBUG: Log order values received from backend
-    if (isDev && initialConfig.tiles) {
-      devLog('[TILE ORDER DEBUG] Server-side: Order received from backend', {
-        totalTiles: initialConfig.tiles.length,
-        tiles: initialConfig.tiles.map((t: Tile) => ({
-          id: t.id,
-          type: t.type,
-          enabled: t.enabled,
-          order: t.order,
-          previewOrder: (t as any).previewOrder,
-        })),
-        enabledTiles: initialConfig.tiles
-          .filter((t: Tile) => t.enabled)
-          .sort((a: Tile, b: Tile) => a.order - b.order)
-          .map((t: Tile) => ({
+  if (hasConfig && pageConfig) {
+    try {
+      // Migrate old configs to tile-based structure if needed
+      // This handles invitations created before the schema upgrade
+      const migratedConfig = migrateToTileConfig(
+        pageConfig as InviteConfig,
+        event.title,
+        event.date,
+        undefined // city not available in Event interface, will use config.location if available
+      )
+      
+      initialConfig = {
+        ...migratedConfig,
+        // Ensure themeId is set if it's missing (required by InviteConfig)
+        themeId: migratedConfig.themeId || pageConfig.themeId || 'classic-noir',
+        customColors: pageConfig.customColors !== undefined 
+          ? pageConfig.customColors 
+          : migratedConfig.customColors,
+        customFonts: pageConfig.customFonts !== undefined
+          ? pageConfig.customFonts
+          : migratedConfig.customFonts,
+        texture: pageConfig.texture !== undefined
+          ? pageConfig.texture
+          : migratedConfig.texture,
+        animations: pageConfig.animations !== undefined
+          ? pageConfig.animations
+          : migratedConfig.animations,
+        linkMetadata: pageConfig.linkMetadata !== undefined
+          ? pageConfig.linkMetadata
+          : migratedConfig.linkMetadata,
+      } as InviteConfig
+      
+      // Ensure tiles exist after migration
+      if (!initialConfig.tiles || initialConfig.tiles.length === 0) {
+        // If migration didn't create tiles, create minimal default tiles
+        initialConfig.tiles = [
+          {
+            id: 'tile-title-0',
+            type: 'title',
+            enabled: true,
+            order: 0,
+            settings: { text: event.title || 'Event' },
+          },
+          {
+            id: 'tile-event-details-1',
+            type: 'event-details',
+            enabled: true,
+            order: 1,
+            settings: {
+              location: '',
+              date: event.date || new Date().toISOString().split('T')[0],
+            },
+          },
+        ]
+      }
+      
+      // DEBUG: Log order values received from backend
+      if (isDev && initialConfig.tiles) {
+        devLog('[TILE ORDER DEBUG] Server-side: Order received from backend', {
+          totalTiles: initialConfig.tiles.length,
+          wasMigrated: !pageConfig.tiles || pageConfig.tiles.length === 0,
+          tiles: initialConfig.tiles.map((t: Tile) => ({
             id: t.id,
             type: t.type,
+            enabled: t.enabled,
             order: t.order,
+            previewOrder: (t as any).previewOrder,
           })),
-        hasTitle: initialConfig.tiles.some((t: Tile) => t.type === 'title'),
-        hasEventDetails: initialConfig.tiles.some((t: Tile) => t.type === 'event-details'),
-        hasDescription: initialConfig.tiles.some((t: Tile) => t.type === 'description'),
+          enabledTiles: initialConfig.tiles
+            .filter((t: Tile) => t.enabled)
+            .sort((a: Tile, b: Tile) => a.order - b.order)
+            .map((t: Tile) => ({
+              id: t.id,
+              type: t.type,
+              order: t.order,
+            })),
+          hasTitle: initialConfig.tiles.some((t: Tile) => t.type === 'title'),
+          hasEventDetails: initialConfig.tiles.some((t: Tile) => t.type === 'event-details'),
+          hasDescription: initialConfig.tiles.some((t: Tile) => t.type === 'description'),
+        })
+      }
+    } catch (error: any) {
+      // If config is invalid/malformed, log error and use fallback
+      console.error('[InvitePage SSR] ⚠️ CONFIG: Error processing config, using fallback', {
+        slug,
+        error: error.message,
+        errorType: error.name,
+        pageConfigKeys: pageConfig ? Object.keys(pageConfig) : [],
       })
+      
+      // Fallback to default config
+      initialConfig = {
+        themeId: 'classic-noir',
+        tiles: [
+          {
+            id: 'tile-title-0',
+            type: 'title',
+            enabled: true,
+            order: 0,
+            settings: { text: event.title || 'Event' },
+          },
+          {
+            id: 'tile-event-details-1',
+            type: 'event-details',
+            enabled: true,
+            order: 1,
+            settings: {
+              location: '',
+              date: event.date || new Date().toISOString().split('T')[0],
+            },
+          },
+        ],
+      }
     }
   } else {
-    // Fallback config
+    // No config at all - create default tile-based config
     initialConfig = {
       themeId: 'classic-noir',
-      hero: {
-        title: event.title || 'Event',
-        subtitle: event.description ? event.description.substring(0, 100) : undefined,
-        showTimer: !!event.date,
-        eventDate: event.date,
-        buttons: [
-          { label: 'Save the Date', action: 'calendar' },
-          ...(event.has_rsvp
-            ? [{ label: 'RSVP' as const, action: 'rsvp' as const, href: `/event/${params.slug}/rsvp` }]
-            : []),
-          ...(event.has_registry
-            ? [{ label: 'Registry' as const, action: 'registry' as const, href: `/registry/${params.slug}` }]
-            : []),
-        ],
-      },
-      descriptionMarkdown: event.description || undefined,
+      tiles: [
+        {
+          id: 'tile-title-0',
+          type: 'title',
+          enabled: true,
+          order: 0,
+          settings: { text: event.title || 'Event' },
+        },
+        {
+          id: 'tile-event-details-1',
+          type: 'event-details',
+          enabled: true,
+          order: 1,
+          settings: {
+            location: '',
+            date: event.date || new Date().toISOString().split('T')[0],
+          },
+        },
+      ],
     }
   }
   
