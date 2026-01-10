@@ -65,28 +65,6 @@ export default function InvitePageClient({
   const [subEvents, setSubEvents] = useState<any[]>(allowedSubEvents)
   const [error, setError] = useState<any>(null)
   
-  // Listen for refresh messages from parent window (design page)
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    
-    const handleMessage = (event: MessageEvent) => {
-      // Only accept messages from same origin for security
-      if (event.origin !== window.location.origin) return
-      
-      // Check if message is to refresh the invite page
-      if (event.data?.type === 'REFRESH_INVITE_PAGE') {
-        devLog('[InvitePageClient] Received refresh message, reloading data...')
-        // Force refresh by fetching latest data
-        fetchInvite()
-      }
-    }
-    
-    window.addEventListener('message', handleMessage)
-    return () => {
-      window.removeEventListener('message', handleMessage)
-    }
-  }, [fetchInvite])
-  
   // DEBUG: Log initial config order when invite page loads
   useEffect(() => {
     if (initialConfig?.tiles && typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -405,6 +383,29 @@ export default function InvitePageClient({
     })
     fetchInvite()
   }, [slug, initialConfig, initialEvent, fetchInvite])
+
+  // Listen for refresh messages from parent window (design page)
+  // This must be after fetchInvite is declared
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const handleMessage = (event: MessageEvent) => {
+      // Only accept messages from same origin for security
+      if (event.origin !== window.location.origin) return
+      
+      // Check if message is to refresh the invite page
+      if (event.data?.type === 'REFRESH_INVITE_PAGE') {
+        devLog('[InvitePageClient] Received refresh message, reloading data...')
+        // Force refresh by fetching latest data
+        fetchInvite()
+      }
+    }
+    
+    window.addEventListener('message', handleMessage)
+    return () => {
+      window.removeEventListener('message', handleMessage)
+    }
+  }, [fetchInvite])
 
   // Compute backgroundColor early (before early returns) so we can use it in useEffect
   const backgroundColor = config?.customColors?.backgroundColor || '#ffffff'
