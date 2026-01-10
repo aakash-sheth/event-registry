@@ -129,6 +129,7 @@ export default function DesignInvitationPage(): JSX.Element {
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const gridContainerRef = useRef<HTMLDivElement>(null)
   const previewImageInputRef = useRef<HTMLInputElement>(null)
+  const previewWindowRef = useRef<Window | null>(null)
   const [rightPanelStyle, setRightPanelStyle] = useState<React.CSSProperties>({})
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [showLinkMetadata, setShowLinkMetadata] = useState(false)
@@ -533,22 +534,6 @@ export default function DesignInvitationPage(): JSX.Element {
         return orderA - orderB
       })
       
-      // DEBUG: Log preview order before saving
-      console.log('[TILE ORDER DEBUG] Preview order before save:', {
-        previewOrderMap: Array.from(previewOrder.entries()).map(([id, order]) => ({
-          id,
-          order,
-          tile: config.tiles?.find(t => t.id === id)?.type,
-        })),
-        sortedTilesForSave: sortedTilesForSave.map(t => ({
-          id: t.id,
-          type: t.type,
-          enabled: t.enabled,
-          previewOrder: previewOrder.get(t.id) ?? t.previewOrder,
-          savedOrder: t.order,
-        })),
-      })
-      
       // Separate enabled and disabled tiles (simple filter, no special requirements)
       let enabledTiles = sortedTilesForSave.filter(t => t.enabled !== false)
       let disabledTiles = sortedTilesForSave.filter(t => t.enabled === false)
@@ -582,18 +567,6 @@ export default function DesignInvitationPage(): JSX.Element {
             ...t, 
             order: index, // Snapshot previewOrder as sequential order values for enabled tiles
             previewOrder: undefined, // Don't save previewOrder to backend
-          }
-          
-          // DEBUG: Log each tile being saved
-          if (t.type === 'event-details' || index < 5) {
-            console.log(`[TILE ORDER DEBUG] Saving tile ${index}:`, {
-              id: baseTile.id,
-              type: baseTile.type,
-              enabled: baseTile.enabled,
-              savedOrder: baseTile.order,
-              previewOrderBeforeSave: previewOrder.get(t.id) ?? t.previewOrder,
-              originalSavedOrder: t.order,
-            })
           }
           
           // CRITICAL: Always get latest settings from current config state (not from sorted array which might be stale)
@@ -678,29 +651,6 @@ export default function DesignInvitationPage(): JSX.Element {
         ...(config.texture && { texture: config.texture }),
       }
       
-      // DEBUG: Log final saved order
-      console.log('[TILE ORDER DEBUG] Final saved order:', {
-        totalTilesToSave: tilesToSave.length,
-        enabledTilesCount: enabledTiles.length,
-        disabledTilesCount: disabledTiles.length,
-        tilesToSave: tilesToSave.map(t => ({
-          id: t.id,
-          type: t.type,
-          enabled: t.enabled,
-          order: t.order,
-        })),
-        enabledTiles: enabledTiles.map(t => ({
-          id: t.id,
-          type: t.type,
-          enabled: t.enabled,
-          previewOrder: previewOrder.get(t.id) ?? t.previewOrder,
-          savedOrder: t.order,
-        })),
-        hasTitle: tilesToSave.some(t => t.type === 'title'),
-        hasEventDetails: tilesToSave.some(t => t.type === 'event-details'),
-        hasDescription: tilesToSave.some(t => t.type === 'description'),
-      })
-      
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
       if (imageTile) {
       }
@@ -748,6 +698,17 @@ export default function DesignInvitationPage(): JSX.Element {
           setInvitePage({ ...invitePage, is_published: response.data.is_published })
         }
         showToast('Invitation saved successfully!', 'success')
+        
+        // Refresh preview window if it's open
+        if (previewWindowRef.current && !previewWindowRef.current.closed) {
+          // Send refresh message to preview window
+          previewWindowRef.current.postMessage(
+            { type: 'REFRESH_INVITE_PAGE', slug: event?.slug },
+            window.location.origin
+          )
+          // Also trigger a reload as fallback
+          previewWindowRef.current.location.reload()
+        }
       }
     } catch (error: any) {
       logError('Failed to save:', error)
@@ -989,7 +950,8 @@ export default function DesignInvitationPage(): JSX.Element {
           setInvitePage(newInvite)
           showToast('Invite page created. Opening preview...', 'success')
           // Add preview=true to bypass cache for editor
-          window.open(`/invite/${event.slug}?preview=true`, '_blank')
+          // Store reference to preview window for refresh messages
+          previewWindowRef.current = window.open(`/invite/${event.slug}?preview=true`, '_blank')
         } catch (error) {
           logError('Failed to create invite page:', error)
           showToast('Failed to create invite page', 'error')
@@ -1007,8 +969,15 @@ export default function DesignInvitationPage(): JSX.Element {
     }
     
     // Add preview=true to bypass cache for editor
-    // This ensures editor sees immediate updates
-    window.open(`/invite/${event.slug}?preview=true`, '_blank')
+    // Store reference to preview window for refresh messages
+    // If preview window already exists, refresh it; otherwise open new one
+    if (previewWindowRef.current && !previewWindowRef.current.closed) {
+      // Preview window is still open, refresh it
+      previewWindowRef.current.location.reload()
+    } else {
+      // Open new preview window
+      previewWindowRef.current = window.open(`/invite/${event.slug}?preview=true`, '_blank')
+    }
   }
 
   const handleTileUpdate = (updatedTile: Tile) => {

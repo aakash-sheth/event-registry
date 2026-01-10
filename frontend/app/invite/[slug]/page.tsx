@@ -238,11 +238,18 @@ async function fetchInviteData(slug: string, guestToken?: string, isPreview?: bo
         return
       }
 
+      // Add cache-busting headers for preview mode
+      const requestHeaders: any = {
+        'Content-Type': 'application/json',
+      }
+      if (isPreview) {
+        requestHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        requestHeaders['Pragma'] = 'no-cache'
+      }
+      
       const req = protocol.request(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: requestHeaders,
         timeout: timeout,
       }, (res) => {
         const firstByteTime = Date.now()
