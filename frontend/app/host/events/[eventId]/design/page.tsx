@@ -1148,22 +1148,6 @@ export default function DesignInvitationPage(): JSX.Element {
       const orderB = previewOrder.get(b.id) ?? b.previewOrder ?? b.order ?? 0
       return orderA - orderB
     })
-    
-    // DEBUG: Log preview order on render
-    console.log('[TILE ORDER DEBUG] Design page preview order:', {
-      previewOrderMap: Array.from(previewOrder.entries()).map(([id, order]) => ({
-        id,
-        order,
-        tile: config.tiles?.find(t => t.id === id)?.type,
-      })),
-      sortedTiles: sortedTiles.map(t => ({
-        id: t.id,
-        type: t.type,
-        enabled: t.enabled,
-        previewOrder: previewOrder.get(t.id) ?? t.previewOrder,
-        savedOrder: t.order,
-      })),
-    })
   } else {
     logError('No tiles in config, using DEFAULT_TILES')
     sortedTiles = DEFAULT_TILES

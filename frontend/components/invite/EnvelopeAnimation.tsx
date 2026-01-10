@@ -27,6 +27,14 @@ export default function EnvelopeAnimation({
   const [isComplete, setIsComplete] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
   const animationStartedRef = React.useRef(false)
+  
+  // Store the latest callback in a ref to avoid stale closures and prevent hook order issues
+  const onAnimationCompleteRef = React.useRef(onAnimationComplete)
+  
+  // Update ref whenever callback changes
+  useEffect(() => {
+    onAnimationCompleteRef.current = onAnimationComplete
+  }, [onAnimationComplete])
 
   // Helper function for subtle haptic feedback on mobile
   const triggerHaptic = (pattern: number | number[]) => {
@@ -177,7 +185,8 @@ export default function EnvelopeAnimation({
       setIsComplete(true)
       // Mark as shown in session storage
       sessionStorage.setItem(ANIMATION_STORAGE_KEY, 'true')
-      onAnimationComplete?.()
+      // Use ref to always call latest callback
+      onAnimationCompleteRef.current?.()
     }, 4000) // Complete at 4s total (0.5s envelope + 1s splitting before overlap + 2.5s overlap/revealing)
 
     return () => {
@@ -185,7 +194,9 @@ export default function EnvelopeAnimation({
       clearTimeout(timer2)
       clearTimeout(timer3)
     }
-  }, [shouldShow, isSkipped, onAnimationComplete, enabled, showAnimation, isComplete, isHydrated])
+    // Removed onAnimationComplete from deps - using ref instead to prevent hook order issues
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldShow, isSkipped, enabled, showAnimation, isComplete, isHydrated])
 
   // Skip animation on click/tap
   const handleSkip = () => {
@@ -197,7 +208,8 @@ export default function EnvelopeAnimation({
     setAnimationStage('complete')
     setIsComplete(true)
     sessionStorage.setItem(ANIMATION_STORAGE_KEY, 'true')
-    onAnimationComplete?.()
+    // Use ref for consistency
+    onAnimationCompleteRef.current?.()
   }
 
   // Always render the container, but control visibility

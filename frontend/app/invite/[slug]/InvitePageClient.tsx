@@ -92,6 +92,13 @@ export default function InvitePageClient({
   // Animation should be the FIRST thing users see
   const [showEnvelopeAnimation, setShowEnvelopeAnimation] = useState(true)
   
+  // Memoize the animation complete callback to prevent unnecessary re-renders
+  // and ensure stable reference for EnvelopeAnimation component
+  const handleAnimationComplete = useCallback(() => {
+    setShowEnvelopeAnimation(false)
+    devLog('[InvitePageClient] ✨ Envelope animation completed')
+  }, [])
+  
   // Log initial state
   if (typeof window !== 'undefined') {
     devLog('[InvitePageClient] 📦 STATE: Initial state set', {
@@ -445,9 +452,7 @@ export default function InvitePageClient({
       <EnvelopeAnimation 
         showAnimation={true}
         enabled={animationEnabled}
-        onAnimationComplete={() => {
-          devLog('[InvitePageClient] ✨ Envelope animation completed')
-        }}
+        onAnimationComplete={handleAnimationComplete}
       >
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="text-center">
@@ -558,10 +563,7 @@ export default function InvitePageClient({
     <EnvelopeAnimation 
       showAnimation={showEnvelopeAnimation}
       enabled={animationEnabled}
-      onAnimationComplete={() => {
-        setShowEnvelopeAnimation(false)
-        devLog('[InvitePageClient] ✨ Envelope animation completed')
-      }}
+      onAnimationComplete={handleAnimationComplete}
     >
       <div className="w-full relative overflow-x-hidden" style={{ backgroundColor, background: backgroundColor, minHeight: 'auto', height: 'auto' } as React.CSSProperties}>
         {/* Texture overlay at page level */}
