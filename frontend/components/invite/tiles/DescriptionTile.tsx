@@ -128,7 +128,7 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
     return (
       <>
         <style dangerouslySetInnerHTML={{ __html: styleContent }} />
-        <div className="w-full py-12 px-6" style={{ backgroundColor: 'transparent' }}>
+        <div className="w-full py-3 px-6" style={{ backgroundColor: 'transparent' }}>
           <div className="max-w-2xl mx-auto">
           {isHTML ? (
             <div 
@@ -222,7 +222,7 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
     <>
       <style dangerouslySetInnerHTML={{ __html: styleContent }} />
       <div 
-        className="w-full py-6 px-4"
+        className="w-full py-3 px-4"
         style={{
           backgroundColor: '#F9FAFB', // Match EventDetailsTile default background
         }}
