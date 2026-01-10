@@ -138,6 +138,12 @@ export default function InvitePageClient({
       if (isPreview) {
         queryParams.append('preview', 'true')
       }
+      // Add cache-busting timestamp for non-preview requests to ensure fresh data
+      // Backend cache is invalidated immediately, but CloudFront is debounced
+      // This ensures we get fresh data even if CloudFront hasn't invalidated yet
+      if (!isPreview) {
+        queryParams.append('_t', Date.now().toString())
+      }
       const queryString = queryParams.toString()
       
       // ALWAYS use the public invite endpoint with slug (never event ID)
@@ -161,7 +167,17 @@ export default function InvitePageClient({
       })
       
       const apiCallStart = Date.now()
-      const response = await api.get(inviteUrl)
+      // Add cache-busting headers for non-preview requests to bypass browser/CDN cache
+      // Backend cache is invalidated immediately, but CloudFront is debounced
+      // This ensures we get fresh data even if CloudFront hasn't invalidated yet
+      const requestConfig: any = {}
+      if (!isPreview) {
+        requestConfig.headers = {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        }
+      }
+      const response = await api.get(inviteUrl, requestConfig)
       const apiCallEnd = Date.now()
       const inviteData = response.data
       
@@ -436,26 +452,26 @@ export default function InvitePageClient({
     // Don't poll if in preview mode or authenticated (they get BroadcastChannel updates)
     if (isPreview || isAuthenticated) return
     
-    // Smart polling (industry standard: 30 seconds, only when visible)
+    // Smart polling (industry standard: 15 seconds for faster updates, only when visible)
     let pollInterval: NodeJS.Timeout | null = null
     let lastCheck = Date.now()
     
     const startPolling = () => {
       if (pollInterval) return // Already polling
       
-      // Poll every 30 seconds (industry standard: 10-60 seconds)
+      // Poll every 15 seconds for faster updates (industry standard: 10-60 seconds)
       pollInterval = setInterval(() => {
         // Only poll if page is visible (saves bandwidth)
         if (document.visibilityState === 'visible') {
           const now = Date.now()
-          // Only fetch if it's been at least 30 seconds since last check
-          if (now - lastCheck >= 30000) {
+          // Only fetch if it's been at least 15 seconds since last check
+          if (now - lastCheck >= 15000) {
             devLog('[InvitePageClient] Polling for updates...')
             fetchInvite()
             lastCheck = now
           }
         }
-      }, 30000) // 30 seconds
+      }, 15000) // 15 seconds for faster updates
     }
     
     const stopPolling = () => {

@@ -343,8 +343,11 @@ class EventViewSet(viewsets.ModelViewSet):
                 invite_page.save(update_fields=['config', 'updated_at'])
                 # Invalidate cache after updating config
                 if invite_page.slug:
+                    # Invalidate backend cache immediately (no delay)
                     invalidate_invite_page_cache(invite_page.slug)
                     # Add debounced CloudFront invalidation (industry standard)
+                    # Backend cache invalidation ensures immediate freshness for API calls
+                    # CloudFront invalidation is debounced to reduce costs
                     invalidate_cloudfront_cache_debounced(invite_page.slug, debounce_seconds=30)
                     logger.info(
                         f"[Cache] INVALIDATE - slug: {invite_page.slug}, "
