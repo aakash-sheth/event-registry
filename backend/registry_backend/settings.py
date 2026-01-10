@@ -222,6 +222,9 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME', '') or os.en
 AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
 AWS_S3_SIGNATURE_VERSION = 's3v4'
 
+# CloudFront Image Domain (for serving images via CloudFront)
+CLOUDFRONT_IMAGE_DOMAIN = os.environ.get('CLOUDFRONT_IMAGE_DOMAIN', '')
+
 # Production Security Settings
 if not DEBUG:
     # HTTPS/SSL Settings (when behind a proxy like ALB)

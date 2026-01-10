@@ -321,15 +321,23 @@ def upload_to_s3(file, event_id, folder='events'):
                 Key=filename,
                 Body=file,  # Use file object directly (boto3 handles streaming)
                 ContentType=content_type,
+                CacheControl='public, max-age=31536000, immutable',  # 1 year cache for CloudFront
             )
             
-            # Construct public URL
-            # Format: https://bucket-name.s3.region.amazonaws.com/folder/filename
-            if region == 'us-east-1':
-                # us-east-1 uses different URL format
-                url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
+            # Construct public URL - prefer CloudFront if configured, otherwise use S3
+            # Get CloudFront image domain from environment
+            cloudfront_image_domain = getattr(settings, 'CLOUDFRONT_IMAGE_DOMAIN', '') or os.environ.get('CLOUDFRONT_IMAGE_DOMAIN', '')
+            
+            if cloudfront_image_domain:
+                # Use CloudFront URL
+                url = f"https://{cloudfront_image_domain}/{filename}"
             else:
-                url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{filename}"
+                # Fallback to S3 URL (for backward compatibility)
+                if region == 'us-east-1':
+                    # us-east-1 uses different URL format
+                    url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
+                else:
+                    url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{filename}"
             
             return url
             

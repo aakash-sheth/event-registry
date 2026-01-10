@@ -62,6 +62,10 @@
         {
           "name": "DEBUG",
           "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/DEBUG"
+        },
+        {
+          "name": "CLOUDFRONT_IMAGE_DOMAIN",
+          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/CLOUDFRONT_IMAGE_DOMAIN"
         }
       ],
       "logConfiguration": {
