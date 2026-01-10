@@ -26,6 +26,7 @@ export default function EnvelopeAnimation({
   const [isSkipped, setIsSkipped] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [hasUserInteracted, setHasUserInteracted] = useState(false)
   const animationStartedRef = React.useRef(false)
 
   // Store the latest callback in a ref to avoid stale closures and prevent hook order issues
@@ -41,8 +42,12 @@ export default function EnvelopeAnimation({
   }, [])
 
   // Helper function for subtle haptic feedback on mobile
+  // Only works after user interaction (browser security requirement)
   const triggerHaptic = (pattern: number | number[]) => {
     if (typeof window === 'undefined') return
+    
+    // Vibration API requires user interaction - only trigger if user has interacted
+    if (!hasUserInteracted) return
     
     // Check if Vibration API is available (mobile browsers)
     if ('vibrate' in navigator) {
@@ -55,7 +60,7 @@ export default function EnvelopeAnimation({
         navigator.vibrate(pattern)
       } catch (error) {
         // Silently fail if vibration is not supported or blocked
-        console.debug('[EnvelopeAnimation] Haptic feedback not available')
+        // This prevents console warnings about blocked vibration calls
       }
     }
   }
@@ -63,6 +68,26 @@ export default function EnvelopeAnimation({
   // Mark as hydrated after first render to prevent hydration mismatch
   useEffect(() => {
     setIsHydrated(true)
+  }, [])
+
+  // Track user interaction to enable haptic feedback (required by browser security)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const handleInteraction = () => {
+      setHasUserInteracted(true)
+    }
+    
+    // Listen for any user interaction
+    window.addEventListener('click', handleInteraction, { once: true })
+    window.addEventListener('touchstart', handleInteraction, { once: true })
+    window.addEventListener('keydown', handleInteraction, { once: true })
+    
+    return () => {
+      window.removeEventListener('click', handleInteraction)
+      window.removeEventListener('touchstart', handleInteraction)
+      window.removeEventListener('keydown', handleInteraction)
+    }
   }, [])
 
   // Check if animation should be shown (respects sessionStorage and preferences)
@@ -137,18 +162,6 @@ export default function EnvelopeAnimation({
       return
     }
     
-    console.log('[EnvelopeAnimation] Animation sequence check:', {
-      isHydrated,
-      shouldShow,
-      forceShow,
-      enabled,
-      showAnimation,
-      shouldRunAnimation,
-      isSkipped,
-      isComplete,
-      animationStage,
-      alreadyStarted: animationStartedRef.current
-    })
     
     if (!shouldRunAnimation || isSkipped || isComplete) {
       if (!forceShow && !shouldShow) {
@@ -166,25 +179,20 @@ export default function EnvelopeAnimation({
       setAnimationStage('envelope')
     }
     
-    console.log('[EnvelopeAnimation] ✅ Starting animation sequence - timers will fire')
-
     // Stage 1: Show envelope briefly (0.5s), then go directly to splitting
     const timer1 = setTimeout(() => {
-      console.log('[EnvelopeAnimation] 🎬 Stage 1: Moving to splitting stage')
       setAnimationStage('splitting')
     }, 500)
 
     // Stage 2: Revealing - blank screen (envelope overlay) fades out, content fades in
     // Start earlier to create overlap with splitting stage
     const timer2 = setTimeout(() => {
-      console.log('[EnvelopeAnimation] 🎬 Stage 2: Moving to revealing stage - blank screen fades out')
       setAnimationStage('revealing')
       setShowContent(true) // Start showing content as overlay fades out
     }, 1500) // Start revealing at 1.5s (overlaps with splitting which runs until ~3s)
 
     // Stage 3: Complete - envelope overlay fully faded out, content fully visible
     const timer3 = setTimeout(() => {
-      console.log('[EnvelopeAnimation] 🎬 Stage 3: Animation complete')
       setAnimationStage('complete')
       setIsComplete(true)
       // Mark as shown in session storage
@@ -222,12 +230,6 @@ export default function EnvelopeAnimation({
   const forceShow = typeof window !== 'undefined' && window.location.search.includes('showAnimation=true')
   const isAnimationActive = forceShow || (enabled && shouldShow && !isComplete && !isSkipped)
   
-  // Log animation stage changes
-  useEffect(() => {
-    if (typeof window !== 'undefined' && isAnimationActive) {
-      console.log('[EnvelopeAnimation] 🎭 Animation stage changed to:', animationStage)
-    }
-  }, [animationStage, isAnimationActive])
 
   // Add haptic feedback at key animation stages (mobile only)
   useEffect(() => {
@@ -250,22 +252,6 @@ export default function EnvelopeAnimation({
         break
     }
   }, [animationStage, isAnimationActive, isHydrated])
-
-  // Debug logging
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      console.log('[EnvelopeAnimation] State:', {
-        enabled,
-        showAnimation,
-        shouldShow,
-        isComplete,
-        isSkipped,
-        isAnimationActive,
-        animationStage,
-        sessionStorageCheck: sessionStorage.getItem(ANIMATION_STORAGE_KEY)
-      })
-    }
-  }, [enabled, showAnimation, shouldShow, isComplete, isSkipped, isAnimationActive, animationStage])
 
   return (
     <>
