@@ -27,7 +27,7 @@ export default function EnvelopeAnimation({
   const [isComplete, setIsComplete] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
   const animationStartedRef = React.useRef(false)
-  
+
   // Store the latest callback in a ref to avoid stale closures and prevent hook order issues
   // Initialize ref with the callback prop value
   const onAnimationCompleteRef = React.useRef<(() => void) | undefined>(onAnimationComplete)

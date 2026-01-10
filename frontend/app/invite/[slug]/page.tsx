@@ -12,9 +12,10 @@ import { BRAND_NAME, GENERIC_ENVELOPE_IMAGE } from '@/lib/brand_utility'
 import http from 'http'
 import https from 'https'
 
-// ISR: Revalidate every hour (3600 seconds) for public pages
+// ISR: Revalidate every 5 minutes (300 seconds) for public pages
+// Combined with on-demand invalidation, this provides good balance
 // Preview mode will bypass cache via fetch options in fetchInviteData
-export const revalidate = 3600
+export const revalidate = 300
 
 // Helper for development-only logging
 const isDev = process.env.NODE_ENV === 'development'

@@ -384,28 +384,108 @@ export default function InvitePageClient({
     fetchInvite()
   }, [slug, initialConfig, initialEvent, fetchInvite])
 
-  // Listen for refresh messages from parent window (design page)
+  // Listen for refresh messages using BroadcastChannel (industry standard)
   // This must be after fetchInvite is declared
   useEffect(() => {
     if (typeof window === 'undefined') return
     
+    // Check if we should listen for updates:
+    // 1. Preview mode (always listen)
+    // 2. User is authenticated (likely the host viewing their own page)
+    const urlParams = new URLSearchParams(window.location.search)
+    const isPreview = urlParams.get('preview') === 'true'
+    const isAuthenticated = typeof localStorage !== 'undefined' && !!localStorage.getItem('access_token')
+    
+    // Only listen if in preview mode or user is authenticated (host viewing their page)
+    if (!isPreview && !isAuthenticated) {
+      return // Guest viewers don't need BroadcastChannel updates (they use polling)
+    }
+    
+    // Use slug-based channel name for targeted updates (industry standard)
+    const channelName = `invite-${slug}-updates`
+    const channel = new BroadcastChannel(channelName)
+    
     const handleMessage = (event: MessageEvent) => {
-      // Only accept messages from same origin for security
-      if (event.origin !== window.location.origin) return
-      
       // Check if message is to refresh the invite page
-      if (event.data?.type === 'REFRESH_INVITE_PAGE') {
-        devLog('[InvitePageClient] Received refresh message, reloading data...')
+      if (event.data?.type === 'REFRESH_INVITE_PAGE' && event.data?.slug === slug) {
+        devLog('[InvitePageClient] Received refresh message via BroadcastChannel, reloading data...', {
+          slug,
+          isPreview,
+          isAuthenticated,
+        })
         // Force refresh by fetching latest data
         fetchInvite()
       }
     }
     
-    window.addEventListener('message', handleMessage)
+    channel.addEventListener('message', handleMessage)
     return () => {
-      window.removeEventListener('message', handleMessage)
+      channel.removeEventListener('message', handleMessage)
+      channel.close()
     }
-  }, [fetchInvite])
+  }, [fetchInvite, slug])
+
+  // Smart polling for guests (industry standard: 30 seconds, only when page visible)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const urlParams = new URLSearchParams(window.location.search)
+    const isPreview = urlParams.get('preview') === 'true'
+    const isAuthenticated = typeof localStorage !== 'undefined' && !!localStorage.getItem('access_token')
+    
+    // Don't poll if in preview mode or authenticated (they get BroadcastChannel updates)
+    if (isPreview || isAuthenticated) return
+    
+    // Smart polling (industry standard: 30 seconds, only when visible)
+    let pollInterval: NodeJS.Timeout | null = null
+    let lastCheck = Date.now()
+    
+    const startPolling = () => {
+      if (pollInterval) return // Already polling
+      
+      // Poll every 30 seconds (industry standard: 10-60 seconds)
+      pollInterval = setInterval(() => {
+        // Only poll if page is visible (saves bandwidth)
+        if (document.visibilityState === 'visible') {
+          const now = Date.now()
+          // Only fetch if it's been at least 30 seconds since last check
+          if (now - lastCheck >= 30000) {
+            devLog('[InvitePageClient] Polling for updates...')
+            fetchInvite()
+            lastCheck = now
+          }
+        }
+      }, 30000) // 30 seconds
+    }
+    
+    const stopPolling = () => {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+      }
+    }
+    
+    // Start polling when page is visible
+    if (document.visibilityState === 'visible') {
+      startPolling()
+    }
+    
+    // Handle visibility changes (industry standard)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startPolling()
+      } else {
+        stopPolling()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [fetchInvite, slug])
 
   // Compute backgroundColor early (before early returns) so we can use it in useEffect
   const backgroundColor = config?.customColors?.backgroundColor || '#ffffff'

@@ -699,7 +699,20 @@ export default function DesignInvitationPage(): JSX.Element {
         }
         showToast('Invitation saved successfully!', 'success')
         
-        // Refresh preview window if it's open
+        // Broadcast update to all tabs viewing this invite page (preview + live)
+        // This works even if preview window is closed or in different tabs (industry standard)
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window && event?.slug) {
+          const channelName = `invite-${event.slug}-updates`
+          const channel = new BroadcastChannel(channelName)
+          channel.postMessage({ 
+            type: 'REFRESH_INVITE_PAGE', 
+            slug: event.slug,
+            timestamp: Date.now()
+          })
+          channel.close()
+        }
+        
+        // Also refresh preview window if it's open (direct method for immediate feedback)
         if (previewWindowRef.current && !previewWindowRef.current.closed) {
           // Send refresh message to preview window
           previewWindowRef.current.postMessage(
