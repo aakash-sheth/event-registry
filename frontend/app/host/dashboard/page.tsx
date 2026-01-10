@@ -219,6 +219,11 @@ export default function DashboardPage() {
                 + Create Event
               </Button>
             </Link>
+            <Link href="/host/profile">
+              <Button variant="ghost" className="text-eco-green">
+                Profile
+              </Button>
+            </Link>
             <Button
               variant="ghost"
               onClick={() => {

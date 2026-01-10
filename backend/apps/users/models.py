@@ -38,6 +38,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     otp_code = models.CharField(max_length=255, blank=True, null=True)
     otp_expires_at = models.DateTimeField(blank=True, null=True)
     
+    # Password reset fields
+    password_reset_token = models.CharField(max_length=255, blank=True, null=True)
+    password_reset_expires_at = models.DateTimeField(blank=True, null=True)
+    
+    # Account lockout fields (for password attempts)
+    failed_password_attempts = models.IntegerField(default=0)
+    account_locked_until = models.DateTimeField(blank=True, null=True)
+    
     objects = UserManager()
     
     USERNAME_FIELD = 'email'
@@ -74,4 +82,55 @@ class User(AbstractBaseUser, PermissionsMixin):
         self.otp_code = None
         self.otp_expires_at = None
         self.save(update_fields=['otp_code', 'otp_expires_at'])
+    
+    def set_password_reset_token(self, token):
+        """Store password reset token with expiry"""
+        self.password_reset_token = make_password(token)
+        self.password_reset_expires_at = timezone.now() + timezone.timedelta(minutes=15)
+        self.save(update_fields=['password_reset_token', 'password_reset_expires_at'])
+    
+    def verify_password_reset_token(self, token):
+        """Verify password reset token and check expiry
+        
+        Returns:
+            tuple: (is_valid: bool, error_message: str or None)
+        """
+        if not self.password_reset_token or not self.password_reset_expires_at:
+            return False, 'No password reset token found. Please request a new one.'
+        if timezone.now() > self.password_reset_expires_at:
+            return False, 'Password reset token has expired. Please request a new one.'
+        if not check_password(token, self.password_reset_token):
+            return False, 'Invalid password reset token.'
+        return True, None
+    
+    def clear_password_reset_token(self):
+        """Clear password reset token after successful reset"""
+        self.password_reset_token = None
+        self.password_reset_expires_at = None
+        self.save(update_fields=['password_reset_token', 'password_reset_expires_at'])
+    
+    def is_account_locked(self):
+        """Check if account is currently locked due to failed password attempts"""
+        if self.account_locked_until and timezone.now() < self.account_locked_until:
+            return True
+        # Clear lock if expired
+        if self.account_locked_until and timezone.now() >= self.account_locked_until:
+            self.account_locked_until = None
+            self.failed_password_attempts = 0
+            self.save(update_fields=['account_locked_until', 'failed_password_attempts'])
+        return False
+    
+    def record_failed_password_attempt(self):
+        """Record a failed password attempt and lock account if threshold reached"""
+        self.failed_password_attempts += 1
+        if self.failed_password_attempts >= 5:
+            # Lock account for 15 minutes
+            self.account_locked_until = timezone.now() + timezone.timedelta(minutes=15)
+        self.save(update_fields=['failed_password_attempts', 'account_locked_until'])
+    
+    def clear_failed_password_attempts(self):
+        """Clear failed password attempts (called on successful login)"""
+        self.failed_password_attempts = 0
+        self.account_locked_until = None
+        self.save(update_fields=['failed_password_attempts', 'account_locked_until'])
 

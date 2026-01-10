@@ -21,16 +21,23 @@ const codeSchema = z.object({
   code: z.string().length(6, 'Code must be 6 digits'),
 })
 
+const passwordSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+})
+
 type EmailForm = z.infer<typeof emailSchema>
 type CodeForm = z.infer<typeof codeSchema>
+type PasswordForm = z.infer<typeof passwordSchema>
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { showToast } = useToast()
-  const [step, setStep] = useState<'email' | 'code'>('email')
+  const [step, setStep] = useState<'email' | 'choice' | 'code' | 'password'>('email')
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
+  const [hasPassword, setHasPassword] = useState(false)
+  const [loginMethod, setLoginMethod] = useState<'password' | 'otp' | null>(null)
 
   useEffect(() => {
     // Check if coming from email link
@@ -61,13 +68,56 @@ function LoginForm() {
     mode: 'onSubmit',
   })
 
+  const {
+    register: registerPassword,
+    handleSubmit: handleSubmitPassword,
+    formState: { errors: passwordErrors },
+  } = useForm<PasswordForm>({
+    resolver: zodResolver(passwordSchema),
+    mode: 'onSubmit',
+  })
+
   const onEmailSubmit = async (data: { email: string }) => {
     logDebug('onEmailSubmit called with:', data)
     setLoading(true)
     try {
-      const response = await api.post('/api/auth/otp/start', { email: data.email })
-      logDebug('OTP response received')
       setEmail(data.email)
+      
+      // Check if password is enabled for this email
+      const checkResponse = await api.get(`/api/auth/check-password-enabled/?email=${encodeURIComponent(data.email)}`)
+      const passwordEnabled = checkResponse.data.has_password
+      setHasPassword(passwordEnabled)
+      
+      // Check if user has a remembered preference
+      const rememberedMethod = localStorage.getItem(`login_method_${data.email}`) as 'password' | 'otp' | null
+      
+      if (passwordEnabled && rememberedMethod) {
+        // Use remembered method
+        setLoginMethod(rememberedMethod)
+        if (rememberedMethod === 'password') {
+          setStep('password')
+        } else {
+          await startOtpFlow(data.email)
+        }
+      } else if (passwordEnabled) {
+        // Show choice screen
+        setStep('choice')
+      } else {
+        // No password, go directly to OTP
+        await startOtpFlow(data.email)
+      }
+    } catch (error: any) {
+      logError('Email submit error:', error)
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const startOtpFlow = async (emailAddress: string) => {
+    try {
+      const response = await api.post('/api/auth/otp/start', { email: emailAddress })
+      logDebug('OTP response received')
       setStep('code')
       
       // In development, show OTP if returned (for testing without email)
@@ -80,9 +130,46 @@ function LoginForm() {
     } catch (error: any) {
       logError('OTP error:', error)
       showToast(getErrorMessage(error), 'error')
-    } finally {
-      setLoading(false)
+      throw error
     }
+  }
+
+  const onMethodChoice = async (method: 'password' | 'otp') => {
+    setLoginMethod(method)
+    // Remember choice
+    localStorage.setItem(`login_method_${email}`, method)
+    
+    if (method === 'password') {
+      setStep('password')
+    } else {
+      setLoading(true)
+      try {
+        await startOtpFlow(email)
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  const handleLoginSuccess = (response: any) => {
+    // Set tokens
+    localStorage.setItem('access_token', response.data.access)
+    localStorage.setItem('refresh_token', response.data.refresh)
+    
+    // CRITICAL: Verify token is actually set (handles slow localStorage on new devices)
+    // Wait up to 500ms (10 attempts × 50ms) to verify token is saved
+    const verifyTokenSet = async (maxAttempts = 10, delay = 50) => {
+      for (let i = 0; i < maxAttempts; i++) {
+        const token = localStorage.getItem('access_token')
+        if (token === response.data.access) {
+          return true
+        }
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+      return false
+    }
+    
+    return verifyTokenSet()
   }
 
   const onCodeSubmit = async (data: { code: string }) => {
@@ -93,24 +180,7 @@ function LoginForm() {
         code: data.code,
       })
       
-      // Set tokens
-      localStorage.setItem('access_token', response.data.access)
-      localStorage.setItem('refresh_token', response.data.refresh)
-      
-      // CRITICAL: Verify token is actually set (handles slow localStorage on new devices)
-      // Wait up to 500ms (10 attempts × 50ms) to verify token is saved
-      const verifyTokenSet = async (maxAttempts = 10, delay = 50) => {
-        for (let i = 0; i < maxAttempts; i++) {
-          const token = localStorage.getItem('access_token')
-          if (token === response.data.access) {
-            return true
-          }
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
-        return false
-      }
-      
-      const tokenVerified = await verifyTokenSet()
+      const tokenVerified = await handleLoginSuccess(response)
       if (!tokenVerified) {
         throw new Error('Failed to save authentication token. Please try again.')
       }
@@ -128,6 +198,31 @@ function LoginForm() {
     }
   }
 
+  const onPasswordSubmit = async (data: { password: string }) => {
+    setLoading(true)
+    try {
+      const response = await api.post('/api/auth/password-login', {
+        email,
+        password: data.password,
+      })
+      
+      const tokenVerified = await handleLoginSuccess(response)
+      if (!tokenVerified) {
+        throw new Error('Failed to save authentication token. Please try again.')
+      }
+      
+      showToast('Login successful!', 'success')
+      
+      // Use window.location.href for full page reload (ensures clean state)
+      window.location.href = '/host/dashboard'
+    } catch (error: any) {
+      logError('Password login error:', error)
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-eco-beige flex items-center justify-center p-4">
       <Card className="w-full max-w-md bg-white border-2 border-eco-green-light">
@@ -136,7 +231,11 @@ function LoginForm() {
           <CardTitle className="text-2xl text-eco-green">Host Login</CardTitle>
           <CardDescription className="text-base">
             {step === 'email' 
-              ? 'Enter your email to receive a login code'
+              ? 'Enter your email to continue'
+              : step === 'choice'
+              ? 'Choose your login method'
+              : step === 'password'
+              ? `Enter your password for ${email}`
               : `Enter the 6-digit verification code sent to ${email}`
             }
           </CardDescription>
@@ -165,8 +264,109 @@ function LoginForm() {
                 disabled={loading}
                 className="w-full bg-eco-green hover:bg-green-600 text-white py-6 text-lg"
               >
-                {loading ? 'Sending...' : 'Send Login Code'}
+                {loading ? 'Checking...' : 'Continue'}
               </Button>
+            </form>
+          ) : step === 'choice' ? (
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 p-4 border-2 border-eco-green-light rounded-lg cursor-pointer hover:bg-eco-green-light/10 transition-colors">
+                  <input
+                    type="radio"
+                    name="loginMethod"
+                    value="password"
+                    checked={loginMethod === 'password'}
+                    onChange={() => setLoginMethod('password')}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-eco-green">Password</div>
+                    <div className="text-sm text-gray-600">Login with your password</div>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 p-4 border-2 border-eco-green-light rounded-lg cursor-pointer hover:bg-eco-green-light/10 transition-colors">
+                  <input
+                    type="radio"
+                    name="loginMethod"
+                    value="otp"
+                    checked={loginMethod === 'otp'}
+                    onChange={() => setLoginMethod('otp')}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-eco-green">Verification Code (OTP)</div>
+                    <div className="text-sm text-gray-600">Receive a code via email</div>
+                  </div>
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setStep('email')}
+                  className="flex-1 border-eco-green text-eco-green"
+                >
+                  Back
+                </Button>
+                <Button 
+                  type="button"
+                  onClick={() => loginMethod && onMethodChoice(loginMethod)}
+                  disabled={loading || !loginMethod}
+                  className="flex-1 bg-eco-green hover:bg-green-600 text-white"
+                >
+                  {loading ? 'Loading...' : 'Continue'}
+                </Button>
+              </div>
+            </div>
+          ) : step === 'password' ? (
+            <form onSubmit={handleSubmitPassword(onPasswordSubmit)} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Password
+                </label>
+                <Input
+                  type="password"
+                  {...registerPassword('password')}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                />
+                {passwordErrors.password && (
+                  <p className="text-red-500 text-sm mt-1">
+                    {passwordErrors.password.message}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (hasPassword) {
+                      setStep('choice')
+                    } else {
+                      setStep('email')
+                    }
+                  }}
+                  className="flex-1 border-eco-green text-eco-green"
+                >
+                  Back
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 bg-eco-green hover:bg-green-600 text-white"
+                >
+                  {loading ? 'Logging in...' : 'Login'}
+                </Button>
+              </div>
+              <div className="text-center">
+                <Link 
+                  href="/host/forgot-password" 
+                  className="text-sm text-eco-green hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </form>
           ) : (
             <form onSubmit={handleSubmitCode(onCodeSubmit)} className="space-y-4">
@@ -193,7 +393,13 @@ function LoginForm() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setStep('email')}
+                  onClick={() => {
+                    if (hasPassword) {
+                      setStep('choice')
+                    } else {
+                      setStep('email')
+                    }
+                  }}
                   className="flex-1 border-eco-green text-eco-green"
                 >
                   Back
