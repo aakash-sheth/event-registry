@@ -225,9 +225,12 @@ export default function InvitePageClient({
           }
         }
         
+        // Preserve all config properties including pageBorder
         const configWithCustomColors = {
           ...eventData.page_config,
           customColors,
+          // Explicitly preserve pageBorder if it exists
+          ...(eventData.page_config.pageBorder && { pageBorder: eventData.page_config.pageBorder }),
         }
         
         // Debug: Log image tile settings when loading public page
@@ -512,13 +515,20 @@ export default function InvitePageClient({
     devLog('[InvitePageClient] 🎨 CLIENT EFFECT: Setting background color', {
       slug,
       backgroundColor,
+      hasBorder: config?.pageBorder?.enabled,
       timestamp: new Date().toISOString(),
     })
     
-    document.body.style.setProperty('background-color', backgroundColor, 'important')
-    document.documentElement.style.setProperty('background-color', backgroundColor, 'important')
-    document.body.style.setProperty('background', backgroundColor, 'important')
-    document.documentElement.style.setProperty('background', backgroundColor, 'important')
+    // If border is enabled, use a contrasting color for body background so border is visible
+    // Otherwise use the page background color
+    const bodyBackgroundColor = config?.pageBorder?.enabled 
+      ? '#f5f5f5' // Light gray to make border visible
+      : backgroundColor
+    
+    document.body.style.setProperty('background-color', bodyBackgroundColor, 'important')
+    document.documentElement.style.setProperty('background-color', bodyBackgroundColor, 'important')
+    document.body.style.setProperty('background', bodyBackgroundColor, 'important')
+    document.documentElement.style.setProperty('background', bodyBackgroundColor, 'important')
     // Ensure body/html don't force extra height that creates unnecessary scrollbar
     document.body.style.setProperty('min-height', 'auto', 'important')
     document.documentElement.style.setProperty('min-height', 'auto', 'important')
@@ -534,7 +544,7 @@ export default function InvitePageClient({
       document.documentElement.style.removeProperty('background')
       document.documentElement.style.removeProperty('min-height')
     }
-  }, [backgroundColor, slug])
+  }, [backgroundColor, slug, config?.pageBorder?.enabled])
 
   // Display error
   if (error) {
@@ -678,34 +688,163 @@ export default function InvitePageClient({
   // Get animation config, default to enabled
   const animationEnabled = config.animations?.envelope !== false
 
+  // Get page border styles
+  const getPageBorderStyle = () => {
+    // Debug: Always log pageBorder config
+    devLog('[InvitePageClient] 🎨 Page Border Check', {
+      hasPageBorder: !!config?.pageBorder,
+      pageBorder: config?.pageBorder,
+      enabled: config?.pageBorder?.enabled,
+      fullConfig: config,
+    })
+    
+    // Also log to console for easier debugging
+    if (config?.pageBorder?.enabled) {
+      console.log('🎨 PAGE BORDER ENABLED:', {
+        enabled: true,
+        style: config.pageBorder.style,
+        color: config.pageBorder.color,
+        width: config.pageBorder.width,
+      })
+    } else {
+      console.log('🎨 PAGE BORDER DISABLED:', {
+        hasConfig: !!config,
+        hasPageBorder: !!config?.pageBorder,
+        enabled: config?.pageBorder?.enabled,
+      })
+    }
+    
+    if (!config.pageBorder?.enabled) {
+      return { 
+        border: undefined, 
+        boxShadow: undefined, 
+        outline: undefined,
+        outlineOffset: undefined,
+        padding: undefined,
+      }
+    }
+    
+    const borderStyle = config.pageBorder!.style || 'solid'
+    const borderColor = config.pageBorder!.color || '#D1D5DB'
+    const borderWidth = config.pageBorder!.width || 2
+    const paddingSize = Math.max(borderWidth + 8, 12) // Padding to create space for border
+    
+    devLog('[InvitePageClient] 🎨 Page Border Enabled - Applying Styles', {
+      enabled: config.pageBorder!.enabled,
+      style: borderStyle,
+      color: borderColor,
+      width: borderWidth,
+      paddingSize,
+    })
+    
+    // For intaglio (decorative), use a special pattern with box-shadow
+    if (borderStyle === 'intaglio') {
+      return {
+        border: undefined,
+        boxShadow: `inset 0 0 0 ${borderWidth}px ${borderColor}, inset 0 0 0 ${borderWidth * 2}px transparent, inset 0 0 0 ${borderWidth * 3}px ${borderColor}`,
+        outline: undefined,
+        outlineOffset: undefined,
+        padding: `${paddingSize}px`,
+      }
+    }
+    
+    // For standard CSS border styles, use border with padding
+    // Note: outline doesn't support all border styles, so we use border
+    return {
+      border: `${borderWidth}px ${borderStyle} ${borderColor}`,
+      boxShadow: undefined,
+      outline: undefined,
+      outlineOffset: undefined,
+      padding: `${paddingSize}px`,
+    }
+  }
+
+  const borderStyle = getPageBorderStyle()
+  const hasBorder = config?.pageBorder?.enabled
+
   return (
     <EnvelopeAnimation 
       showAnimation={showEnvelopeAnimation}
       enabled={animationEnabled}
       onAnimationComplete={handleAnimationComplete}
     >
-      <div className="w-full relative overflow-x-hidden" style={{ backgroundColor, background: backgroundColor, minHeight: 'auto', height: 'auto' } as React.CSSProperties}>
-        {/* Texture overlay at page level */}
-        <TextureOverlay 
-          type={config.texture?.type || 'none'} 
-          intensity={config.texture?.intensity || 40} 
-        />
-        
-        {/* Server-rendered hero section (image with overlay title for SEO) */}
-        {heroSSR}
-        
-        {/* All other tiles (including title and event-details) render client-side in correct order */}
-      <LivingPosterPage
-          config={configForClient}
-        eventSlug={slug}
-        eventDate={event?.date}
-        hasRsvp={event?.has_rsvp}
-        hasRegistry={event?.has_registry}
-          skipTextureOverlay={true}
-          skipBackgroundColor={true}
-          allowedSubEvents={subEvents}
-      />
-      </div>
+      {hasBorder ? (
+        // Container with border and padding
+        <div 
+          className="relative w-full min-h-screen"
+          style={{
+            backgroundColor: '#f5f5f5', // Light gray background to show border
+            padding: borderStyle.padding,
+          } as React.CSSProperties}
+        >
+          <div 
+            className="relative overflow-x-hidden w-full"
+            style={{ 
+              backgroundColor, 
+              background: backgroundColor, 
+              minHeight: '100vh', 
+              height: 'auto',
+              border: borderStyle.border,
+              boxShadow: borderStyle.boxShadow,
+              outline: borderStyle.outline,
+              outlineOffset: borderStyle.outlineOffset,
+            } as React.CSSProperties}
+          >
+            {/* Texture overlay at page level */}
+            <TextureOverlay 
+              type={config.texture?.type || 'none'} 
+              intensity={config.texture?.intensity || 40} 
+            />
+            
+            {/* Server-rendered hero section (image with overlay title for SEO) */}
+            {heroSSR}
+            
+            {/* All other tiles (including title and event-details) render client-side in correct order */}
+            <LivingPosterPage
+              config={configForClient}
+              eventSlug={slug}
+              eventDate={event?.date}
+              hasRsvp={event?.has_rsvp}
+              hasRegistry={event?.has_registry}
+              skipTextureOverlay={true}
+              skipBackgroundColor={true}
+              allowedSubEvents={subEvents}
+            />
+          </div>
+        </div>
+      ) : (
+        // No border - original structure
+        <div 
+          className="w-full relative overflow-x-hidden"
+          style={{ 
+            backgroundColor, 
+            background: backgroundColor, 
+            minHeight: 'auto', 
+            height: 'auto',
+          } as React.CSSProperties}
+        >
+          {/* Texture overlay at page level */}
+          <TextureOverlay 
+            type={config.texture?.type || 'none'} 
+            intensity={config.texture?.intensity || 40} 
+          />
+          
+          {/* Server-rendered hero section (image with overlay title for SEO) */}
+          {heroSSR}
+          
+          {/* All other tiles (including title and event-details) render client-side in correct order */}
+          <LivingPosterPage
+            config={configForClient}
+            eventSlug={slug}
+            eventDate={event?.date}
+            hasRsvp={event?.has_rsvp}
+            hasRegistry={event?.has_registry}
+            skipTextureOverlay={true}
+            skipBackgroundColor={true}
+            allowedSubEvents={subEvents}
+          />
+        </div>
+      )}
     </EnvelopeAnimation>
   )
 }

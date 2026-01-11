@@ -178,7 +178,7 @@ export default function EnvelopeAnimation({
     if (animationStage !== 'envelope') {
       setAnimationStage('envelope')
     }
-    
+
     // Stage 1: Show envelope briefly (0.5s), then go directly to splitting
     const timer1 = setTimeout(() => {
       setAnimationStage('splitting')

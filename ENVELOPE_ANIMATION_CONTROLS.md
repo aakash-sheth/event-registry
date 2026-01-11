@@ -66,3 +66,4 @@ By default, the animation is **enabled** (if not specified, it defaults to `true
 - The animation uses `sessionStorage`, so it only shows once per browser session
 - To reset, clear sessionStorage: `sessionStorage.removeItem('envelope_animation_shown')`
 
+

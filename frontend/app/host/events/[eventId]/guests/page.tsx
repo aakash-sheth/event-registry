@@ -51,6 +51,7 @@ interface Guest {
   created_at?: string
   guest_token?: string | null
   custom_fields?: Record<string, string>
+  sub_event_invites?: number[] // Sub-event IDs this guest is invited to
 }
 
 interface OtherGuest {
@@ -182,20 +183,33 @@ export default function GuestsPage() {
     try {
       const response = await api.get(`/api/events/${eventId}/guests/`)
       // Handle both old format (array) and new format (object with guests and other_guests)
+      let allGuests: Guest[] = []
       if (Array.isArray(response.data)) {
-        setGuests(response.data.filter((g: Guest) => !g.is_removed))
+        allGuests = response.data.filter((g: Guest) => !g.is_removed)
+        setGuests(allGuests)
         setRemovedGuestsList(response.data.filter((g: Guest) => g.is_removed))
         setOtherGuests([])
         setRemovedGuests([])
       } else {
-        setGuests(response.data.guests || [])
+        allGuests = response.data.guests || []
+        setGuests(allGuests)
         setOtherGuests(response.data.other_guests || [])
         setRemovedGuestsList(response.data.removed_guests_list || [])
         setRemovedGuests(response.data.removed_guests || [])
       }
       
-      // Fetch RSVPs for all guests if event is ENVELOPE with PER_SUBEVENT mode
+      // Initialize sub-event assignments from guest data if available
       if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
+        const assignments: Record<number, number[]> = {}
+        allGuests.forEach((guest: Guest) => {
+          // sub_event_invites is returned by the backend serializer
+          if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
+            assignments[guest.id] = guest.sub_event_invites
+          }
+        })
+        setGuestSubEventAssignments(assignments)
+        
+        // Fetch RSVPs for all guests
         await fetchAllGuestRSVPs()
       }
     } catch (error: any) {

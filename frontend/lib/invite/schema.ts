@@ -176,6 +176,13 @@ export interface InviteConfig {
   }
   // Background texture (CSS-based)
   texture?: TextureSettings
+  // Page border settings
+  pageBorder?: {
+    enabled?: boolean // Enable/disable page border (default: false)
+    style?: 'solid' | 'dotted' | 'dashed' | 'double' | 'groove' | 'ridge' | 'inset' | 'outset' | 'intaglio' // Border style
+    color?: string // Hex color for border (default: '#D1D5DB')
+    width?: number // Border width in pixels (default: 2)
+  }
   // Animation settings
   animations?: {
     envelope?: boolean // Enable/disable envelope opening animation (default: true)

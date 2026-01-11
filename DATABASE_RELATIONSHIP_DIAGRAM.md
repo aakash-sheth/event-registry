@@ -221,3 +221,4 @@ All models use custom table names:
 - `notification_logs` (NotificationLog)
 
 
+

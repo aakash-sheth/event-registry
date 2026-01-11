@@ -247,7 +247,7 @@ async function fetchInviteData(slug: string, guestToken?: string, isPreview?: bo
         requestHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         requestHeaders['Pragma'] = 'no-cache'
       }
-      
+
       const req = protocol.request(url, {
         method: 'GET',
         headers: requestHeaders,
@@ -1035,6 +1035,9 @@ export default async function InvitePage({
         texture: pageConfig.texture !== undefined
           ? pageConfig.texture
           : migratedConfig.texture,
+        pageBorder: pageConfig.pageBorder !== undefined
+          ? pageConfig.pageBorder
+          : migratedConfig.pageBorder,
         animations: pageConfig.animations !== undefined
           ? pageConfig.animations
           : migratedConfig.animations,

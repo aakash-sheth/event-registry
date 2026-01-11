@@ -62,6 +62,12 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
     const styleContent = `
       /* Ensure paragraphs have proper spacing to preserve line breaks */
       /* Override prose class margin collapsing - use padding instead of margin for more reliable spacing */
+      .description-content {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+      }
       .description-content p {
         margin-top: 0.5em !important;
         margin-bottom: 0.5em !important;
@@ -128,7 +134,7 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
     return (
       <>
         <style dangerouslySetInnerHTML={{ __html: styleContent }} />
-        <div className="w-full py-3 px-6" style={{ backgroundColor: 'transparent' }}>
+        <div className="w-full py-1 px-6" style={{ backgroundColor: 'transparent' }}>
           <div className="max-w-2xl mx-auto">
           {isHTML ? (
             <div 
@@ -154,6 +160,12 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
   const styleContent = `
     /* Ensure paragraphs have proper spacing to preserve line breaks */
     /* Override prose class margin collapsing - use padding instead of margin for more reliable spacing */
+    .description-content {
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+    }
     .description-content p {
       margin-top: 0.5em !important;
       margin-bottom: 0.5em !important;
@@ -222,7 +234,7 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
     <>
       <style dangerouslySetInnerHTML={{ __html: styleContent }} />
       <div 
-        className="w-full py-3 px-4"
+        className="w-full py-1 px-4"
         style={{
           backgroundColor: '#F9FAFB', // Match EventDetailsTile default background
         }}

@@ -2170,13 +2170,21 @@ class GuestInviteViewSet(viewsets.ModelViewSet):
                 sub_event=sub_event
             )
         
-        # Generate guest token if not present
-        guest.generate_guest_token()
+        # Generate guest token if not present (always ensure token exists when sub-events are assigned)
+        # Only generate token if we have sub-events assigned
+        if len(sub_event_ids) > 0:
+            guest.generate_guest_token()
+            # Refresh guest from database to ensure we have latest data including token
+            # This ensures the token is persisted and we have the latest guest data
+            guest.refresh_from_db()
         
-        # Return updated guest data
+        # Get updated sub-event IDs from database to ensure accuracy
+        updated_sub_event_ids = list(GuestSubEventInvite.objects.filter(guest=guest).values_list('sub_event_id', flat=True))
+        
+        # Return updated guest data with refreshed information
         return Response({
             'guest': GuestSerializer(guest).data,
-            'sub_event_ids': list(GuestSubEventInvite.objects.filter(guest=guest).values_list('sub_event_id', flat=True))
+            'sub_event_ids': updated_sub_event_ids
         })
 
 
