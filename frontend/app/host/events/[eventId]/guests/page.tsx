@@ -148,8 +148,20 @@ export default function GuestsPage() {
   useEffect(() => {
     if (event?.event_structure === 'ENVELOPE') {
       fetchSubEvents()
+      // Re-initialize assignments when event loads if guests are already loaded
+      if (guests.length > 0) {
+        const assignments: Record<number, number[]> = {}
+        guests.forEach((guest: Guest) => {
+          if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
+            assignments[guest.id] = guest.sub_event_invites
+          } else {
+            assignments[guest.id] = []
+          }
+        })
+        setGuestSubEventAssignments(prev => ({ ...prev, ...assignments }))
+      }
     }
-  }, [event?.event_structure])
+  }, [event?.event_structure, guests])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -199,17 +211,36 @@ export default function GuestsPage() {
       }
       
       // Initialize sub-event assignments from guest data if available
+      // Always initialize from guest data (backend serializer includes sub_event_invites)
+      // Don't wait for event to load - use guest data directly
+      const assignments: Record<number, number[]> = {}
+      allGuests.forEach((guest: Guest) => {
+        // sub_event_invites is returned by the backend serializer
+        if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
+          assignments[guest.id] = guest.sub_event_invites
+        } else {
+          // Initialize with empty array if no assignments exist
+          assignments[guest.id] = []
+        }
+      })
+      
+      // Debug logging
+      console.log('[Guest Management] Initializing sub-event assignments:', {
+        guestCount: allGuests.length,
+        assignmentsCount: Object.keys(assignments).length,
+        assignments: assignments,
+        sampleGuest: allGuests[0] ? {
+          id: allGuests[0].id,
+          name: allGuests[0].name,
+          sub_event_invites: allGuests[0].sub_event_invites
+        } : null
+      })
+      
+      setGuestSubEventAssignments(assignments)
+      
+      // Fetch RSVPs for all guests (only for PER_SUBEVENT mode)
+      // Check event structure after it's loaded
       if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
-        const assignments: Record<number, number[]> = {}
-        allGuests.forEach((guest: Guest) => {
-          // sub_event_invites is returned by the backend serializer
-          if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
-            assignments[guest.id] = guest.sub_event_invites
-          }
-        })
-        setGuestSubEventAssignments(assignments)
-        
-        // Fetch RSVPs for all guests
         await fetchAllGuestRSVPs()
       }
     } catch (error: any) {
@@ -241,11 +272,21 @@ export default function GuestsPage() {
 
   const fetchGuestSubEventAssignments = async (guestId: number) => {
     try {
-      const response = await api.get(`/api/events/envelopes/${eventId}/guests/${guestId}/invites/`)
-      const subEventIds = response.data.sub_event_ids || []
-      setGuestSubEventAssignments(prev => ({ ...prev, [guestId]: subEventIds }))
+      // Use the by_event endpoint to get all guests, then find the specific guest
+      // This is the correct endpoint that exists in the backend
+      const response = await api.get(`/api/events/envelopes/${eventId}/guests/`)
+      const guestsData = Array.isArray(response.data) ? response.data : []
+      const guestData = guestsData.find((g: any) => g.guest?.id === guestId)
+      
+      if (guestData && guestData.sub_event_ids) {
+        setGuestSubEventAssignments(prev => ({ ...prev, [guestId]: guestData.sub_event_ids }))
+      } else {
+        // Guest might not have assignments yet
+        setGuestSubEventAssignments(prev => ({ ...prev, [guestId]: [] }))
+      }
     } catch (error: any) {
       // Guest might not have assignments yet
+      logError('Failed to fetch guest sub-event assignments:', error)
       setGuestSubEventAssignments(prev => ({ ...prev, [guestId]: [] }))
     }
   }
@@ -302,13 +343,34 @@ export default function GuestsPage() {
   const handleSaveSubEventAssignments = async (guestId: number) => {
     try {
       const subEventIds = guestSubEventAssignments[guestId] || []
-      await api.put(`/api/events/guests/${guestId}/invites/`, {
+      
+      // Log for debugging
+      console.log('[SubEvent Assignment] Saving assignments:', {
+        guestId,
+        subEventIds,
+        count: subEventIds.length
+      })
+      
+      const response = await api.put(`/api/events/guests/${guestId}/invites/`, {
         sub_event_ids: subEventIds
       })
+      
+      // Log response for debugging
+      console.log('[SubEvent Assignment] Save response:', response.data)
+      
       showToast('Sub-event assignments updated', 'success')
       setShowSubEventAssignment(null)
-      fetchGuests() // Refresh to get updated guest_token
+      
+      // Refresh guests to get updated guest_token and assignments
+      await fetchGuests()
     } catch (error: any) {
+      console.error('[SubEvent Assignment] Save error:', {
+        guestId,
+        subEventIds: guestSubEventAssignments[guestId],
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      })
       showToast('Failed to update sub-event assignments', 'error')
       logError('Failed to update guest invites:', error)
     }
@@ -1067,11 +1129,21 @@ export default function GuestsPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  setShowSubEventAssignment(guest.id)
-                                  if (!guestSubEventAssignments[guest.id]) {
-                                    fetchGuestSubEventAssignments(guest.id)
+                                onClick={async () => {
+                                  // Ensure assignments are loaded before opening modal
+                                  if (guestSubEventAssignments[guest.id] === undefined) {
+                                    // If guest has sub_event_invites from fetchGuests, use that
+                                    if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
+                                      setGuestSubEventAssignments(prev => ({
+                                        ...prev,
+                                        [guest.id]: guest.sub_event_invites
+                                      }))
+                                    } else {
+                                      // Otherwise fetch from API
+                                      await fetchGuestSubEventAssignments(guest.id)
+                                    }
                                   }
+                                  setShowSubEventAssignment(guest.id)
                                 }}
                                 className="text-xs border-purple-300 text-purple-600 hover:bg-purple-50"
                               >
