@@ -309,6 +309,58 @@ class EventViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED if created else status.HTTP_400_BAD_REQUEST
         )
 
+    def update_guest(self, request, id=None, guest_id=None):
+        """Update a guest (PUT/PATCH)"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        try:
+            guest = Guest.objects.get(id=guest_id, event=event)
+        except Guest.DoesNotExist:
+            return Response(
+                {'error': 'Guest not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Use GuestSerializer for update (allows updating invitation_sent fields)
+        serializer = GuestSerializer(guest, data=request.data, partial=request.method == 'PATCH')
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete_guest(self, request, id=None, guest_id=None):
+        """Delete or soft-delete a guest"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        try:
+            guest = Guest.objects.get(id=guest_id, event=event)
+        except Guest.DoesNotExist:
+            return Response(
+                {'error': 'Guest not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if guest has RSVP - if yes, soft delete; if no, hard delete
+        has_rsvp = RSVP.objects.filter(guest=guest, is_removed=False).exists()
+        
+        if has_rsvp:
+            # Soft delete
+            guest.is_removed = True
+            guest.save(update_fields=['is_removed', 'updated_at'])
+            return Response(
+                {'message': 'Guest removed (soft delete). Record preserved.', 'soft_delete': True},
+                status=status.HTTP_200_OK
+            )
+        else:
+            # Hard delete
+            guest.delete()
+            return Response(
+                {'message': 'Guest deleted successfully', 'soft_delete': False},
+                status=status.HTTP_200_OK
+            )
+
     # -------------------------
     # DESIGN / PAGE CONFIG
     # -------------------------

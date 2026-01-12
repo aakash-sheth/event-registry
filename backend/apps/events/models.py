@@ -252,6 +252,10 @@ class Guest(models.Model):
     # Custom fields from CSV imports
     custom_fields = models.JSONField(default=dict, blank=True, help_text="Custom field values from CSV imports (normalized key -> value)")
     
+    # Invitation tracking
+    invitation_sent = models.BooleanField(default=False, help_text="Whether invitation has been sent to this guest")
+    invitation_sent_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when invitation was sent")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

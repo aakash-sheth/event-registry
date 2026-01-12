@@ -49,6 +49,9 @@ interface Guest {
   notes: string
   rsvp_status: string | null
   rsvp_will_attend: string | null
+  rsvp_guests_count: number | null
+  invitation_sent: boolean
+  invitation_sent_at: string | null
   is_removed?: boolean
   created_at?: string
   guest_token?: string | null
@@ -604,6 +607,31 @@ export default function GuestsPage() {
     }
   }
 
+  const handleToggleInvitationSent = async (guestId: number, newValue: boolean) => {
+    try {
+      const updateData: any = {
+        invitation_sent: newValue,
+      }
+      
+      // If checking, set timestamp; if unchecking, clear timestamp
+      if (newValue) {
+        updateData.invitation_sent_at = new Date().toISOString()
+      } else {
+        updateData.invitation_sent_at = null
+      }
+      
+      await api.patch(`/api/events/${eventId}/guests/${guestId}/`, updateData)
+      showToast(`Invitation status updated`, 'success')
+      fetchGuests()
+    } catch (error: any) {
+      showToast(
+        error.response?.data?.error || 'Failed to update invitation status',
+        'error'
+      )
+      logError('Failed to toggle invitation_sent:', error)
+    }
+  }
+
   const handleShareWhatsApp = (guest: Guest) => {
     if (!event) return
     setSelectedGuest(guest)
@@ -666,6 +694,19 @@ export default function GuestsPage() {
       const whatsappUrl = generateWhatsAppLink(selectedGuest.phone, message)
       openWhatsApp(whatsappUrl)
       showToast(`Opening WhatsApp to ${selectedGuest.name}...`, 'success')
+      
+      // Auto-check invitation_sent after WhatsApp opens
+      try {
+        await api.patch(`/api/events/${eventId}/guests/${selectedGuest.id}/`, {
+          invitation_sent: true,
+          invitation_sent_at: new Date().toISOString(),
+        })
+        // Refresh guest list to show updated checkbox
+        fetchGuests()
+      } catch (error: any) {
+        // Silently fail - don't block WhatsApp opening if API call fails
+        logError('Failed to update invitation_sent:', error)
+      }
     } catch (error: any) {
       logError('Failed to share on WhatsApp:', error)
       showToast('Failed to open WhatsApp', 'error')
@@ -1024,6 +1065,8 @@ export default function GuestsPage() {
                       <th className="text-left p-2">Email</th>
                       <th className="text-left p-2">Relationship</th>
                       <th className="text-left p-2">RSVP Status</th>
+                      <th className="text-left p-2">Guests Count</th>
+                      <th className="text-left p-2">Invitation Sent</th>
                       {event?.event_structure === 'ENVELOPE' && (
                         <th className="text-left p-2">Sub-Events</th>
                       )}
@@ -1048,7 +1091,7 @@ export default function GuestsPage() {
                       }
                       
                       if (filteredGuests.length === 0) {
-                        const colSpan = 8 + (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' ? 1 : 0)
+                        const colSpan = 10 + (event?.event_structure === 'ENVELOPE' ? 1 : 0) + (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' ? 1 : 0)
                         return (
                           <tr>
                             <td colSpan={colSpan} className="p-8 text-center text-gray-500">
@@ -1096,6 +1139,33 @@ export default function GuestsPage() {
                           <td className="p-2 text-sm text-gray-600">{guest.relationship || '-'}</td>
                           <td className="p-2">
                             {getRsvpStatusBadge(guest.rsvp_status || guest.rsvp_will_attend)}
+                          </td>
+                          <td className="p-2 text-sm text-gray-600">
+                            {guest.rsvp_guests_count !== null && guest.rsvp_guests_count !== undefined 
+                              ? guest.rsvp_guests_count 
+                              : '-'}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex flex-col items-start gap-1">
+                              <input
+                                type="checkbox"
+                                checked={guest.invitation_sent || false}
+                                onChange={() => handleToggleInvitationSent(guest.id, !guest.invitation_sent)}
+                                className="cursor-pointer"
+                                disabled={sharingWhatsApp === guest.id}
+                              />
+                              {guest.invitation_sent_at && (
+                                <span className="text-xs text-gray-500">
+                                  {new Date(guest.invitation_sent_at).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                  })}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           {event?.event_structure === 'ENVELOPE' && (
                             <td className="p-2">
@@ -1214,6 +1284,32 @@ export default function GuestsPage() {
                               ) : (
                                 <span className="text-gray-400">-</span>
                               )}
+                            </td>
+                            <td className="p-2 text-sm text-gray-500">
+                              {guest.rsvp_guests_count !== null && guest.rsvp_guests_count !== undefined 
+                                ? guest.rsvp_guests_count 
+                                : '-'}
+                            </td>
+                            <td className="p-2 text-sm text-gray-500">
+                              <div className="flex flex-col items-start gap-1">
+                                <input
+                                  type="checkbox"
+                                  checked={guest.invitation_sent || false}
+                                  onChange={() => handleToggleInvitationSent(guest.id, !guest.invitation_sent)}
+                                  className="cursor-pointer opacity-60"
+                                />
+                                {guest.invitation_sent_at && (
+                                  <span className="text-xs text-gray-400">
+                                    {new Date(guest.invitation_sent_at).toLocaleDateString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                      hour: 'numeric',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 text-sm text-gray-500">{guest.notes || '-'}</td>
                             <td className="p-2">

@@ -201,6 +201,7 @@ class RSVPCreateSerializer(serializers.Serializer):
 class GuestSerializer(serializers.ModelSerializer):
     rsvp_status = serializers.SerializerMethodField()
     rsvp_will_attend = serializers.SerializerMethodField()
+    rsvp_guests_count = serializers.SerializerMethodField()
     country_code = serializers.SerializerMethodField()
     local_number = serializers.SerializerMethodField()
     guest_token = serializers.CharField(read_only=True)
@@ -208,8 +209,8 @@ class GuestSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Guest
-        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'guest_token', 'sub_event_invites', 'custom_fields', 'created_at')
-        read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'country_code', 'local_number', 'guest_token', 'sub_event_invites')
+        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'rsvp_guests_count', 'guest_token', 'sub_event_invites', 'custom_fields', 'invitation_sent', 'invitation_sent_at', 'created_at')
+        read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'rsvp_guests_count', 'country_code', 'local_number', 'guest_token', 'sub_event_invites')
     
     def get_sub_event_invites(self, obj):
         """Get list of sub-event IDs this guest is invited to"""
@@ -232,6 +233,20 @@ class GuestSerializer(serializers.ModelSerializer):
     def get_rsvp_will_attend(self, obj):
         """Get the RSVP will_attend value for display"""
         return self.get_rsvp_status(obj)
+    
+    def get_rsvp_guests_count(self, obj):
+        """Get the guests_count from the associated RSVP"""
+        # First check if there's an RSVP linked via the guest foreign key (most direct)
+        rsvp = RSVP.objects.filter(event=obj.event, guest=obj, is_removed=False).first()
+        if rsvp:
+            return rsvp.guests_count
+        
+        # If no direct link, match by phone number (handles cases where guest wasn't linked during RSVP creation)
+        rsvp = RSVP.objects.filter(event=obj.event, phone=obj.phone, is_removed=False).first()
+        if rsvp:
+            return rsvp.guests_count
+        
+        return None  # No RSVP yet
     
     def get_country_code(self, obj):
         """Extract country code from phone number"""
