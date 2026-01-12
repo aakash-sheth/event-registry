@@ -781,23 +781,45 @@ export default function DesignInvitationPage(): JSX.Element {
           // Draw resized image
           ctx.drawImage(img, x, y, width, height)
 
-          // Convert to blob with compression
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) {
-                reject(new Error('Failed to create blob'))
-                return
-              }
-              // Create a new File with optimized image
-              const optimizedFile = new File([blob], file.name, {
-                type: 'image/jpeg',
-                lastModified: Date.now(),
-              })
-              resolve(optimizedFile)
-            },
-            'image/jpeg',
-            0.85 // 85% quality for good balance between size and quality
-          )
+          // Adaptive compression to meet WhatsApp's 300KB requirement
+          const MAX_SIZE = 300 * 1024 // 300KB - WhatsApp's limit
+          const MIN_QUALITY = 0.5 // Minimum quality to prevent too much degradation
+          
+          const compressToTargetSize = (quality: number): Promise<File> => {
+            return new Promise((resolve, reject) => {
+              canvas.toBlob(
+                (blob) => {
+                  if (!blob) {
+                    reject(new Error('Failed to create blob'))
+                    return
+                  }
+                  
+                  // Check if file size is under WhatsApp's limit
+                  if (blob.size <= MAX_SIZE || quality <= MIN_QUALITY) {
+                    // Create a new File with optimized image
+                    const optimizedFile = new File([blob], file.name, {
+                      type: 'image/jpeg',
+                      lastModified: Date.now(),
+                    })
+                    resolve(optimizedFile)
+                  } else {
+                    // Reduce quality by 0.1 and try again
+                    // This ensures we get as close to 300KB as possible without going over
+                    compressToTargetSize(Math.max(quality - 0.1, MIN_QUALITY))
+                      .then(resolve)
+                      .catch(reject)
+                  }
+                },
+                'image/jpeg',
+                quality
+              )
+            })
+          }
+
+          // Start with 0.9 quality (high quality), reduce if needed
+          compressToTargetSize(0.9)
+            .then(resolve)
+            .catch(reject)
         }
         img.onerror = () => reject(new Error('Failed to load image'))
         img.src = e.target?.result as string
@@ -818,9 +840,11 @@ export default function DesignInvitationPage(): JSX.Element {
       return
     }
 
-    // Validate file size (max 10MB before optimization)
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('Image must be less than 10MB', 'error')
+    // 3MB limit - optimal balance between quality and processing speed
+    // Since we resize to 1200x630 and compress to <300KB, 3MB source is plenty
+    const MAX_UPLOAD_SIZE = 3 * 1024 * 1024 // 3MB
+    if (file.size > MAX_UPLOAD_SIZE) {
+      showToast('Image must be less than 3MB. Please use a smaller image or compress it first.', 'error')
       return
     }
 
@@ -828,6 +852,26 @@ export default function DesignInvitationPage(): JSX.Element {
     try {
       // Resize and optimize image for link previews
       const optimizedFile = await resizeImageForPreview(file)
+      
+      // Development-only logging for compression statistics
+      if (process.env.NODE_ENV === 'development') {
+        const finalSizeKB = (optimizedFile.size / 1024).toFixed(1)
+        const originalSizeKB = (file.size / 1024).toFixed(1)
+        console.log('[Preview Image] Compression stats:', {
+          original: `${originalSizeKB}KB`,
+          optimized: `${finalSizeKB}KB`,
+          reduction: `${((1 - optimizedFile.size / file.size) * 100).toFixed(1)}%`,
+          whatsappCompatible: optimizedFile.size <= 300 * 1024,
+        })
+        
+        // Warn if final size exceeds 300KB (development only)
+        if (optimizedFile.size > 300 * 1024) {
+          console.warn('[Preview Image] Warning: Optimized image exceeds WhatsApp limit:', {
+            size: `${finalSizeKB}KB`,
+            limit: '300KB',
+          })
+        }
+      }
       
       // Upload optimized image
       const imageUrl = await uploadImage(optimizedFile, eventId)
@@ -841,7 +885,12 @@ export default function DesignInvitationPage(): JSX.Element {
         },
       }))
       
-      showToast('Preview image uploaded and optimized successfully', 'success')
+      // Show success message with file size info
+      const finalSizeKB = (optimizedFile.size / 1024).toFixed(1)
+      const sizeInfo = optimizedFile.size <= 300 * 1024 
+        ? ` (${finalSizeKB}KB - WhatsApp compatible)`
+        : ` (${finalSizeKB}KB)`
+      showToast(`Preview image uploaded and optimized successfully${sizeInfo}`, 'success')
     } catch (error) {
       logError('Failed to upload preview image:', error)
       showToast('Failed to upload image. Please try again.', 'error')
@@ -1651,6 +1700,9 @@ export default function DesignInvitationPage(): JSX.Element {
                         )}
                         <p className="text-xs text-gray-500 mt-2">
                           Custom image for link previews. Image will be automatically resized to 1200x630px and optimized for fast loading. Leave empty to use page background image.
+                        </p>
+                        <p className="text-xs text-eco-green mt-1 font-medium">
+                          WhatsApp requires preview images under 300KB - your image will be automatically compressed to meet this requirement.
                         </p>
                       </div>
 
