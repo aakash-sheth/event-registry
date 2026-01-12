@@ -128,6 +128,9 @@ export default function GuestsPage() {
   const [guestSubEventAssignments, setGuestSubEventAssignments] = useState<Record<number, number[]>>({})
   const [guestRSVPs, setGuestRSVPs] = useState<Record<number, any[]>>({})
   const [copiedGuestId, setCopiedGuestId] = useState<number | null>(null)
+  const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set())
+  const [showBulkSubEventAssignment, setShowBulkSubEventAssignment] = useState(false)
+  const [bulkSelectedSubEventIds, setBulkSelectedSubEventIds] = useState<Set<number>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -349,6 +352,81 @@ export default function GuestsPage() {
     } catch (error: any) {
       showToast('Failed to update sub-event assignments', 'error')
       logError('Failed to update guest invites:', error)
+    }
+  }
+
+  const handleToggleGuestSelection = (guestId: number) => {
+    setSelectedGuestIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(guestId)) {
+        newSet.delete(guestId)
+      } else {
+        newSet.add(guestId)
+      }
+      return newSet
+    })
+  }
+
+  const handleSelectAllGuests = (checked: boolean, filteredGuests: Guest[]) => {
+    if (checked) {
+      setSelectedGuestIds(new Set(filteredGuests.map(g => g.id)))
+    } else {
+      setSelectedGuestIds(new Set())
+    }
+  }
+
+  const handleBulkAssignSubEvents = async (subEventIds: number[], action: 'assign' | 'deassign') => {
+    if (selectedGuestIds.size === 0) {
+      showToast('Please select at least one guest', 'error')
+      return
+    }
+
+    if (subEventIds.length === 0) {
+      showToast('Please select at least one sub-event', 'error')
+      return
+    }
+
+    // Filter selected guest IDs to only include guests that exist in the current event's guest list
+    // This ensures we don't accidentally include guests from other events or invalid IDs
+    const validGuestIds = Array.from(selectedGuestIds).filter(guestId => {
+      // Check if the guest exists in the current event's guest list
+      return guests.some(g => g.id === guestId)
+    })
+
+    if (validGuestIds.length === 0) {
+      showToast('No valid guests selected for this event', 'error')
+      return
+    }
+
+    if (validGuestIds.length !== selectedGuestIds.size) {
+      showToast(`Warning: ${selectedGuestIds.size - validGuestIds.length} invalid guest(s) were excluded`, 'info')
+    }
+
+    try {
+      const response = await api.post('/api/events/guest-invites/bulk-assign/', {
+        guest_ids: validGuestIds,
+        sub_event_ids: subEventIds,
+        action: action
+      })
+
+      showToast(response.data.message || `Successfully ${action}ed sub-events`, 'success')
+      setSelectedGuestIds(new Set())
+      setBulkSelectedSubEventIds(new Set())
+      setShowBulkSubEventAssignment(false)
+      
+      // Refresh guests to get updated assignments
+      await fetchGuests()
+    } catch (error: any) {
+      logError('Failed to bulk assign sub-events:', error)
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || `Failed to ${action} sub-events`
+      console.error('Bulk assign error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        guest_ids: validGuestIds,
+        sub_event_ids: subEventIds,
+        action: action
+      })
+      showToast(errorMessage, 'error')
     }
   }
 
@@ -804,7 +882,7 @@ export default function GuestsPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                accept=".csv,.txt,.xlsx,.xls"
                 onChange={handleFileUpload}
                 disabled={uploading}
                 className="hidden"
@@ -903,7 +981,7 @@ export default function GuestsPage() {
           <Card className="mb-8 bg-white border-2 border-gray-300 shadow-lg">
             <CardHeader className="bg-gray-50 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-gray-800 text-xl">Import Guests from CSV/Excel</CardTitle>
+                <CardTitle className="text-gray-800 text-xl">Import Guests from CSV/TXT/Excel</CardTitle>
                 <button
                   onClick={() => setShowImportInstructions(false)}
                   className="text-gray-500 hover:text-gray-700 hover:bg-gray-200 text-2xl font-light w-8 h-8 flex items-center justify-center rounded transition-colors"
@@ -918,7 +996,7 @@ export default function GuestsPage() {
                 <div>
                   <h3 className="text-base font-semibold text-gray-800 mb-3">File Format Requirements</h3>
                   <p className="text-sm text-gray-700 mb-3">
-                    Your CSV or Excel file should include the following columns:
+                    Your CSV, TXT, or Excel file should include the following columns:
                   </p>
                   <div className="flex flex-wrap gap-2 mb-4">
                     <span className="inline-flex items-center px-3 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium">name</span>
@@ -949,7 +1027,7 @@ export default function GuestsPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,.xlsx,.xls"
+                  accept=".csv,.txt,.xlsx,.xls"
                   onChange={(e) => {
                     handleFileUpload(e)
                     setShowImportInstructions(false)
@@ -1056,9 +1134,64 @@ export default function GuestsPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
+                {/* Bulk Actions Bar - Show when guests are selected and event has subevents */}
+                {selectedGuestIds.size > 0 && event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
+                  <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-medium text-blue-900">
+                        {selectedGuestIds.size} guest(s) selected
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowBulkSubEventAssignment(true)}
+                        className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                      >
+                        Assign/Deassign Sub-Events
+                      </Button>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedGuestIds(new Set())}
+                      className="text-blue-700 hover:text-blue-900"
+                    >
+                      Clear Selection
+                    </Button>
+                  </div>
+                )}
                 <table className="w-full">
                   <thead>
                     <tr className="border-b">
+                      <th className="text-left p-2 w-12">
+                        {(() => {
+                          // Filter guests based on RSVP status (exclude removed guests)
+                          let filteredGuests = guests.filter(g => !g.is_removed)
+                          
+                          if (rsvpFilter === 'unconfirmed') {
+                            filteredGuests = filteredGuests.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
+                          } else if (rsvpFilter === 'confirmed') {
+                            filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
+                          } else if (rsvpFilter === 'no') {
+                            filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
+                          }
+                          
+                          const allSelected = filteredGuests.length > 0 && filteredGuests.every(g => selectedGuestIds.has(g.id))
+                          const someSelected = filteredGuests.some(g => selectedGuestIds.has(g.id))
+                          
+                          return (
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              ref={(el) => {
+                                if (el) el.indeterminate = someSelected && !allSelected
+                              }}
+                              onChange={(e) => handleSelectAllGuests(e.target.checked, filteredGuests)}
+                              className="cursor-pointer"
+                            />
+                          )
+                        })()}
+                      </th>
                       <th className="text-left p-2">Name</th>
                       <th className="text-left p-2">Country Code</th>
                       <th className="text-left p-2">Phone Number</th>
@@ -1091,7 +1224,7 @@ export default function GuestsPage() {
                       }
                       
                       if (filteredGuests.length === 0) {
-                        const colSpan = 10 + (event?.event_structure === 'ENVELOPE' ? 1 : 0) + (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' ? 1 : 0)
+                        const colSpan = 12 + (event?.event_structure === 'ENVELOPE' ? 1 : 0) + (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' ? 1 : 0)
                         return (
                           <tr>
                             <td colSpan={colSpan} className="p-8 text-center text-gray-500">
@@ -1128,6 +1261,14 @@ export default function GuestsPage() {
                       
                       return (
                         <tr key={guest.id} className="border-b hover:bg-gray-50">
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedGuestIds.has(guest.id)}
+                              onChange={() => handleToggleGuestSelection(guest.id)}
+                              className="cursor-pointer"
+                            />
+                          </td>
                           <td className="p-2 font-medium">{guest.name}</td>
                           <td className="p-2 text-sm text-gray-700 font-mono">
                             {guest.country_code || '-'}
@@ -1524,6 +1665,107 @@ export default function GuestsPage() {
                     className="bg-eco-green hover:bg-green-600 text-white"
                   >
                     Close
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Bulk Sub-Event Assignment Modal */}
+        {showBulkSubEventAssignment && event?.event_structure === 'ENVELOPE' && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowBulkSubEventAssignment(false)
+              }
+            }}
+          >
+            <Card className="bg-white max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <CardHeader>
+                <CardTitle>Bulk Assign/Deassign Sub-Events</CardTitle>
+                <CardDescription>
+                  Select sub-events to assign or deassign for {selectedGuestIds.size} selected guest(s)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {subEvents.length === 0 ? (
+                  <p className="text-gray-600 mb-4">No sub-events available. Create sub-events first.</p>
+                ) : (
+                  <div className="space-y-3 mb-6">
+                    {subEvents.map((subEvent) => (
+                      <label
+                        key={subEvent.id}
+                        className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={bulkSelectedSubEventIds.has(subEvent.id)}
+                          onChange={(e) => {
+                            setBulkSelectedSubEventIds(prev => {
+                              const newSet = new Set(prev)
+                              if (e.target.checked) {
+                                newSet.add(subEvent.id)
+                              } else {
+                                newSet.delete(subEvent.id)
+                              }
+                              return newSet
+                            })
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{subEvent.title}</div>
+                          {subEvent.start_at && (
+                            <div className="text-sm text-gray-500">
+                              {new Date(subEvent.start_at).toLocaleString()}
+                            </div>
+                          )}
+                          {subEvent.location && (
+                            <div className="text-sm text-gray-500">{subEvent.location}</div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-end gap-2 mt-6">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowBulkSubEventAssignment(false)
+                      setBulkSelectedSubEventIds(new Set())
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (bulkSelectedSubEventIds.size === 0) {
+                        showToast('Please select at least one sub-event', 'error')
+                        return
+                      }
+                      handleBulkAssignSubEvents(Array.from(bulkSelectedSubEventIds), 'deassign')
+                    }}
+                    className="border-red-300 text-red-700 hover:bg-red-50"
+                    disabled={subEvents.length === 0 || bulkSelectedSubEventIds.size === 0}
+                  >
+                    Deassign Selected
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (bulkSelectedSubEventIds.size === 0) {
+                        showToast('Please select at least one sub-event', 'error')
+                        return
+                      }
+                      handleBulkAssignSubEvents(Array.from(bulkSelectedSubEventIds), 'assign')
+                    }}
+                    className="bg-eco-green hover:bg-green-600 text-white"
+                    disabled={subEvents.length === 0 || bulkSelectedSubEventIds.size === 0}
+                  >
+                    Assign Selected
                   </Button>
                 </div>
               </CardContent>

@@ -23,6 +23,7 @@ urlpatterns = [
     # Invite page routes - must be before other <int:id> routes to avoid conflicts
     path('<int:event_id>/invite/', invite_page_by_event, name='event-invite'),
     path('<int:id>/guests.csv/', EventViewSet.as_view({'get': 'guests_csv'}), name='event-guests-csv'),
+    path('<int:id>/guests/import/', EventViewSet.as_view({'post': 'import_guests'}), name='event-guests-import'),
     path('<int:id>/guests/<int:guest_id>/', EventViewSet.as_view({'put': 'update_guest', 'patch': 'update_guest', 'delete': 'delete_guest'}), name='event-guest-update'),
     path('<int:id>/orders/', EventViewSet.as_view({'get': 'orders'}), name='event-orders'),
     path('<int:id>/design/', EventViewSet.as_view({'put': 'update_design', 'patch': 'update_design'}), name='event-design'),
@@ -42,6 +43,7 @@ urlpatterns = [
     # Guest invite management endpoints
     path('envelopes/<int:event_id>/guests/', GuestInviteViewSet.as_view({'get': 'by_event'}), name='envelope-guests'),
     path('guests/<int:guest_id>/invites/', GuestInviteViewSet.as_view({'put': 'update_guest_invites'}), name='guest-invites-update'),
+    path('guest-invites/bulk-assign/', GuestInviteViewSet.as_view({'post': 'bulk_assign_subevents'}), name='guest-invites-bulk-assign'),
     # WhatsApp template endpoints
     # Nested route for list/create (requires event_id in URL)
     path('<int:event_id>/whatsapp-templates/', MessageTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='event-whatsapp-templates'),

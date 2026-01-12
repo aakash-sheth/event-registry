@@ -361,6 +361,177 @@ class EventViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_200_OK
             )
 
+    @action(detail=True, methods=['post'], url_path='guests/import')
+    def import_guests(self, request, id=None):
+        """Import guests from CSV, TXT, or Excel file"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        if 'file' not in request.FILES:
+            return Response(
+                {'error': 'No file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        file = request.FILES['file']
+        file_extension = file.name.split('.')[-1].lower()
+        
+        if file_extension not in ['csv', 'txt', 'xlsx', 'xls']:
+            return Response(
+                {'error': 'Invalid file type. Please upload a CSV, TXT, or Excel file.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        created = 0
+        errors = []
+        event_country_code = get_country_code(event.country)
+        
+        try:
+            # Parse file based on extension
+            if file_extension in ['csv', 'txt']:
+                import io
+                import csv as csv_module
+                
+                # Read CSV/TXT file
+                file_content = file.read().decode('utf-8-sig')  # Handle BOM
+                
+                # Try to detect delimiter (comma or tab)
+                # Check first line for tabs vs commas
+                first_line = file_content.split('\n')[0] if '\n' in file_content else file_content
+                delimiter = '\t' if '\t' in first_line else ','
+                
+                csv_reader = csv_module.DictReader(io.StringIO(file_content), delimiter=delimiter)
+                rows = list(csv_reader)
+            else:
+                # Excel file
+                from openpyxl import load_workbook
+                
+                workbook = load_workbook(file, read_only=True, data_only=True)
+                sheet = workbook.active
+                
+                # Get headers from first row
+                headers = []
+                for cell in sheet[1]:
+                    headers.append(str(cell.value).strip() if cell.value else '')
+                
+                # Read data rows
+                rows = []
+                for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                    row_dict = {}
+                    for idx, header in enumerate(headers):
+                        if header:  # Only add non-empty headers
+                            value = row[idx] if idx < len(row) else None
+                            row_dict[header] = str(value).strip() if value is not None else ''
+                    if any(row_dict.values()):  # Only add non-empty rows
+                        rows.append((row_num, row_dict))
+                
+                workbook.close()
+            
+            # Process each row
+            for idx, row in enumerate(rows, start=2):  # Start at 2 (1 is header)
+                # Handle Excel format (tuple with row_num) vs CSV format (dict)
+                if isinstance(row, tuple):
+                    row_num, row_dict = row
+                    idx = row_num
+                    row = row_dict
+                
+                # Normalize keys (handle case-insensitive, spaces, etc.)
+                normalized_row = {}
+                for key, value in row.items():
+                    if key:
+                        normalized_key = normalize_csv_header(str(key))
+                        normalized_row[normalized_key] = str(value).strip() if value else ''
+                
+                # Extract required fields
+                name = normalized_row.get('name', '').strip()
+                phone = normalized_row.get('phone', '').strip()
+                
+                # Validate required fields
+                if not name:
+                    errors.append(f"Row {idx}: Name is required")
+                    continue
+                
+                if not phone:
+                    errors.append(f"Row {idx}: Phone is required")
+                    continue
+                
+                # Handle country code and country_iso
+                # Priority: country_iso > country_code > event country
+                country_iso = normalized_row.get('country_iso', '').strip().upper() or ''
+                country_code_from_csv = normalized_row.get('country_code', '').strip()
+                
+                # If country_iso is provided, use it to get the correct country code
+                if country_iso:
+                    # Validate country_iso (should be 2 characters)
+                    if len(country_iso) == 2:
+                        country_code = get_country_code(country_iso)
+                    else:
+                        errors.append(f"Row {idx}: Invalid country_iso format (must be 2 characters): {country_iso}")
+                        continue
+                elif country_code_from_csv:
+                    # If country_code is provided but not country_iso, use the provided country_code
+                    country_code = country_code_from_csv
+                    if not country_code.startswith('+'):
+                        country_code = '+' + country_code.lstrip('+')
+                else:
+                    # Default to event's country code
+                    country_code = event_country_code
+                
+                # Format phone with country code
+                if not phone.startswith('+'):
+                    phone = format_phone_with_country_code(phone, country_code)
+                
+                # Validate phone format (should start with + and have digits)
+                if not phone.startswith('+') or len(phone.replace('+', '')) < 10:
+                    errors.append(f"Row {idx}: Invalid phone number format: {phone}")
+                    continue
+                
+                # Check for duplicate phone
+                if Guest.objects.filter(event=event, phone=phone).exists():
+                    errors.append(f"Row {idx}: Phone {phone} already exists")
+                    continue
+                
+                # Extract optional fields
+                email = normalized_row.get('email', '').strip() or None
+                relationship = normalized_row.get('relationship', '').strip() or ''
+                notes = normalized_row.get('notes', '').strip() or ''
+                
+                # Store custom fields (all fields except standard ones)
+                standard_fields = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
+                custom_fields = {}
+                for key, value in normalized_row.items():
+                    if key not in standard_fields and value:
+                        custom_fields[key] = value
+                
+                # Create guest
+                try:
+                    guest = Guest.objects.create(
+                        event=event,
+                        name=name,
+                        phone=phone,
+                        email=email,
+                        relationship=relationship,
+                        notes=notes,
+                        country_iso=country_iso[:2] if country_iso else '',  # Limit to 2 chars
+                        custom_fields=custom_fields
+                    )
+                    created += 1
+                except Exception as e:
+                    errors.append(f"Row {idx}: Failed to create guest - {str(e)}")
+                    continue
+            
+            response_data = {'created': created}
+            if errors:
+                response_data['errors'] = errors
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to process file: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     # -------------------------
     # DESIGN / PAGE CONFIG
     # -------------------------
@@ -2294,6 +2465,188 @@ class GuestInviteViewSet(viewsets.ModelViewSet):
             'guest': GuestSerializer(guest).data,
             'sub_event_ids': updated_sub_event_ids
         })
+    
+    @action(detail=False, methods=['post'], url_path='bulk-assign')
+    def bulk_assign_subevents(self, request):
+        """Bulk assign/deassign sub-events to multiple guests"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Log request data for debugging
+        logger.info(f"Bulk assign request data: {request.data}")
+        
+        guest_ids = request.data.get('guest_ids', [])
+        sub_event_ids = request.data.get('sub_event_ids', [])
+        action = request.data.get('action', 'assign')  # 'assign' or 'deassign'
+        
+        # Convert to list if it's not already (handle edge cases)
+        if not isinstance(guest_ids, list):
+            if isinstance(guest_ids, (str, int)):
+                guest_ids = [guest_ids]
+            else:
+                logger.error(f"Invalid guest_ids type: {type(guest_ids).__name__}, value: {guest_ids}")
+                return Response(
+                    {'error': f'guest_ids must be a list, got {type(guest_ids).__name__}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        if len(guest_ids) == 0:
+            logger.error("Empty guest_ids list")
+            return Response(
+                {'error': 'guest_ids must be a non-empty list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Convert to list if it's not already (handle edge cases)
+        if not isinstance(sub_event_ids, list):
+            if isinstance(sub_event_ids, (str, int)):
+                sub_event_ids = [sub_event_ids]
+            else:
+                logger.error(f"Invalid sub_event_ids type: {type(sub_event_ids).__name__}, value: {sub_event_ids}")
+                return Response(
+                    {'error': f'sub_event_ids must be a list, got {type(sub_event_ids).__name__}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        if len(sub_event_ids) == 0:
+            logger.error("Empty sub_event_ids list")
+            return Response(
+                {'error': 'sub_event_ids must be a non-empty list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Convert all IDs to integers
+        try:
+            guest_ids = [int(gid) for gid in guest_ids]
+            sub_event_ids = [int(sid) for sid in sub_event_ids]
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error converting IDs to integers: {str(e)}")
+            return Response(
+                {'error': f'All IDs must be integers: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if action not in ['assign', 'deassign']:
+            logger.error(f"Invalid action: {action}")
+            return Response(
+                {'error': 'action must be either "assign" or "deassign"'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get all guests and verify ownership (include removed guests for bulk operations)
+        guests = Guest.objects.filter(
+            id__in=guest_ids,
+            event__host=request.user
+        ).select_related('event')
+        
+        found_guest_ids = set(guests.values_list('id', flat=True))
+        missing_ids = set(guest_ids) - found_guest_ids
+        
+        if missing_ids:
+            logger.error(f"Some guests not found or no permission: missing IDs: {missing_ids}, requested: {guest_ids}, found: {found_guest_ids}")
+            return Response(
+                {'error': f'Some guests not found or you do not have permission. Missing guest IDs: {list(missing_ids)}'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if guests.count() == 0:
+            logger.error(f"No guests found for IDs: {guest_ids}")
+            return Response(
+                {'error': 'No valid guests found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify all guests belong to the same event
+        # Get unique event IDs from the guests (normalize to int to avoid type mismatches)
+        event_ids_set = set()
+        event_details = {}
+        
+        for guest in guests:
+            event_id = guest.event_id
+            if event_id is None:
+                logger.error(f"Guest {guest.id} has no event_id")
+                return Response(
+                    {'error': f'Guest {guest.id} has no associated event'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Normalize to int to avoid string/int type mismatches
+            event_id = int(event_id) if event_id is not None else None
+            event_ids_set.add(event_id)
+            
+            if event_id not in event_details:
+                event_details[event_id] = {
+                    'event_id': event_id,
+                    'event_title': guest.event.title if guest.event else 'Unknown',
+                    'guest_count': 0,
+                    'guest_ids': []
+                }
+            event_details[event_id]['guest_count'] += 1
+            event_details[event_id]['guest_ids'].append(guest.id)
+        
+        event_ids = sorted(list(event_ids_set))  # Sort for consistent logging
+        logger.info(f"Found {guests.count()} guests belonging to {len(event_ids)} unique event(s): {event_ids}")
+        logger.info(f"Event details: {event_details}")
+        
+        if len(event_ids) > 1:
+            logger.error(f"Guests belong to multiple events: {event_details}")
+            error_msg = 'All guests must belong to the same event. Selected guests belong to: '
+            error_msg += ', '.join([f"Event {eid} ({details['event_title']}) - {details['guest_count']} guest(s)" 
+                                   for eid, details in sorted(event_details.items())])
+            return Response(
+                {'error': error_msg},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # All guests belong to the same event
+        event = guests.first().event
+        logger.info(f"✓ All {guests.count()} guests belong to event {event.id} ({event.title})")
+        
+        # Verify all sub-events belong to the same event
+        sub_events = SubEvent.objects.filter(
+            id__in=sub_event_ids,
+            event=event,
+            is_removed=False
+        )
+        
+        if sub_events.count() != len(sub_event_ids):
+            return Response(
+                {'error': 'Some sub-events not found or do not belong to this event'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Upgrade event to ENVELOPE if needed
+        event.upgrade_to_envelope_if_needed()
+        
+        updated_count = 0
+        errors = []
+        
+        for guest in guests:
+            try:
+                if action == 'assign':
+                    # Assign sub-events (add to existing assignments)
+                    for sub_event in sub_events:
+                        GuestSubEventInvite.objects.get_or_create(
+                            guest=guest,
+                            sub_event=sub_event
+                        )
+                    # Generate guest token if not present
+                    guest.generate_guest_token()
+                else:  # deassign
+                    # Deassign sub-events (remove from assignments)
+                    GuestSubEventInvite.objects.filter(
+                        guest=guest,
+                        sub_event__in=sub_events
+                    ).delete()
+                
+                updated_count += 1
+            except Exception as e:
+                errors.append(f"Guest {guest.id} ({guest.name}): {str(e)}")
+        
+        return Response({
+            'updated': updated_count,
+            'errors': errors if errors else None,
+            'message': f'Successfully {action}ed sub-events for {updated_count} guest(s)'
+        }, status=status.HTTP_200_OK)
 
 
 class MessageTemplateViewSet(viewsets.ModelViewSet):
