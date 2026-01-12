@@ -20,6 +20,7 @@ export interface TilePreviewProps {
   hasRegistry?: boolean
   allTiles?: Tile[] // For overlay relationships
   allowedSubEvents?: any[] // Sub-events for event-carousel tile
+  guestToken?: string | null
 }
 
 export default function TilePreview({
@@ -31,6 +32,7 @@ export default function TilePreview({
   hasRegistry,
   allTiles = [],
   allowedSubEvents = [],
+  guestToken,
 }: TilePreviewProps) {
   if (!tile.enabled) return null
 
@@ -77,6 +79,7 @@ export default function TilePreview({
             hasRsvp={hasRsvp}
             hasRegistry={hasRegistry}
             eventSlug={eventSlug}
+            guestToken={guestToken}
           />
         )
       case 'footer':

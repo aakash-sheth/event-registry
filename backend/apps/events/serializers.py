@@ -15,6 +15,25 @@ class EventSerializer(serializers.ModelSerializer):
         fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'is_expired', 'created_at', 'updated_at')
         read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
     
+    def validate_slug(self, value):
+        """Ensure slug is unique (excluding current instance on update)"""
+        # Normalize to lowercase (matching model's save behavior)
+        value = value.lower() if value else value
+        
+        # Get the current instance if updating
+        instance = self.instance
+        
+        # Check if slug is already taken by another event
+        queryset = Event.objects.filter(slug=value)
+        if instance:
+            # Exclude current instance when updating
+            queryset = queryset.exclude(pk=instance.pk)
+        
+        if queryset.exists():
+            raise serializers.ValidationError("This slug is already taken.")
+        
+        return value
+    
     def get_country_code(self, obj):
         """Return phone country code for the event's country"""
         return get_country_code(obj.country or 'IN')
@@ -104,6 +123,9 @@ class EventCreateSerializer(serializers.ModelSerializer):
     
     def validate_slug(self, value):
         """Ensure slug is unique"""
+        # Normalize to lowercase (matching model's save behavior)
+        value = value.lower() if value else value
+        
         if Event.objects.filter(slug=value).exists():
             raise serializers.ValidationError("This slug is already taken.")
         return value

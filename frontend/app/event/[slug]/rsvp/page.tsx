@@ -97,6 +97,11 @@ export default function RSVPPage() {
   
   // Detect QR code source from URL parameter
   const sourceChannel = searchParams.get('source') === 'qr' ? 'qr' : 'link'
+  
+  // Extract guest token from URL (support both 'g' and 'token' for compatibility)
+  const guestToken = searchParams.get('g') || searchParams.get('token')
+  const [guestTokenVerified, setGuestTokenVerified] = useState(false)
+  const [loadingGuestToken, setLoadingGuestToken] = useState(false)
 
   const {
     register,
@@ -362,19 +367,28 @@ export default function RSVPPage() {
       if (eventData.event_structure === 'ENVELOPE') {
         try {
           // Use invite endpoint to get allowed sub-events (respects guest tokens if any)
-          const inviteResponse = await api.get(`/api/events/invite/${slug}/`)
+          const inviteUrl = guestToken 
+            ? `/api/events/invite/${slug}/?g=${guestToken}`
+            : `/api/events/invite/${slug}/`
+          const inviteResponse = await api.get(inviteUrl)
           const allowedSubEventsData = inviteResponse.data.allowed_sub_events || []
-          // Filter to only RSVP-enabled, public-visible sub-events
-          const filteredSubEvents = allowedSubEventsData.filter((se: any) => 
-            se.rsvp_enabled && (se.is_public_visible !== false)
-          )
+          // Filter sub-events based on whether we have a guest token
+          // If guest token is present, backend already filtered to guest's invited sub-events
+          // If no token, only show public-visible sub-events
+          const filteredSubEvents = allowedSubEventsData.filter((se: any) => {
+            if (!se.rsvp_enabled) return false
+            // If we have a guest token, show all RSVP-enabled sub-events (backend already filtered by guest access)
+            if (guestToken) return true
+            // If no token, only show public-visible sub-events
+            return se.is_public_visible !== false
+          })
           setAllowedSubEvents(filteredSubEvents)
         } catch (error: any) {
           // Fallback: try sub-events endpoint
           try {
             const subEventsResponse = await api.get(`/api/events/envelopes/${eventData.id}/sub-events/`)
             const subEvents = subEventsResponse.data.results || subEventsResponse.data || []
-            // Filter to only RSVP-enabled, public-visible sub-events
+            // Filter to only RSVP-enabled, public-visible sub-events (fallback doesn't have guest context)
             const filteredSubEvents = subEvents.filter((se: any) => 
               se.rsvp_enabled && (se.is_public_visible !== false)
             )
@@ -393,6 +407,7 @@ export default function RSVPPage() {
       setPhoneNotInList(false)
       setVerifiedPhoneNumber('')
       setVerifiedCountryCode('')
+      setGuestTokenVerified(false)
     } catch (error: any) {
       logError('Failed to fetch event:', error)
       // If 403 error, RSVP is disabled or event is private
@@ -406,6 +421,92 @@ export default function RSVPPage() {
       setLoading(false)
     }
   }
+
+  const fetchGuestByToken = async () => {
+    if (!event || !guestToken) return
+    
+    setLoadingGuestToken(true)
+    try {
+      const response = await api.get(`/api/events/${event.id}/rsvp/guest-by-token/`, {
+        params: {
+          token: guestToken, // Backend accepts both 'token' and 'g'
+        }
+      })
+      
+      const guestData = response.data
+      
+      // Extract local phone number and country code
+      const localPhone = guestData.local_number || ''
+      const countryCode = guestData.country_code || event.country_code || '+91'
+      
+      // Autofill form with guest data
+      if (guestData.name) {
+        setValue('name', guestData.name, { shouldValidate: false, shouldDirty: true })
+      }
+      if (localPhone) {
+        setValue('phone', localPhone, { shouldValidate: false, shouldDirty: true })
+      }
+      if (countryCode) {
+        setValue('country_code', countryCode, { shouldValidate: false, shouldDirty: true })
+      }
+      if (guestData.email) {
+        setValue('email', guestData.email, { shouldValidate: false, shouldDirty: true })
+      }
+      
+      // Set existing RSVP state
+      setExistingRSVP({
+        name: guestData.name,
+        phone: guestData.phone,
+        email: guestData.email || '',
+        found_in: 'guest_list',
+        has_rsvp: false,
+      })
+      
+      // For private events, bypass phone verification
+      if (!event.is_public) {
+        setPhoneVerified(true)
+        setVerifiedPhoneNumber(localPhone || '')
+        setVerifiedCountryCode(countryCode)
+      }
+      
+      // Refetch sub-events with token to ensure we have the correct filtered list
+      if (event.event_structure === 'ENVELOPE') {
+        try {
+          const inviteUrl = `/api/events/invite/${slug}/?g=${guestToken}`
+          const inviteResponse = await api.get(inviteUrl)
+          const allowedSubEventsData = inviteResponse.data.allowed_sub_events || []
+          // Filter to only RSVP-enabled sub-events (backend already filtered by guest access)
+          const filteredSubEvents = allowedSubEventsData.filter((se: any) => se.rsvp_enabled)
+          setAllowedSubEvents(filteredSubEvents)
+          
+          // Also update event data with rsvp_mode if available from invite endpoint
+          if (inviteResponse.data.rsvp_mode) {
+            setEvent(prev => prev ? { ...prev, rsvp_mode: inviteResponse.data.rsvp_mode } : null)
+          }
+        } catch (error: any) {
+          logError('Failed to refetch sub-events with token:', error)
+          // Don't block - use existing sub-events
+        }
+      }
+      
+      setGuestTokenVerified(true)
+      logDebug('Guest data loaded from token', guestData)
+    } catch (error: any) {
+      logError('Failed to fetch guest by token:', error)
+      // Don't show error to user - they can still use the form normally
+      // Token might be invalid or expired, but we don't want to block access
+    } finally {
+      setLoadingGuestToken(false)
+    }
+  }
+
+  // Fetch guest data by token when token is present
+  useEffect(() => {
+    // If we have a guest token, fetch guest data and autofill form
+    if (guestToken && event && !guestTokenVerified && !loadingGuestToken) {
+      fetchGuestByToken()
+    }
+  }, [guestToken, event, guestTokenVerified])
 
   const handlePhoneVerification = async () => {
     if (!event) return
@@ -743,7 +844,7 @@ export default function RSVPPage() {
         ) : (
           <>
             {/* Stage 0: Phone Verification for Private Events */}
-            {!event.is_public && !phoneVerified && (
+            {!event.is_public && !phoneVerified && !guestTokenVerified && (
               <Card className="bg-white border-eco-green-light mb-6">
                 <CardHeader>
                   <CardTitle className="text-eco-green text-2xl text-center">
@@ -808,7 +909,7 @@ export default function RSVPPage() {
         )}
 
         {/* RSVP Form */}
-            {((!event.is_public && phoneVerified) || event.is_public) ? (
+            {((!event.is_public && (phoneVerified || guestTokenVerified)) || event.is_public) ? (
         <Card className="bg-white border-eco-green-light">
           <CardHeader>
             <CardTitle className="text-eco-green text-2xl">
@@ -875,7 +976,7 @@ export default function RSVPPage() {
                       setValue('country_code', value, { shouldValidate: true })
                     }}
                     className="w-48"
-                    disabled={checkingRSVP || (!event.is_public && phoneVerified)}
+                    disabled={checkingRSVP || (!event.is_public && (phoneVerified || guestTokenVerified))}
                   />
                   <div className="flex-1 relative">
                   <Input
@@ -883,8 +984,8 @@ export default function RSVPPage() {
                     {...register('phone')}
                     placeholder="10-digit phone number"
                     className="flex-1"
-                      disabled={checkingRSVP || (!event.is_public && phoneVerified)}
-                      readOnly={!event.is_public && phoneVerified}
+                      disabled={checkingRSVP || (!event.is_public && (phoneVerified || guestTokenVerified))}
+                      readOnly={!event.is_public && (phoneVerified || guestTokenVerified)}
                     />
                     {checkingRSVP && (
                       <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -899,7 +1000,7 @@ export default function RSVPPage() {
                     Checking for existing RSVP... Please wait
                   </p>
                 )}
-                {!event.is_public && phoneVerified && (
+                {!event.is_public && (phoneVerified || guestTokenVerified) && (
                   <p className="text-xs text-gray-500 mt-1">
                     Phone number verified (read-only)
                   </p>

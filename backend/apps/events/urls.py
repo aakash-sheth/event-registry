@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp,
+    EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp, get_guest_by_token,
     InvitePageViewSet, PublicInviteViewSet, upload_image,
     SubEventViewSet, GuestInviteViewSet, MessageTemplateViewSet,
     whatsapp_template_preview, whatsapp_template_duplicate,
@@ -30,6 +30,7 @@ urlpatterns = [
     path('<int:event_id>/rsvp/', create_rsvp, name='event-rsvp'),
     path('<int:event_id>/rsvp/check/', get_rsvp, name='event-rsvp-check'),
     path('<int:event_id>/rsvp/check/phone/', check_phone_for_rsvp, name='event-rsvp-check-phone'),
+    path('<int:event_id>/rsvp/guest-by-token/', get_guest_by_token, name='event-rsvp-guest-by-token'),
     # Public invite routes
     path('invite/<str:slug>/', PublicInviteViewSet.as_view({'get': 'retrieve'}), name='public-invite'),
     path('invite/<str:slug>/publish/', InvitePageViewSet.as_view({'post': 'publish'}), name='invite-publish'),

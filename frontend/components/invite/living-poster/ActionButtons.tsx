@@ -21,6 +21,7 @@ export interface ActionButtonsProps {
   eventSlug: string
   eventDate?: string
   eventTitle: string
+  guestToken?: string | null
 }
 
 export default function ActionButtons({
@@ -29,6 +30,7 @@ export default function ActionButtons({
   eventSlug,
   eventDate,
   eventTitle,
+  guestToken,
 }: ActionButtonsProps) {
   const fontColor = config.customColors?.fontColor || DEFAULT_COLORS.fontColor
   const primaryColor = config.customColors?.primaryColor || DEFAULT_COLORS.primaryColor
@@ -147,7 +149,9 @@ export default function ActionButtons({
         }
 
         if (button.action === 'rsvp') {
-          const href = button.href || `/event/${eventSlug}/rsvp`
+          const href = guestToken 
+            ? `/event/${eventSlug}/rsvp?g=${guestToken}` 
+            : (button.href || `/event/${eventSlug}/rsvp`)
           return (
             <Link
               key={index}

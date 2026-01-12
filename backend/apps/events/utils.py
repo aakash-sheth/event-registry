@@ -535,7 +535,7 @@ def render_template_with_guest(template_text: str, event, guest=None, base_url: 
     if base_url:
         if guest and guest.guest_token:
             # Generate guest-scoped invite link
-            invite_url = f"{base_url}/invite/{event.slug}?token={guest.guest_token}"
+            invite_url = f"{base_url}/invite/{event.slug}?g={guest.guest_token}"
         else:
             # Public invite link
             invite_url = f"{base_url}/invite/{event.slug}"

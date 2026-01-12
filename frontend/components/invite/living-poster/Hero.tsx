@@ -14,6 +14,7 @@ export interface HeroProps {
   eventDate?: string
   showBadge?: boolean
   theme: ColorsAndFonts
+  guestToken?: string | null
 }
 
 const DEFAULT_COLORS = {
@@ -30,7 +31,7 @@ const DEFAULT_FONTS = {
 
 const DEFAULT_OVERLAY_OPACITY = 0.25
 
-export default function Hero({ config, eventSlug, eventDate, showBadge = true }: HeroProps) {
+export default function Hero({ config, eventSlug, eventDate, showBadge = true, guestToken }: HeroProps) {
   const backgroundColor = config.customColors?.backgroundColor || DEFAULT_COLORS.backgroundColor
   const fontColor = config.customColors?.fontColor || DEFAULT_COLORS.fontColor
   const primaryColor = config.customColors?.primaryColor || DEFAULT_COLORS.primaryColor
@@ -376,6 +377,7 @@ export default function Hero({ config, eventSlug, eventDate, showBadge = true }:
                 eventSlug={eventSlug}
                 eventDate={eventDate || hero.eventDate}
                 eventTitle={hero.title || 'Event'}
+                guestToken={guestToken}
               />
             </motion.div>
           )}

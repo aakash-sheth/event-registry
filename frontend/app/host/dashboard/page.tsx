@@ -153,6 +153,40 @@ export default function DashboardPage() {
     router.push(`/host/events/${eventId}`)
   }
 
+  const handleManageEvent = async (eventId: number) => {
+    try {
+      // Verify event ID
+      if (!eventId || isNaN(Number(eventId))) {
+        console.error('[Dashboard] Invalid event ID:', eventId)
+        showToast('Invalid event ID', 'error')
+        return
+      }
+      
+      // Verify authentication
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        showToast('Please log in again', 'error')
+        router.push('/host/login')
+        return
+      }
+      
+      // Navigate with explicit refresh
+      const url = `/host/events/${eventId}`
+      router.push(url)
+      
+      // Force router refresh to clear cache
+      setTimeout(() => {
+        router.refresh()
+      }, 50)
+    } catch (error) {
+      console.error('[Dashboard] Error navigating to event:', error)
+      // Fallback: use window.location for hard navigation
+      if (typeof window !== 'undefined') {
+        window.location.href = `/host/events/${eventId}`
+      }
+    }
+  }
+
   const toggleEventSelection = (eventId: number) => {
     const newSelection = new Set(selectedEventIds)
     if (newSelection.has(eventId)) {
@@ -471,18 +505,17 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <Link href={`/host/events/${event.id}`} className="flex-1">
-                        <Button
-                          variant="outline"
-                          className={`w-full ${
-                            isExpired
-                              ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                              : 'border-eco-green text-eco-green hover:bg-eco-green-light'
-                          }`}
-                        >
-                          Manage
-                        </Button>
-                      </Link>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleManageEvent(event.id)}
+                        className={`w-full flex-1 ${
+                          isExpired
+                            ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                            : 'border-eco-green text-eco-green hover:bg-eco-green-light'
+                        }`}
+                      >
+                        Manage
+                      </Button>
                       {isExpired && (
                         <Button
                           onClick={() => handleExtendExpiry(event.id)}

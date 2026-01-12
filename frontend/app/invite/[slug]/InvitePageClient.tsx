@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { InviteConfig } from '@/lib/invite/schema'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
 import { logError, logDebug } from '@/lib/error-handler'
@@ -42,6 +43,10 @@ export default function InvitePageClient({
   eventDetailsSSR = null,
   allowedSubEvents = [],
 }: InvitePageClientProps) {
+  // Extract guest token from URL (most efficient - no state/effects needed)
+  const searchParams = useSearchParams()
+  const guestToken = searchParams.get('g') || searchParams.get('token')
+  
   // Client-side lifecycle tracking
   const clientStartTime = typeof window !== 'undefined' ? Date.now() : 0
   
@@ -793,6 +798,7 @@ export default function InvitePageClient({
               skipTextureOverlay={true}
               skipBackgroundColor={true}
               allowedSubEvents={subEvents}
+              guestToken={guestToken}
             />
           </div>
         </div>
@@ -826,6 +832,7 @@ export default function InvitePageClient({
             skipTextureOverlay={true}
             skipBackgroundColor={true}
             allowedSubEvents={subEvents}
+            guestToken={guestToken}
           />
         </div>
       )}

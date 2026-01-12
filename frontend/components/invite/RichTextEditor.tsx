@@ -40,6 +40,7 @@ const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]
 
 export default function RichTextEditor({ value, onChange, placeholder }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const isProcessingInputRef = useRef(false)
   const [isFocused, setIsFocused] = useState(false)
   const [showFontMenu, setShowFontMenu] = useState(false)
   const [showSizeMenu, setShowSizeMenu] = useState(false)
@@ -247,6 +248,11 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
 
   // Update editor content when value prop changes (only when not focused to avoid conflicts)
   useEffect(() => {
+    // Don't update if we're currently processing input (e.g., during paste) to prevent infinite loops
+    if (isProcessingInputRef.current) {
+      return
+    }
+    
     if (editorRef.current && !isFocused) {
       // Only update if the content has actually changed to avoid overwriting user edits
       const currentContent = editorRef.current.innerHTML
@@ -306,29 +312,40 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
 
   const handleInput = () => {
     if (editorRef.current) {
-      // Normalize empty paragraphs to ensure they're preserved
-      // Handle both truly empty and paragraphs with only <br>
-      // IMPORTANT: Only normalize truly empty paragraphs, preserve all formatting
-      const allParagraphs = editorRef.current.querySelectorAll('p, div')
-      allParagraphs.forEach((el) => {
-        const textContent = el.textContent?.trim() || ''
-        const innerHTML = el.innerHTML.trim()
-        
-        // Only normalize if paragraph is completely empty (no text, no formatting)
-        // Preserve any formatting that exists
-        if (textContent === '' && (innerHTML === '' || innerHTML === '<br>' || innerHTML === '<br/>')) {
-          // Only set to <br> if it's truly empty, don't touch paragraphs with formatting
-          const hasFormatting = el.querySelector('span, strong, em, u, s, a, font') !== null
-          if (!hasFormatting) {
-            el.innerHTML = '<br>'
-          }
-        }
-      })
+      // Set flag to prevent useEffect from running during input processing
+      isProcessingInputRef.current = true
       
-      const html = editorRef.current.innerHTML
-      // Always store HTML to preserve all formatting (fonts, colors, alignment, lists, etc.)
-      // This ensures all rich text features work correctly
-      onChange(html)
+      try {
+        // Normalize empty paragraphs to ensure they're preserved
+        // Handle both truly empty and paragraphs with only <br>
+        // IMPORTANT: Only normalize truly empty paragraphs, preserve all formatting
+        const allParagraphs = editorRef.current.querySelectorAll('p, div')
+        allParagraphs.forEach((el) => {
+          const textContent = el.textContent?.trim() || ''
+          const innerHTML = el.innerHTML.trim()
+          
+          // Only normalize if paragraph is completely empty (no text, no formatting)
+          // Preserve any formatting that exists
+          if (textContent === '' && (innerHTML === '' || innerHTML === '<br>' || innerHTML === '<br/>')) {
+            // Only set to <br> if it's truly empty, don't touch paragraphs with formatting
+            const hasFormatting = el.querySelector('span, strong, em, u, s, a, font') !== null
+            if (!hasFormatting) {
+              el.innerHTML = '<br>'
+            }
+          }
+        })
+        
+        const html = editorRef.current.innerHTML
+        // Always store HTML to preserve all formatting (fonts, colors, alignment, lists, etc.)
+        // This ensures all rich text features work correctly
+        onChange(html)
+      } finally {
+        // Reset flag after a short delay to allow the onChange to propagate
+        // This prevents the useEffect from running while we're still processing
+        setTimeout(() => {
+          isProcessingInputRef.current = false
+        }, 0)
+      }
     }
   }
 
@@ -430,45 +447,60 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault()
-    const text = e.clipboardData.getData('text/plain')
-    const html = e.clipboardData.getData('text/html')
     
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0) return
+    // Set flag immediately to prevent useEffect from interfering during paste
+    isProcessingInputRef.current = true
     
-    const range = selection.getRangeAt(0)
-    range.deleteContents()
-    
-    // Use plain text to preserve line breaks and avoid formatting issues
-    // User can then apply formatting as needed
-    const lines = text.split('\n')
-    const fragment = document.createDocumentFragment()
-    
-    lines.forEach((line) => {
-      const p = document.createElement('p')
-      if (line.trim() === '') {
-        p.innerHTML = '<br>'
-      } else {
-        p.textContent = line
+    try {
+      const text = e.clipboardData.getData('text/plain')
+      const html = e.clipboardData.getData('text/html')
+      
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0) {
+        isProcessingInputRef.current = false
+        return
       }
-      fragment.appendChild(p)
-    })
-    
-    range.insertNode(fragment)
-    
-    // Move cursor to end of pasted content
-    const lastNode = fragment.lastChild
-    if (lastNode) {
-      range.setStartAfter(lastNode)
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
+      
+      const range = selection.getRangeAt(0)
+      range.deleteContents()
+      
+      // Use plain text to preserve line breaks and avoid formatting issues
+      // User can then apply formatting as needed
+      const lines = text.split('\n')
+      const fragment = document.createDocumentFragment()
+      
+      lines.forEach((line) => {
+        const p = document.createElement('p')
+        if (line.trim() === '') {
+          p.innerHTML = '<br>'
+        } else {
+          p.textContent = line
+        }
+        fragment.appendChild(p)
+      })
+      
+      range.insertNode(fragment)
+      
+      // Move cursor to end of pasted content
+      const lastNode = fragment.lastChild
+      if (lastNode) {
+        range.setStartAfter(lastNode)
+        range.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+      
+      // Normalize the content after pasting using handleInput
+      // The flag is already set, so handleInput will process without triggering useEffect
+      // handleInput will reset the flag in its finally block
+      setTimeout(() => {
+        handleInput()
+      }, 0)
+    } catch (error) {
+      // Ensure flag is reset even on error
+      isProcessingInputRef.current = false
+      console.error('Error handling paste:', error)
     }
-    
-    // Normalize the content after pasting
-    setTimeout(() => {
-      handleInput()
-    }, 0)
   }
 
   const handleFormat = (command: string, value?: string) => {

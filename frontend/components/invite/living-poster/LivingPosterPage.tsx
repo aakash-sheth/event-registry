@@ -19,6 +19,7 @@ interface LivingPosterPageProps {
   skipTextureOverlay?: boolean
   skipBackgroundColor?: boolean
   allowedSubEvents?: any[]
+  guestToken?: string | null
 }
 
 function LivingPosterContent({
@@ -31,6 +32,7 @@ function LivingPosterContent({
   skipTextureOverlay = false,
   skipBackgroundColor = false,
   allowedSubEvents = [],
+  guestToken,
 }: LivingPosterPageProps) {
   const theme = useTheme()
   const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
@@ -102,6 +104,7 @@ function LivingPosterContent({
                     hasRegistry={hasRegistry}
                     allTiles={config.tiles || []}
                     allowedSubEvents={allowedSubEvents}
+                    guestToken={guestToken}
                   />
                   <TilePreview
                     tile={tile}
@@ -111,6 +114,7 @@ function LivingPosterContent({
                     hasRegistry={hasRegistry}
                     allTiles={config.tiles || []}
                     allowedSubEvents={allowedSubEvents}
+                    guestToken={guestToken}
                   />
                 </div>
               )
@@ -132,6 +136,7 @@ function LivingPosterContent({
               hasRegistry={hasRegistry}
               allTiles={config.tiles || []}
               allowedSubEvents={allowedSubEvents}
+              guestToken={guestToken}
             />
           )
         })}
@@ -155,6 +160,7 @@ function LivingPosterContent({
         eventDate={eventDate}
         showBadge={showBadge}
         theme={theme}
+        guestToken={guestToken}
       />
       {config.descriptionMarkdown && (
         <Description markdown={config.descriptionMarkdown} config={config} />

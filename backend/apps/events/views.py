@@ -1667,6 +1667,59 @@ def check_phone_for_rsvp(request, event_id):
     return Response(guest_data, status=status.HTTP_200_OK)
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_guest_by_token(request, event_id):
+    """Get guest data by token for RSVP autofill (public endpoint)"""
+    try:
+        event = get_object_or_404(Event, id=event_id)
+    except Event.DoesNotExist:
+        return Response({'error': 'Event not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    # Check if RSVP is enabled for this event
+    if not event.has_rsvp:
+        return Response({'error': 'RSVP is not enabled for this event'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Extract token from query parameters (support both 'token' and 'g' for compatibility)
+    guest_token = request.query_params.get('token', '').strip() or request.query_params.get('g', '').strip()
+    
+    if not guest_token:
+        return Response({'error': 'Guest token is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        guest = Guest.objects.get(
+            guest_token=guest_token,
+            event=event,
+            is_removed=False
+        )
+        
+        # Check if guest is removed (shouldn't happen due to filter, but double-check)
+        if guest.is_removed:
+            return Response(
+                {'error': 'This guest has been removed. You cannot access your RSVP.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Return guest data in same format as check_phone_for_rsvp response
+        from .utils import parse_phone_number
+        country_code, local_number = parse_phone_number(guest.phone)
+        
+        guest_data = {
+            'name': guest.name,
+            'phone': guest.phone,
+            'email': guest.email or '',
+            'country_code': country_code,
+            'local_number': local_number,
+            'found_in': 'guest_list',
+            'has_rsvp': False,
+            'phone_verified': True,
+        }
+        
+        return Response(guest_data, status=status.HTTP_200_OK)
+    except Guest.DoesNotExist:
+        return Response({'error': 'Invalid guest token'}, status=status.HTTP_404_NOT_FOUND)
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_rsvp(request, event_id):

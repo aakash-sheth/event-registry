@@ -10,6 +10,7 @@ export interface FeatureButtonsTileProps {
   hasRsvp?: boolean
   hasRegistry?: boolean
   eventSlug?: string
+  guestToken?: string | null
 }
 
 export default function FeatureButtonsTile({
@@ -18,6 +19,7 @@ export default function FeatureButtonsTile({
   hasRsvp = false,
   hasRegistry = false,
   eventSlug,
+  guestToken,
 }: FeatureButtonsTileProps) {
   const buttonColor = settings.buttonColor || '#0D6EFD'
   const buttons: Array<{ label: string; href: string }> = []
@@ -25,7 +27,7 @@ export default function FeatureButtonsTile({
   if (hasRsvp) {
     buttons.push({ 
       label: settings.rsvpLabel || 'RSVP', // Use custom label or default
-      href: `/event/${eventSlug}/rsvp` 
+      href: guestToken ? `/event/${eventSlug}/rsvp?g=${guestToken}` : `/event/${eventSlug}/rsvp` 
     })
   }
   if (hasRegistry) {
