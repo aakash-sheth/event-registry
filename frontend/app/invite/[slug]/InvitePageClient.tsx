@@ -324,7 +324,6 @@ export default function InvitePageClient({
       /*
       // If connection error, try fallback to registry endpoint
       if (error.code === 'ERR_CONNECTION_RESET' || error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
-        console.log('[InvitePageClient] Connection error, trying fallback to registry endpoint')
         try {
           const fallbackResponse = await api.get(`/api/registry/${slug}/`)
           const eventData = {
@@ -698,21 +697,6 @@ export default function InvitePageClient({
       fullConfig: config,
     })
     
-    // Also log to console for easier debugging
-    if (config?.pageBorder?.enabled) {
-      console.log('🎨 PAGE BORDER ENABLED:', {
-        enabled: true,
-        style: config.pageBorder.style,
-        color: config.pageBorder.color,
-        width: config.pageBorder.width,
-      })
-    } else {
-      console.log('🎨 PAGE BORDER DISABLED:', {
-        hasConfig: !!config,
-        hasPageBorder: !!config?.pageBorder,
-        enabled: config?.pageBorder?.enabled,
-      })
-    }
     
     if (!config.pageBorder?.enabled) {
       return { 

@@ -176,12 +176,14 @@ export default function SubEventsPage() {
       fetchEvent() // Refresh event to check if it upgraded to ENVELOPE
     } catch (error: any) {
       logError('Failed to save sub-event:', error)
-      console.error('Sub-event save error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        payload: payload
-      })
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Sub-event save error details:', {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          payload: payload
+        })
+      }
       showToast(getErrorMessage(error), 'error')
     } finally {
       setSaving(false)
@@ -448,7 +450,9 @@ export default function SubEventsPage() {
                                     }))
                                   })
                                   .catch((error) => {
-                                    console.error('Error extracting dominant colors (non-critical):', error)
+                                    if (process.env.NODE_ENV === 'development') {
+                                      console.error('Error extracting dominant colors (non-critical):', error)
+                                    }
                                     // Color extraction failed, but image is already uploaded and displayed
                                     // User can manually set background color if needed
                                   })

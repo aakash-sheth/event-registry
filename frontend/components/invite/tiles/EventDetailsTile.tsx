@@ -242,7 +242,9 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
 
         window.open(googleUrl, '_blank')
       } catch (error) {
-        console.error('Error creating calendar event:', error)
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error creating calendar event:', error)
+        }
       }
     }
     setShowCalendarMenu(false)

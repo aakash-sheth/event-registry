@@ -64,7 +64,9 @@ export default function TimerTile({ settings, preview = false, eventDate, eventT
           target.setHours(0, 0, 0, 0)
         }
       } catch (error) {
-        console.error('Error parsing event date:', error, eventDate)
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error parsing event date:', error, eventDate)
+        }
         setTimeRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0 })
         return
       }

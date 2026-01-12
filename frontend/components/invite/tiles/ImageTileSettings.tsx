@@ -77,12 +77,16 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
         })
         })
         .catch((error) => {
-          console.error('Error extracting dominant colors (non-critical):', error)
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Error extracting dominant colors (non-critical):', error)
+          }
           // Color extraction failed, but image is already uploaded and displayed
           // User can manually set background color if needed
         })
     } catch (error) {
-      console.error('Error uploading image:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error uploading image:', error)
+      }
       alert('Failed to upload image. Please try again.')
     } finally {
       setUploading(false)

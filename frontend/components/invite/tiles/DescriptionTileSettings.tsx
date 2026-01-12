@@ -30,7 +30,9 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
       getDescriptionVariables(eventId)
         .then(setAvailableVariables)
         .catch((error) => {
-          console.error('Failed to load description variables:', error)
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Failed to load description variables:', error)
+          }
         })
     }
   }, [eventId])

@@ -224,18 +224,6 @@ export default function GuestsPage() {
         }
       })
       
-      // Debug logging
-      console.log('[Guest Management] Initializing sub-event assignments:', {
-        guestCount: allGuests.length,
-        assignmentsCount: Object.keys(assignments).length,
-        assignments: assignments,
-        sampleGuest: allGuests[0] ? {
-          id: allGuests[0].id,
-          name: allGuests[0].name,
-          sub_event_invites: allGuests[0].sub_event_invites
-        } : null
-      })
-      
       setGuestSubEventAssignments(assignments)
       
       // Fetch RSVPs for all guests (only for PER_SUBEVENT mode)
@@ -344,19 +332,9 @@ export default function GuestsPage() {
     try {
       const subEventIds = guestSubEventAssignments[guestId] || []
       
-      // Log for debugging
-      console.log('[SubEvent Assignment] Saving assignments:', {
-        guestId,
-        subEventIds,
-        count: subEventIds.length
-      })
-      
       const response = await api.put(`/api/events/guests/${guestId}/invites/`, {
         sub_event_ids: subEventIds
       })
-      
-      // Log response for debugging
-      console.log('[SubEvent Assignment] Save response:', response.data)
       
       showToast('Sub-event assignments updated', 'success')
       setShowSubEventAssignment(null)
@@ -364,13 +342,6 @@ export default function GuestsPage() {
       // Refresh guests to get updated guest_token and assignments
       await fetchGuests()
     } catch (error: any) {
-      console.error('[SubEvent Assignment] Save error:', {
-        guestId,
-        subEventIds: guestSubEventAssignments[guestId],
-        error: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      })
       showToast('Failed to update sub-event assignments', 'error')
       logError('Failed to update guest invites:', error)
     }
@@ -1129,22 +1100,22 @@ export default function GuestsPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={async () => {
-                                  // Ensure assignments are loaded before opening modal
-                                  if (guestSubEventAssignments[guest.id] === undefined) {
-                                    // If guest has sub_event_invites from fetchGuests, use that
-                                    if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
-                                      setGuestSubEventAssignments(prev => ({
-                                        ...prev,
-                                        [guest.id]: guest.sub_event_invites
-                                      }))
-                                    } else {
-                                      // Otherwise fetch from API
-                                      await fetchGuestSubEventAssignments(guest.id)
-                                    }
-                                  }
-                                  setShowSubEventAssignment(guest.id)
-                                }}
+                                 onClick={async () => {
+                                   // Ensure assignments are loaded before opening modal
+                                   if (guestSubEventAssignments[guest.id] === undefined) {
+                                     // If guest has sub_event_invites from fetchGuests, use that
+                                     if (guest.sub_event_invites && Array.isArray(guest.sub_event_invites)) {
+                                       setGuestSubEventAssignments(prev => ({
+                                         ...prev,
+                                         [guest.id]: guest.sub_event_invites!
+                                       }))
+                                     } else {
+                                       // Otherwise fetch from API
+                                       await fetchGuestSubEventAssignments(guest.id)
+                                     }
+                                   }
+                                   setShowSubEventAssignment(guest.id)
+                                 }}
                                 className="text-xs border-purple-300 text-purple-600 hover:bg-purple-50"
                               >
                                 {guestSubEventAssignments[guest.id]?.length || 0} assigned

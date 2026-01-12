@@ -53,79 +53,41 @@ export default function RegistryPage() {
   const [showCheckout, setShowCheckout] = useState(false)
 
   useEffect(() => {
-    console.log('[RegistryPage] Component mounted/updated with slug:', slug)
     fetchRegistry()
   }, [slug])
 
   const fetchRegistry = async () => {
-    console.log('[RegistryPage] Starting fetchRegistry for slug:', slug)
     const apiUrl = `/api/registry/${slug}/items`
-    console.log('[RegistryPage] API URL:', apiUrl)
     
     try {
-      console.log('[RegistryPage] Making API request to:', apiUrl)
       const response = await api.get(apiUrl)
-      console.log('[RegistryPage] API response received:', {
-        status: response.status,
-        hasEvent: !!response.data?.event,
-        hasItems: !!response.data?.items,
-        itemsCount: response.data?.items?.length || 0,
-        eventSlug: response.data?.event?.slug,
-        eventTitle: response.data?.event?.title,
-        hasRegistry: response.data?.event?.has_registry,
-      })
       
       const eventData = response.data.event
       setEvent(eventData)
       
       // Check if registry is enabled - if not, items will be empty/error
       if (!eventData.has_registry) {
-        console.log('[RegistryPage] Registry is disabled for this event')
         setItems([])
         // Registry is disabled - we're on the invitation page which is correct
         // The invitation page will show but registry items will be hidden
       } else {
-        console.log('[RegistryPage] Registry enabled, setting items:', response.data.items?.length || 0)
         setItems(response.data.items || [])
       }
     } catch (error: any) {
-      console.error('[RegistryPage] Error fetching registry:', {
-        slug,
-        apiUrl,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        errorMessage: error.response?.data?.error || error.message,
-        errorDetails: error.response?.data,
-      })
       logError('Failed to fetch registry:', error)
       
       // If 403 error, registry is disabled - fetch event data separately
       if (error.response?.status === 403) {
-        console.log('[RegistryPage] Got 403, attempting fallback to event endpoint')
         try {
           const fallbackUrl = `/api/registry/${slug}/`
-          console.log('[RegistryPage] Fetching event data from:', fallbackUrl)
           const eventResponse = await api.get(fallbackUrl)
-          console.log('[RegistryPage] Fallback event data received:', {
-            status: eventResponse.status,
-            slug: eventResponse.data?.slug,
-            title: eventResponse.data?.title,
-          })
           setEvent(eventResponse.data)
           setItems([])
         } catch (eventError: any) {
-          console.error('[RegistryPage] Fallback event fetch failed:', {
-            slug,
-            status: eventError.response?.status,
-            errorMessage: eventError.response?.data?.error || eventError.message,
-          })
           logError('Failed to fetch event data:', eventError)
         }
-      } else if (error.response?.status === 404) {
-        console.error('[RegistryPage] 404 - Event not found for slug:', slug)
       }
     } finally {
-      console.log('[RegistryPage] fetchRegistry completed, setting loading to false')
       setLoading(false)
     }
   }

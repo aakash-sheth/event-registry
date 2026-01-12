@@ -119,7 +119,9 @@ export default function EventCarouselTile({
           })
           .catch((error) => {
             // Handle error gracefully - don't break carousel if dimension loading fails
-            console.warn('Failed to load image dimensions:', error)
+            if (process.env.NODE_ENV === 'development') {
+              console.warn('Failed to load image dimensions:', error)
+            }
             loadingImagesRef.current.delete(imageUrl)
           })
       }

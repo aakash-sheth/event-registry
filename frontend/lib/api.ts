@@ -112,7 +112,9 @@ api.interceptors.request.use((config) => {
     }
     // Validate the URL is still valid
     if (!baseURL.startsWith('http://') && !baseURL.startsWith('https://')) {
-      console.error('[API] Invalid baseURL after replacement:', baseURL)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API] Invalid baseURL after replacement:', baseURL)
+      }
       config.baseURL = 'http://localhost:8000'
     }
   }
@@ -172,14 +174,16 @@ api.interceptors.request.use((config) => {
     // 2. NOT using correct pattern (slug-based)
     // 3. Request is NOT authenticated (no auth token means it's a public request)
     if (isWrongPattern && !isCorrectPattern && !isAuthenticated) {
-      console.error('[API] ⚠️ WRONG INVITE ENDPOINT DETECTED (public requests should use slug):', {
-        url: config.url,
-        method: config.method,
-        correctPattern: '/api/events/invite/{slug}/',
-        wrongPattern: '/api/events/{id}/invite/',
-        note: 'ID-based endpoints are OK for authenticated hosts, but public requests must use slug',
-        stackTrace: new Error().stack,
-      })
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API] ⚠️ WRONG INVITE ENDPOINT DETECTED (public requests should use slug):', {
+          url: config.url,
+          method: config.method,
+          correctPattern: '/api/events/invite/{slug}/',
+          wrongPattern: '/api/events/{id}/invite/',
+          note: 'ID-based endpoints are OK for authenticated hosts, but public requests must use slug',
+          stackTrace: new Error().stack,
+        })
+      }
       // Don't block the request, but log it for debugging
     }
   }
