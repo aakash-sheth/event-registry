@@ -720,8 +720,8 @@ export default function DesignInvitationPage(): JSX.Element {
             { type: 'REFRESH_INVITE_PAGE', slug: event?.slug },
             window.location.origin
           )
-          // Also trigger a reload with cache-busting to ensure fresh data
-          previewWindowRef.current.location.href = `/invite/${event?.slug}?preview=true&_t=${Date.now()}`
+          // Also trigger a reload (cache-busting handled by headers and backend)
+          previewWindowRef.current.location.href = `/invite/${event?.slug}?preview=true`
         }
       }
     } catch (error: any) {
@@ -1034,12 +1034,12 @@ export default function DesignInvitationPage(): JSX.Element {
     // Add preview=true to bypass cache for editor
     // Store reference to preview window for refresh messages
     // If preview window already exists, refresh it; otherwise open new one
-    const previewUrl = `/invite/${event.slug}?preview=true&_t=${Date.now()}`
+    const previewUrl = `/invite/${event.slug}?preview=true`
     if (previewWindowRef.current && !previewWindowRef.current.closed) {
-      // Preview window is still open, refresh it with cache-busting
+      // Preview window is still open, refresh it (cache-busting handled by headers)
       previewWindowRef.current.location.href = previewUrl
     } else {
-      // Open new preview window with cache-busting
+      // Open new preview window
       previewWindowRef.current = window.open(previewUrl, '_blank')
     }
   }

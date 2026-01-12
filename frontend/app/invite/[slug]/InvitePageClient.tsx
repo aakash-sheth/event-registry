@@ -143,11 +143,6 @@ export default function InvitePageClient({
       if (isPreview) {
         queryParams.append('preview', 'true')
       }
-      // Add cache-busting timestamp for preview mode to always show latest changes
-      // Preview mode should always bypass cache to show real-time updates
-      if (isPreview) {
-        queryParams.append('_t', Date.now().toString())
-      }
       const queryString = queryParams.toString()
       
       // ALWAYS use the public invite endpoint with slug (never event ID)

@@ -345,13 +345,14 @@ class EventViewSet(viewsets.ModelViewSet):
                 if invite_page.slug:
                     # Invalidate backend cache immediately (no delay)
                     invalidate_invite_page_cache(invite_page.slug)
-                    # Add debounced CloudFront invalidation (industry standard)
-                    # Backend cache invalidation ensures immediate freshness for API calls
-                    # CloudFront invalidation is debounced to reduce costs
-                    invalidate_cloudfront_cache_debounced(invite_page.slug, debounce_seconds=30)
+                    # Immediate CloudFront invalidation for design updates
+                    # This ensures preview windows see changes instantly (<1s latency)
+                    # Cost: ~$0.005 per invalidation, acceptable for design tool usage
+                    # Note: Public page saves can still use debounced invalidation if needed
+                    invalidate_cloudfront_cache_immediate(invite_page.slug)
                     logger.info(
                         f"[Cache] INVALIDATE - slug: {invite_page.slug}, "
-                        f"reason: invite_page_config_updated"
+                        f"reason: invite_page_config_updated (immediate)"
                     )
                 logger.info(f"Updated InvitePage config for event {event.id}")
             except InvitePage.DoesNotExist:
@@ -1176,7 +1177,9 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         if event and request.user.is_authenticated:
             is_event_host = event.host == request.user
         
-        bypass_cache = is_preview and is_event_host
+        # Always bypass cache for preview mode (regardless of authentication)
+        # Preview mode is meant to show latest changes, so never use cache
+        bypass_cache = is_preview
 
         # Create response
         response = Response(serializer.data)
