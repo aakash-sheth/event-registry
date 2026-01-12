@@ -137,12 +137,16 @@ jobs:
           # Fetch brand name from SSM (default: Ekfern)
           NEXT_PUBLIC_BRAND_NAME=$(aws ssm get-parameter --name "/event-registry-staging/NEXT_PUBLIC_BRAND_NAME" --query "Parameter.Value" --output text 2>/dev/null || echo "Ekfern")
           
+          # Fetch CloudFront image domain from SSM (for converting S3 URLs to CloudFront URLs in meta tags)
+          NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN=$(aws ssm get-parameter --name "/event-registry-staging/CLOUDFRONT_IMAGE_DOMAIN" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          
           # Company homepage uses FRONTEND_URL if available, otherwise NEXT_PUBLIC_API_BASE
           NEXT_PUBLIC_COMPANY_HOMEPAGE="${FRONTEND_URL:-$NEXT_PUBLIC_API_BASE}"
           
           echo "Building frontend with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
           echo "Building frontend with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}"
           echo "Building frontend with NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE}"
+          echo "Building frontend with NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN=${NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN}"
           echo "Building frontend with COMMIT_SHA=${IMAGE_TAG}"
           
           # Build with Docker buildx
@@ -154,6 +158,7 @@ jobs:
             --build-arg NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE}" \
             --build-arg NEXT_PUBLIC_BRAND_NAME="${NEXT_PUBLIC_BRAND_NAME}" \
             --build-arg NEXT_PUBLIC_COMPANY_HOMEPAGE="${NEXT_PUBLIC_COMPANY_HOMEPAGE}" \
+            --build-arg NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN="${NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN}" \
             --build-arg COMMIT_SHA="${IMAGE_TAG}" \
             --tag $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG \
             --tag $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:latest \

@@ -18,10 +18,12 @@ const QRCode = dynamic(() => import('react-qr-code'), {
   loading: () => <div className="w-[200px] h-[200px] bg-gray-100 animate-pulse rounded" />
 })
 
-const TemplateSelector = dynamic(() => import('@/components/communications/TemplateSelector'), {
-  ssr: false,
-  loading: () => null
-})
+const TemplateSelector = dynamic(
+  () => import('@/components/communications/TemplateSelector'),
+  {
+    ssr: false
+  }
+)
 
 interface Event {
   id: number

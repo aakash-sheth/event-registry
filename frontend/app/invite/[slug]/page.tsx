@@ -9,6 +9,7 @@ import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 import { BRAND_NAME, GENERIC_ENVELOPE_IMAGE } from '@/lib/brand_utility'
+import { convertToCloudFrontUrl } from '@/lib/image-utils'
 import http from 'http'
 import https from 'https'
 
@@ -755,8 +756,8 @@ export async function generateMetadata({
         ? `${baseUrl}${bannerImage}`
         : `${baseUrl}/${bannerImage}`
     } else {
-      // Already absolute (S3 URL), use as-is
-      absoluteBannerImage = bannerImage
+      // Already absolute - convert S3 URLs to CloudFront if configured
+      absoluteBannerImage = convertToCloudFrontUrl(bannerImage)
     }
   }
 

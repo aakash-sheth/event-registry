@@ -3,11 +3,12 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Accept build arguments for NEXT_PUBLIC_API_BASE, NEXT_PUBLIC_BRAND_NAME, and NEXT_PUBLIC_COMPANY_HOMEPAGE
+# Accept build arguments for NEXT_PUBLIC_API_BASE, NEXT_PUBLIC_BRAND_NAME, NEXT_PUBLIC_COMPANY_HOMEPAGE, and NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN
 # These must be provided at build time for Next.js to bake them into the bundle
 ARG NEXT_PUBLIC_API_BASE
 ARG NEXT_PUBLIC_BRAND_NAME
 ARG NEXT_PUBLIC_COMPANY_HOMEPAGE
+ARG NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN
 # Commit SHA for cache invalidation - changes with each code change
 ARG COMMIT_SHA
 # Verify the build arg is set (fail build if not provided)
@@ -15,10 +16,12 @@ RUN if [ -z "$NEXT_PUBLIC_API_BASE" ]; then echo "ERROR: NEXT_PUBLIC_API_BASE bu
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
 ENV NEXT_PUBLIC_BRAND_NAME="${NEXT_PUBLIC_BRAND_NAME:-Ekfern}"
 ENV NEXT_PUBLIC_COMPANY_HOMEPAGE="${NEXT_PUBLIC_COMPANY_HOMEPAGE:-https://eventregistry.com}"
+ENV NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN="${NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN:-}"
 # Print the values for debugging (will show in build logs)
 RUN echo "Building with NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}"
 RUN echo "Building with NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME:-Ekfern}"
 RUN echo "Building with NEXT_PUBLIC_COMPANY_HOMEPAGE=${NEXT_PUBLIC_COMPANY_HOMEPAGE:-https://eventregistry.com}"
+RUN echo "Building with NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN=${NEXT_PUBLIC_CLOUDFRONT_IMAGE_DOMAIN:-}"
 RUN echo "Building with COMMIT_SHA=${COMMIT_SHA}"
 
 # Copy package files

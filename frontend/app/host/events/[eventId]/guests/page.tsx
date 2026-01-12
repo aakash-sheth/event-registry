@@ -18,10 +18,12 @@ import { logError } from '@/lib/error-handler'
 import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
 import dynamic from 'next/dynamic'
 
-const TemplateSelector = dynamic(() => import('@/components/communications/TemplateSelector'), {
-  ssr: false,
-  loading: () => null
-})
+const TemplateSelector = dynamic(
+  () => import('@/components/communications/TemplateSelector'),
+  {
+    ssr: false
+  }
+)
 
 const guestSchema = z.object({
   name: z.string().min(1, 'Name is required'),
