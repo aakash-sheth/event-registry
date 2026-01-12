@@ -71,6 +71,7 @@ export default function EventCarouselTile({
   const [touchEndX, setTouchEndX] = useState<number | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [imageDimensionsMap, setImageDimensionsMap] = useState<Map<string, ImageDimensions>>(new Map())
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
   
   // Refs
   const autoPlayTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -518,31 +519,55 @@ export default function EventCarouselTile({
           )}
           
           {subEvent.description && (() => {
+            const isExpanded = expandedDescriptions.has(subEvent.id)
             // Check if description contains HTML tags
             const isHTML = /<[a-z][\s\S]*>/i.test(subEvent.description)
-            const style = {
+            // Check if description is long enough to need truncation
+            const textContent = isHTML 
+              ? subEvent.description.replace(/<[^>]*>/g, '').trim()
+              : subEvent.description.trim()
+            const needsTruncation = textContent.length > 200 // Approximate 3 lines
+            
+            const truncationStyle = !isExpanded && needsTruncation ? {
               display: '-webkit-box' as const,
               WebkitLineClamp: 3,
               WebkitBoxOrient: 'vertical' as const,
               lineHeight: '1.5',
-            }
-            
-            if (isHTML) {
-              return (
-                <div 
-                  className="text-gray-700 text-sm prose prose-sm max-w-none overflow-hidden break-words"
-                  style={style}
-                  dangerouslySetInnerHTML={{ __html: subEvent.description }}
-                />
-              )
-            }
+              overflow: 'hidden' as const,
+            } : undefined
             
             return (
-              <div 
-                className="text-gray-700 text-sm prose prose-sm max-w-none overflow-hidden break-words"
-                style={style}
-              >
-                {subEvent.description}
+              <div>
+                {isHTML ? (
+                  <div 
+                    className="text-gray-700 text-sm prose prose-sm max-w-none break-words"
+                    style={truncationStyle}
+                    dangerouslySetInnerHTML={{ __html: subEvent.description }}
+                  />
+                ) : (
+                  <div 
+                    className="text-gray-700 text-sm prose prose-sm max-w-none break-words"
+                    style={truncationStyle}
+                  >
+                    {subEvent.description}
+                  </div>
+                )}
+                {needsTruncation && (
+                  <button
+                    onClick={() => {
+                      const newExpanded = new Set(expandedDescriptions)
+                      if (isExpanded) {
+                        newExpanded.delete(subEvent.id)
+                      } else {
+                        newExpanded.add(subEvent.id)
+                      }
+                      setExpandedDescriptions(newExpanded)
+                    }}
+                    className="text-xs text-eco-green hover:text-green-600 mt-1 font-medium"
+                  >
+                    {isExpanded ? 'View less' : 'View more'}
+                  </button>
+                )}
               </div>
             )
           })()}
@@ -567,6 +592,7 @@ export default function EventCarouselTile({
     formatDateTime,
     eventSlug,
     reducedMotion,
+    expandedDescriptions,
   ])
 
   // Render arrow buttons

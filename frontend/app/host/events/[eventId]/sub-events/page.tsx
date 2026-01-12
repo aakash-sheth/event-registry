@@ -62,6 +62,7 @@ export default function SubEventsPage() {
   const [saving, setSaving] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isDescriptionModalOpen, setIsDescriptionModalOpen] = useState(false)
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     if (!eventId || isNaN(eventId)) {
@@ -634,18 +635,49 @@ export default function SubEventsPage() {
                         <span>{subEvent.location}</span>
                       </div>
                     )}
-                    {subEvent.description && (
-                      <div 
-                        className="text-sm text-gray-700 prose prose-sm max-w-none overflow-hidden break-words"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          lineHeight: '1.5',
-                        }}
-                        dangerouslySetInnerHTML={{ __html: subEvent.description }}
-                      />
-                    )}
+                    {subEvent.description && (() => {
+                      const isExpanded = expandedDescriptions.has(subEvent.id)
+                      const isHTML = /<[a-z][\s\S]*>/i.test(subEvent.description)
+                      // Check if description is long enough to need truncation
+                      const textContent = isHTML 
+                        ? subEvent.description.replace(/<[^>]*>/g, '').trim()
+                        : subEvent.description.trim()
+                      const needsTruncation = textContent.length > 150 // Approximate 2 lines
+                      
+                      return (
+                        <div>
+                          <div 
+                            className="text-sm text-gray-700 prose prose-sm max-w-none break-words"
+                            style={!isExpanded && needsTruncation ? {
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              lineHeight: '1.5',
+                              overflow: 'hidden',
+                            } : undefined}
+                            dangerouslySetInnerHTML={isHTML ? { __html: subEvent.description } : undefined}
+                          >
+                            {!isHTML && subEvent.description}
+                          </div>
+                          {needsTruncation && (
+                            <button
+                              onClick={() => {
+                                const newExpanded = new Set(expandedDescriptions)
+                                if (isExpanded) {
+                                  newExpanded.delete(subEvent.id)
+                                } else {
+                                  newExpanded.add(subEvent.id)
+                                }
+                                setExpandedDescriptions(newExpanded)
+                              }}
+                              className="text-xs text-eco-green hover:text-green-600 mt-1 font-medium"
+                            >
+                              {isExpanded ? 'View less' : 'View more'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
                     <div className="flex gap-2 pt-2 border-t">
                       <span className={`text-xs px-2 py-1 rounded ${
                         subEvent.rsvp_enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'

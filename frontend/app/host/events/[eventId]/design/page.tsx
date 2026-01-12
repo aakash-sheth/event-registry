@@ -1600,24 +1600,39 @@ export default function DesignInvitationPage(): JSX.Element {
                         </label>
                         <textarea
                           value={config.linkMetadata?.description || ''}
-                          onChange={(e) => setConfig(prev => ({
-                            ...prev,
-                            linkMetadata: {
-                              ...prev.linkMetadata,
-                              description: e.target.value || undefined,
-                            },
-                          }))}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            // Enforce max length
+                            if (value.length <= 155) {
+                              setConfig(prev => ({
+                                ...prev,
+                                linkMetadata: {
+                                  ...prev.linkMetadata,
+                                  description: value || undefined,
+                                },
+                              }))
+                            }
+                          }}
                           placeholder="Leave empty to use page description"
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green resize-none"
                           rows={3}
-                          maxLength={200}
+                          maxLength={155}
                         />
                         <p className="text-xs text-gray-500 mt-1">
-                          Custom description for link previews (recommended: 150-200 characters). Leave empty to auto-generate from page content.
+                          Custom description for link previews. Maximum 155 characters to ensure full display in WhatsApp previews. Leave empty to auto-generate from page content.
                         </p>
                         {config.linkMetadata?.description && (
-                          <p className="text-xs mt-1 text-gray-400">
-                            {config.linkMetadata.description.length} / 200 characters
+                          <p className={`text-xs mt-1 ${
+                            config.linkMetadata.description.length > 150 
+                              ? 'text-orange-600' 
+                              : config.linkMetadata.description.length > 140
+                              ? 'text-yellow-600'
+                              : 'text-gray-400'
+                          }`}>
+                            {config.linkMetadata.description.length} / 155 characters
+                            {config.linkMetadata.description.length > 150 && (
+                              <span className="ml-2">⚠️ May be truncated in some previews</span>
+                            )}
                           </p>
                         )}
                       </div>
