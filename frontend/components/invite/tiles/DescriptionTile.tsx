@@ -10,7 +10,15 @@ export interface DescriptionTileProps {
 
 export default function DescriptionTile({ settings, preview = false }: DescriptionTileProps) {
   const contentRef = useRef<HTMLDivElement>(null)
-  if (!settings.content) {
+  
+  // Ensure content is always a string (handle edge cases where it might be an object)
+  const content = typeof settings.content === 'string' 
+    ? settings.content 
+    : settings.content 
+      ? String(settings.content) 
+      : ''
+  
+  if (!content) {
     if (preview) return null
     return (
       <div className="w-full py-4 px-4 border rounded bg-gray-50">
@@ -20,7 +28,7 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
   }
 
   // Check if content is HTML (contains HTML tags) or markdown
-  const isHTML = /<[a-z][\s\S]*>/i.test(settings.content)
+  const isHTML = /<[a-z][\s\S]*>/i.test(content)
 
   // Ensure empty paragraphs (with only <br>) are preserved after render
   useEffect(() => {
@@ -56,7 +64,7 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
       
       return () => clearTimeout(timer)
     }
-  }, [settings.content, isHTML])
+  }, [content, isHTML])
 
   if (preview) {
     const styleContent = `
@@ -141,14 +149,14 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
                 ref={contentRef}
                 className="prose prose-lg max-w-none description-content break-words" 
               style={{ backgroundColor: 'transparent' }}
-              dangerouslySetInnerHTML={{ __html: settings.content }}
+              dangerouslySetInnerHTML={{ __html: content }}
             />
           ) : (
               <div 
                 className="prose prose-lg max-w-none whitespace-pre-wrap description-content break-words" 
                 style={{ backgroundColor: 'transparent' }}
               >
-              {settings.content}
+              {content}
             </div>
           )}
           </div>
@@ -244,11 +252,11 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
           <div 
               ref={contentRef}
               className="prose prose-lg max-w-none description-content break-words"
-            dangerouslySetInnerHTML={{ __html: settings.content }}
+            dangerouslySetInnerHTML={{ __html: content }}
           />
         ) : (
             <div className="prose prose-lg max-w-none whitespace-pre-wrap description-content break-words">
-            {settings.content}
+            {content}
           </div>
         )}
         </div>

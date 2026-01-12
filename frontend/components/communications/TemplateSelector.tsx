@@ -113,7 +113,7 @@ export default function TemplateSelector({
       custom_fields: guestCustomFields || {},
     })
 
-    setPreview(result.message)
+    setPreview(result)
   }
 
   const filteredTemplates = templates.filter(template => {

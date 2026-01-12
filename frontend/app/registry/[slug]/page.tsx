@@ -213,7 +213,7 @@ export default function RegistryPage() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-12 md:py-16 max-w-6xl">
         {/* Description Section */}
-        {event.description && event.description.trim() ? (
+        {event.description && typeof event.description === 'string' && event.description.trim() ? (
           <div className="mb-12 md:mb-16">
             <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
               <CardContent className="p-8 md:p-12">

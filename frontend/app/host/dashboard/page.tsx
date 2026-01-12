@@ -505,17 +505,17 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
+                        <Button
+                          variant="outline"
                         onClick={() => handleManageEvent(event.id)}
                         className={`w-full flex-1 ${
-                          isExpired
-                            ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                            : 'border-eco-green text-eco-green hover:bg-eco-green-light'
-                        }`}
-                      >
-                        Manage
-                      </Button>
+                            isExpired
+                              ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                              : 'border-eco-green text-eco-green hover:bg-eco-green-light'
+                          }`}
+                        >
+                          Manage
+                        </Button>
                       {isExpired && (
                         <Button
                           onClick={() => handleExtendExpiry(event.id)}

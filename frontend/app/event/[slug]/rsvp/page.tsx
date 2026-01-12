@@ -753,7 +753,7 @@ export default function RSVPPage() {
         </div>
 
         {/* Description */}
-        {event.description && event.description.trim() && (
+        {event.description && typeof event.description === 'string' && event.description.trim() && (
           <Card className="bg-white border-eco-green-light mb-6">
             <CardContent className="pt-6">
               <div

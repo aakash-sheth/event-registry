@@ -122,7 +122,7 @@ export default function TemplateEditor({ eventId, template, onSave, onCancel }: 
 
   const replaceVariables = (text: string): {message: string, warnings: {unresolved_variables: string[], missing_custom_fields: string[]}} => {
     const { replaceTemplateVariables } = require('@/lib/whatsapp')
-    return replaceTemplateVariables(text, {
+    const message = replaceTemplateVariables(text, {
       name: 'Sarah',
       event_title: 'John & Jane\'s Wedding',
       event_date: 'March 15, 2024',
@@ -130,6 +130,13 @@ export default function TemplateEditor({ eventId, template, onSave, onCancel }: 
       host_name: 'John & Jane',
       event_location: 'Mumbai, India',
     })
+    return {
+      message,
+      warnings: {
+        unresolved_variables: [],
+        missing_custom_fields: [],
+      },
+    }
   }
 
   const insertVariable = (variable: string) => {

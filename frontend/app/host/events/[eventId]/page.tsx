@@ -285,7 +285,7 @@ export default function EventDetailPage() {
           event_url: eventUrl,
           host_name: event.host_name || undefined,
         })
-        message = result.message
+        message = result
         
         // Increment usage count
         try {

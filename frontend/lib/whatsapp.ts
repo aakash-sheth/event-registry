@@ -42,7 +42,6 @@ export function openWhatsApp(url: string): void {
 /**
  * Safely replace template variables in a message
  * Only replaces known variables, leaves unknown ones as-is
- * Supports custom fields from CSV imports
  */
 export function replaceTemplateVariables(
   template: string,
@@ -54,14 +53,10 @@ export function replaceTemplateVariables(
     event_url?: string
     host_name?: string
     map_direction?: string
-    custom_fields?: Record<string, string>
+    custom_fields?: Record<string, any>
   }
-): { message: string; warnings: { unresolved_variables: string[]; missing_custom_fields: string[] } } {
+): string {
   let message = template
-  const warnings = {
-    unresolved_variables: [] as string[],
-    missing_custom_fields: [] as string[],
-  }
   
   // Define allowed variables and their replacements
   const replacements: Record<string, string> = {}
@@ -106,32 +101,12 @@ export function replaceTemplateVariables(
     replacements['[map_direction]'] = `https://maps.google.com/?q=${encodedLocation}`
   }
   
-  // Add custom fields from CSV
-  if (variables.custom_fields) {
-    for (const [key, value] of Object.entries(variables.custom_fields)) {
-      const variableKey = `[${key}]`
-      if (value) {
-        replacements[variableKey] = value
-      } else {
-        replacements[variableKey] = '—'
-        warnings.missing_custom_fields.push(key)
-      }
-    }
-  }
-  
   // Replace all known variables
   Object.entries(replacements).forEach(([variable, value]) => {
     message = message.replace(new RegExp(variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value)
   })
   
-  // Find unresolved variables (variables in template that weren't replaced)
-  const unresolvedPattern = /\[([a-z0-9_]+)\]/gi
-  const unresolvedMatches = message.match(unresolvedPattern)
-  if (unresolvedMatches) {
-    warnings.unresolved_variables = Array.from(new Set(unresolvedMatches))
-  }
-  
-  return { message, warnings }
+  return message
 }
 
 /**
@@ -146,7 +121,7 @@ export function generateEventMessage(
 ): string {
   // If custom template is provided, use it
   if (customTemplate && customTemplate.trim()) {
-    const result = replaceTemplateVariables(customTemplate, {
+    return replaceTemplateVariables(customTemplate, {
       name: '', // No guest name for general message
       event_title: eventTitle,
       event_date: eventDate,
@@ -154,7 +129,6 @@ export function generateEventMessage(
       event_url: eventUrl,
       host_name: hostName,
     })
-    return result.message
   }
   
   // Default template
@@ -188,7 +162,7 @@ export function generateGuestMessage(
       mapDirection = `https://maps.google.com/?q=${encodedLocation}`
     }
     
-    const result = replaceTemplateVariables(customTemplate, {
+    return replaceTemplateVariables(customTemplate, {
       name: guestName,
       event_title: eventTitle,
       event_date: eventDate,
@@ -197,7 +171,6 @@ export function generateGuestMessage(
       host_name: hostName,
       map_direction: mapDirection,
     })
-    return result.message
   }
   
   // Default template

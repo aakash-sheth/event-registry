@@ -143,10 +143,9 @@ export default function InvitePageClient({
       if (isPreview) {
         queryParams.append('preview', 'true')
       }
-      // Add cache-busting timestamp for non-preview requests to ensure fresh data
-      // Backend cache is invalidated immediately, but CloudFront is debounced
-      // This ensures we get fresh data even if CloudFront hasn't invalidated yet
-      if (!isPreview) {
+      // Add cache-busting timestamp for preview mode to always show latest changes
+      // Preview mode should always bypass cache to show real-time updates
+      if (isPreview) {
         queryParams.append('_t', Date.now().toString())
       }
       const queryString = queryParams.toString()
@@ -172,13 +171,12 @@ export default function InvitePageClient({
       })
       
       const apiCallStart = Date.now()
-      // Add cache-busting headers for non-preview requests to bypass browser/CDN cache
-      // Backend cache is invalidated immediately, but CloudFront is debounced
-      // This ensures we get fresh data even if CloudFront hasn't invalidated yet
+      // Add cache-busting headers for preview mode to bypass browser/CDN cache
+      // Preview mode should always show latest changes without cache
       const requestConfig: any = {}
-      if (!isPreview) {
+      if (isPreview) {
         requestConfig.headers = {
-          'Cache-Control': 'no-cache',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
         }
       }

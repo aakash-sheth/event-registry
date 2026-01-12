@@ -637,28 +637,46 @@ export default function SubEventsPage() {
                     )}
                     {subEvent.description && (() => {
                       const isExpanded = expandedDescriptions.has(subEvent.id)
-                      const isHTML = /<[a-z][\s\S]*>/i.test(subEvent.description)
+                      // Ensure description is always a string
+                      const description = typeof subEvent.description === 'string'
+                        ? subEvent.description
+                        : subEvent.description
+                          ? String(subEvent.description)
+                          : ''
+                      
+                      if (!description) return null
+                      
+                      const isHTML = /<[a-z][\s\S]*>/i.test(description)
                       // Check if description is long enough to need truncation
                       const textContent = isHTML 
-                        ? subEvent.description.replace(/<[^>]*>/g, '').trim()
-                        : subEvent.description.trim()
+                        ? description.replace(/<[^>]*>/g, '').trim()
+                        : description.trim()
                       const needsTruncation = textContent.length > 150 // Approximate 2 lines
+                      
+                      const truncationStyle = !isExpanded && needsTruncation ? {
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical' as const,
+                        lineHeight: '1.5',
+                        overflow: 'hidden' as const,
+                      } : undefined
                       
                       return (
                         <div>
-                          <div 
-                            className="text-sm text-gray-700 prose prose-sm max-w-none break-words"
-                            style={!isExpanded && needsTruncation ? {
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              lineHeight: '1.5',
-                              overflow: 'hidden',
-                            } : undefined}
-                            dangerouslySetInnerHTML={isHTML ? { __html: subEvent.description } : undefined}
-                          >
-                            {!isHTML && subEvent.description}
-                          </div>
+                          {isHTML ? (
+                            <div 
+                              className="text-sm text-gray-700 prose prose-sm max-w-none break-words"
+                              style={truncationStyle}
+                              dangerouslySetInnerHTML={{ __html: description }}
+                            />
+                          ) : (
+                            <div 
+                              className="text-sm text-gray-700 prose prose-sm max-w-none break-words"
+                              style={truncationStyle}
+                            >
+                              {description}
+                            </div>
+                          )}
                           {needsTruncation && (
                             <button
                               onClick={() => {

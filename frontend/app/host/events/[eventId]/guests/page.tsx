@@ -639,7 +639,7 @@ export default function GuestsPage() {
           map_direction: mapDirection,
           custom_fields: (selectedGuest as any).custom_fields || {},
         })
-        message = result.message
+        message = result
         
         // Increment usage count
         try {

@@ -520,12 +520,21 @@ export default function EventCarouselTile({
           
           {subEvent.description && (() => {
             const isExpanded = expandedDescriptions.has(subEvent.id)
+            // Ensure description is always a string
+            const description = typeof subEvent.description === 'string'
+              ? subEvent.description
+              : subEvent.description
+                ? String(subEvent.description)
+                : ''
+            
+            if (!description) return null
+            
             // Check if description contains HTML tags
-            const isHTML = /<[a-z][\s\S]*>/i.test(subEvent.description)
+            const isHTML = /<[a-z][\s\S]*>/i.test(description)
             // Check if description is long enough to need truncation
             const textContent = isHTML 
-              ? subEvent.description.replace(/<[^>]*>/g, '').trim()
-              : subEvent.description.trim()
+              ? description.replace(/<[^>]*>/g, '').trim()
+              : description.trim()
             const needsTruncation = textContent.length > 200 // Approximate 3 lines
             
             const truncationStyle = !isExpanded && needsTruncation ? {
@@ -542,14 +551,14 @@ export default function EventCarouselTile({
                   <div 
                     className="text-gray-700 text-sm prose prose-sm max-w-none break-words"
                     style={truncationStyle}
-                    dangerouslySetInnerHTML={{ __html: subEvent.description }}
+                    dangerouslySetInnerHTML={{ __html: description }}
                   />
                 ) : (
                   <div 
                     className="text-gray-700 text-sm prose prose-sm max-w-none break-words"
                     style={truncationStyle}
                   >
-                    {subEvent.description}
+                    {description}
                   </div>
                 )}
                 {needsTruncation && (

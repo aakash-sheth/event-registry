@@ -1035,9 +1035,6 @@ export default async function InvitePage({
         texture: pageConfig.texture !== undefined
           ? pageConfig.texture
           : migratedConfig.texture,
-        pageBorder: pageConfig.pageBorder !== undefined
-          ? pageConfig.pageBorder
-          : migratedConfig.pageBorder,
         animations: pageConfig.animations !== undefined
           ? pageConfig.animations
           : migratedConfig.animations,
