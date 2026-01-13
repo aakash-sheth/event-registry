@@ -465,7 +465,8 @@ export default function GuestsPage() {
       
       if (editingGuest) {
         // Update existing guest
-        await api.put(`/api/events/${eventId}/guests/${editingGuest.id}/`, {
+        // Use PATCH because backend treats PUT as a full update (would require fields like `event`)
+        await api.patch(`/api/events/${eventId}/guests/${editingGuest.id}/`, {
           ...data,
           phone: formattedPhone,
           country_code: countryCode,
