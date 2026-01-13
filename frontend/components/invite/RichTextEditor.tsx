@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -55,6 +55,10 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
   const [showIndentMenu, setShowIndentMenu] = useState(false)
   const [textColor, setTextColor] = useState('#000000')
   const [highlightColor, setHighlightColor] = useState('#ffffff')
+  
+  // Track the last content we sent via onChange to prevent update loops
+  const lastSentContentRef = useRef<string>(value)
+  const isUpdatingFromPropRef = useRef(false)
 
   const editor = useEditor({
     extensions: [
@@ -87,7 +91,17 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     ],
     content: value,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML())
+      // Skip if we're updating from prop to prevent loops
+      if (isUpdatingFromPropRef.current) {
+        return
+      }
+      
+      const html = editor.getHTML()
+      // Only call onChange if content actually changed and it's different from what we last sent
+      if (html !== lastSentContentRef.current) {
+        lastSentContentRef.current = html
+        onChange(html)
+      }
     },
     editorProps: {
       attributes: {
@@ -98,10 +112,24 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     immediatelyRender: false,
   })
 
-  // Sync value prop with editor content
+  // Sync value prop with editor content (only when value changes externally)
   useEffect(() => {
-    if (editor && value !== editor.getHTML()) {
-      editor.commands.setContent(value || '', { emitUpdate: false })
+    if (!editor) return
+    
+    const currentContent = editor.getHTML()
+    // Only update if the value prop is different from what we last sent
+    // This means the change came from outside (parent component)
+    if (value !== lastSentContentRef.current && value !== currentContent) {
+      isUpdatingFromPropRef.current = true
+      try {
+        editor.commands.setContent(value || '', false)
+        lastSentContentRef.current = value
+      } finally {
+        // Reset flag after a brief delay to allow onUpdate to complete
+        setTimeout(() => {
+          isUpdatingFromPropRef.current = false
+        }, 0)
+      }
     }
   }, [value, editor])
 

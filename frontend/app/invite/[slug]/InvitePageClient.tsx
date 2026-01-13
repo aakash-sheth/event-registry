@@ -8,6 +8,7 @@ import { logError, logDebug } from '@/lib/error-handler'
 import api from '@/lib/api'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 import EnvelopeAnimation from '@/components/invite/EnvelopeAnimation'
+import PoweredByBranding from '@/components/invite/PoweredByBranding'
 
 // Helper for development-only logging
 const isDev = process.env.NODE_ENV === 'development'
@@ -793,6 +794,9 @@ export default function InvitePageClient({
               allowedSubEvents={subEvents}
               guestToken={guestToken}
             />
+            
+            {/* Branding component at the bottom */}
+            <PoweredByBranding />
           </div>
         </div>
       ) : (
@@ -827,6 +831,9 @@ export default function InvitePageClient({
             allowedSubEvents={subEvents}
             guestToken={guestToken}
           />
+          
+          {/* Branding component at the bottom */}
+          <PoweredByBranding />
         </div>
       )}
     </EnvelopeAnimation>

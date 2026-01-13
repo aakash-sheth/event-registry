@@ -4,9 +4,9 @@
  */
 
 export const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Ekfern'
-// Company homepage is the same as the frontend URL (base URL)
-// Fallback chain: NEXT_PUBLIC_COMPANY_HOMEPAGE → NEXT_PUBLIC_API_BASE → default URL
-export const COMPANY_HOMEPAGE = process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || process.env.NEXT_PUBLIC_API_BASE || 'https://eventregistry.com'
+// Company homepage URL
+// Fallback chain: NEXT_PUBLIC_COMPANY_HOMEPAGE → NEXT_PUBLIC_API_BASE → default to ekfern.com
+export const COMPANY_HOMEPAGE = process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || process.env.NEXT_PUBLIC_API_BASE || 'https://ekfern.com'
 
 // Generic envelope image for link previews (common fallback for all events)
 // This should be a publicly accessible URL (S3, CDN, or public asset)
