@@ -66,8 +66,8 @@ def invalidate_cloudfront_cache_immediate(slug):
     
     # Also skip if CLOUDFRONT_DISTRIBUTION_ID is not set (local dev typically doesn't have this)
     # Check for local development indicators to avoid slow SSM API calls
-        distribution_id = os.environ.get('CLOUDFRONT_DISTRIBUTION_ID')
-        if not distribution_id:
+    distribution_id = os.environ.get('CLOUDFRONT_DISTRIBUTION_ID')
+    if not distribution_id:
         # Check if we're likely in local development (no AWS credentials or localhost)
         # Skip SSM lookup to prevent slow saves in local dev
         is_local_dev = (
@@ -75,22 +75,20 @@ def invalidate_cloudfront_cache_immediate(slug):
             os.environ.get('DJANGO_SETTINGS_MODULE', '').endswith('.local') or
             not os.environ.get('AWS_ACCESS_KEY_ID')  # Local dev typically doesn't have AWS credentials
         )
-        
         if is_local_dev:
             logger.debug(f"[Cache] Skipping CloudFront invalidation (local dev detected) for slug: {slug}")
             return
-        
         # Only try SSM lookup in production/staging environments
         # This prevents slow SSM API calls in local development
-            try:
-                ssm = boto3.client('ssm', region_name='us-east-1')
-                response = ssm.get_parameter(
-                    Name='/event-registry-staging/CLOUDFRONT_DISTRIBUTION_ID'
-                )
-                distribution_id = response['Parameter']['Value']
-            except Exception as e:
+        try:
+            ssm = boto3.client('ssm', region_name='us-east-1')
+            response = ssm.get_parameter(
+                Name='/event-registry-staging/CLOUDFRONT_DISTRIBUTION_ID'
+            )
+            distribution_id = response['Parameter']['Value']
+        except Exception as e:
             logger.debug(f"[Cache] CloudFront distribution ID not found (likely local dev): {e}")
-                return
+            return
         
         if not distribution_id:
             return
