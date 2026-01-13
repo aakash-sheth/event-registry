@@ -92,6 +92,7 @@ interface Event {
 }
 
 type CustomFieldMeta = {
+  id: string
   key: string
   display_label: string
   active: boolean
@@ -144,6 +145,14 @@ export default function GuestsPage() {
   const [customFieldsDraft, setCustomFieldsDraft] = useState<CustomFieldMeta[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const makeDraftId = () => {
+    try {
+      return globalThis.crypto?.randomUUID?.() || `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    } catch {
+      return `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+  }
 
   const {
     register,
@@ -202,9 +211,10 @@ export default function GuestsPage() {
       const meta = response.data?.custom_fields_metadata || {}
       const rows: CustomFieldMeta[] = Object.entries(meta).map(([key, value]: any) => {
         if (typeof value === 'string') {
-          return { key, originalKey: key, display_label: value, active: true }
+          return { id: key, key, originalKey: key, display_label: value, active: true }
         }
         return {
+          id: key,
           key,
           originalKey: key,
           display_label: value?.display_label || key,
@@ -278,9 +288,10 @@ export default function GuestsPage() {
       const meta = resp.data.custom_fields_metadata || {}
       const rows: CustomFieldMeta[] = Object.entries(meta).map(([key, value]: any) => {
         if (typeof value === 'string') {
-          return { key, originalKey: key, display_label: value, active: true }
+          return { id: key, key, originalKey: key, display_label: value, active: true }
         }
         return {
+          id: key,
           key,
           originalKey: key,
           display_label: value?.display_label || key,
@@ -1023,7 +1034,7 @@ export default function GuestsPage() {
                   <p className="text-sm text-gray-600">No custom fields yet. Add one below.</p>
                 ) : (
                   customFieldsDraft.map((row, idx) => (
-                    <div key={`${row.originalKey || row.key}-${idx}`} className="grid grid-cols-12 gap-2 items-center">
+                    <div key={row.id} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-4">
                         <label className="block text-xs text-gray-500 mb-1">Key</label>
                         <Input
@@ -1071,7 +1082,12 @@ export default function GuestsPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setCustomFieldsDraft((prev) => [...prev, { key: '', display_label: '', active: true }])}
+                  onClick={() =>
+                    setCustomFieldsDraft((prev) => [
+                      ...prev,
+                      { id: makeDraftId(), key: '', display_label: '', active: true },
+                    ])
+                  }
                 >
                   + Add Field
                 </Button>
