@@ -57,22 +57,45 @@ def invalidate_cloudfront_cache_immediate(slug):
     import logging
     logger = logging.getLogger(__name__)
     
-    try:
-        # Get CloudFront distribution ID from environment or SSM
-        distribution_id = os.environ.get('CLOUDFRONT_DISTRIBUTION_ID')
-        if not distribution_id:
-            try:
-                ssm = boto3.client('ssm', region_name='us-east-1')
-                response = ssm.get_parameter(
-                    Name='/event-registry-staging/CLOUDFRONT_DISTRIBUTION_ID'
-                )
-                distribution_id = response['Parameter']['Value']
-            except Exception as e:
-                logger.warning(f"[Cache] CloudFront distribution ID not found: {e}")
-                return
+    # Skip CloudFront invalidation in local development
+    # This prevents slow saves due to AWS API timeouts or credential lookups
+    # Check DEBUG setting first (most reliable indicator of local dev)
+    if settings.DEBUG:
+        logger.debug(f"[Cache] Skipping CloudFront invalidation in DEBUG mode for slug: {slug}")
+        return
+    
+    # Also skip if CLOUDFRONT_DISTRIBUTION_ID is not set (local dev typically doesn't have this)
+    # Check for local development indicators to avoid slow SSM API calls
+    distribution_id = os.environ.get('CLOUDFRONT_DISTRIBUTION_ID')
+    if not distribution_id:
+        # Check if we're likely in local development (no AWS credentials or localhost)
+        # Skip SSM lookup to prevent slow saves in local dev
+        is_local_dev = (
+            'localhost' in os.environ.get('ALLOWED_HOSTS', '').lower() or
+            os.environ.get('DJANGO_SETTINGS_MODULE', '').endswith('.local') or
+            not os.environ.get('AWS_ACCESS_KEY_ID')  # Local dev typically doesn't have AWS credentials
+        )
         
-        if not distribution_id:
+        if is_local_dev:
+            logger.debug(f"[Cache] Skipping CloudFront invalidation (local dev detected) for slug: {slug}")
             return
+        
+        # Only try SSM lookup in production/staging environments
+        # This prevents slow SSM API calls in local development
+        try:
+            ssm = boto3.client('ssm', region_name='us-east-1')
+            response = ssm.get_parameter(
+                Name='/event-registry-staging/CLOUDFRONT_DISTRIBUTION_ID'
+            )
+            distribution_id = response['Parameter']['Value']
+        except Exception as e:
+            logger.debug(f"[Cache] CloudFront distribution ID not found (likely local dev): {e}")
+            return
+    
+    if not distribution_id:
+        return
+    
+    try:
         
         # Create CloudFront client
         cloudfront = boto3.client('cloudfront', region_name='us-east-1')

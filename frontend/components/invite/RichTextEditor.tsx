@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -57,52 +57,65 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
   const [highlightColor, setHighlightColor] = useState('#ffffff')
   
   // Track the last content we sent via onChange to prevent update loops
-  const lastSentContentRef = useRef<string>(value)
+  // Initialize as empty string, will be set when editor is ready
+  const lastSentContentRef = useRef<string>('')
   const isUpdatingFromPropRef = useRef(false)
+  const onChangeRef = useRef(onChange)
+
+  // Keep onChange ref updated
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  // Memoize extensions to prevent editor recreation on every render
+  const extensions = useMemo(() => [
+    StarterKit.configure({
+      heading: false,
+    }),
+    TextStyle,
+    Color,
+    FontSize,
+    TextAlign.configure({
+      types: ['heading', 'paragraph'],
+    }),
+    FontFamily.configure({
+      types: ['textStyle'],
+    }),
+    Highlight.configure({
+      multicolor: true,
+    }),
+    Underline,
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+    }),
+    Placeholder.configure({
+      placeholder: placeholder || 'Enter event details...',
+    }),
+  ], [placeholder]) // Only recreate if placeholder changes
+
+  // Memoize onUpdate callback to prevent editor recreation
+  const handleUpdate = useCallback(({ editor }: { editor: any }) => {
+    // Skip if we're updating from prop to prevent loops
+    if (isUpdatingFromPropRef.current) {
+      return
+    }
+    
+    const html = editor.getHTML()
+    // Only call onChange if content actually changed and it's different from what we last sent
+    if (html !== lastSentContentRef.current) {
+      lastSentContentRef.current = html
+      onChangeRef.current(html) // Use ref to avoid dependency
+    }
+  }, []) // Empty deps - use ref for onChange
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: false,
-      }),
-      TextStyle,
-      Color,
-      FontSize,
-      TextAlign.configure({
-        types: ['heading', 'paragraph'],
-      }),
-      FontFamily.configure({
-        types: ['textStyle'],
-      }),
-      Highlight.configure({
-        multicolor: true,
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          target: '_blank',
-          rel: 'noopener noreferrer',
-        },
-      }),
-      Placeholder.configure({
-        placeholder: placeholder || 'Enter event details...',
-      }),
-    ],
+    extensions,
     content: value,
-    onUpdate: ({ editor }) => {
-      // Skip if we're updating from prop to prevent loops
-      if (isUpdatingFromPropRef.current) {
-        return
-      }
-      
-      const html = editor.getHTML()
-      // Only call onChange if content actually changed and it's different from what we last sent
-      if (html !== lastSentContentRef.current) {
-        lastSentContentRef.current = html
-        onChange(html)
-      }
-    },
+    onUpdate: handleUpdate,
     editorProps: {
       attributes: {
         class: 'min-h-[200px] p-3 focus:outline-none bg-white prose prose-sm max-w-none',
@@ -111,6 +124,13 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     },
     immediatelyRender: false,
   })
+
+  // Initialize lastSentContentRef when editor is ready
+  useEffect(() => {
+    if (editor && lastSentContentRef.current === '') {
+      lastSentContentRef.current = editor.getHTML()
+    }
+  }, [editor])
 
   // Sync value prop with editor content (only when value changes externally)
   useEffect(() => {
@@ -126,9 +146,10 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
         lastSentContentRef.current = value
       } finally {
         // Reset flag after a brief delay to allow onUpdate to complete
-        setTimeout(() => {
+        // Use requestAnimationFrame for better timing than setTimeout
+        requestAnimationFrame(() => {
           isUpdatingFromPropRef.current = false
-        }, 0)
+        })
       }
     }
   }, [value, editor])
@@ -183,8 +204,16 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     }
   }, [showFontMenu, showSizeMenu, showListMenu, showIndentMenu])
 
+  // CRITICAL FIX: Never return early after hooks - handle null editor in JSX
+  // This ensures hooks are always called in the same order
   if (!editor) {
-    return null
+    return (
+      <div className="border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-eco-green focus-within:border-eco-green overflow-hidden">
+        <div className="min-h-[200px] p-3 bg-white flex items-center justify-center">
+          <p className="text-gray-400 text-sm">Loading editor...</p>
+        </div>
+      </div>
+    )
   }
 
   const currentFont = editor.getAttributes('textStyle').fontFamily || 'Helvetica, Arial, sans-serif'

@@ -18,19 +18,11 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
       ? String(settings.content) 
       : ''
   
-  if (!content) {
-    if (preview) return null
-    return (
-      <div className="w-full py-4 px-4 border rounded bg-gray-50">
-        <p className="text-gray-400 text-sm">No description provided</p>
-      </div>
-    )
-  }
-
   // Check if content is HTML (contains HTML tags) or markdown
   const isHTML = /<[a-z][\s\S]*>/i.test(content)
 
   // Ensure empty paragraphs (with only <br>) are preserved after render
+  // CRITICAL: This hook must be called before any conditional returns
   useEffect(() => {
     if (contentRef.current && isHTML) {
       // Use a small delay to ensure DOM is fully rendered
@@ -65,6 +57,19 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
       return () => clearTimeout(timer)
     }
   }, [content, isHTML])
+
+  // CRITICAL FIX: Handle empty content AFTER all hooks have been called
+  // Never return early after hooks - this violates Rules of Hooks
+  if (!content) {
+    if (preview) {
+      return null
+    }
+    return (
+      <div className="w-full py-4 px-4 border rounded bg-gray-50">
+        <p className="text-gray-400 text-sm">No description provided</p>
+      </div>
+    )
+  }
 
   if (preview) {
     const styleContent = `

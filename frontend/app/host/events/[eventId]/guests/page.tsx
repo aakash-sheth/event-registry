@@ -723,8 +723,9 @@ export default function GuestsPage() {
     setSharingWhatsApp(selectedGuest.id)
     
     try {
+      // Generate guest-specific event URL with token if available
       const eventUrl = typeof window !== 'undefined' 
-        ? `${window.location.origin}/invite/${event.slug || eventId}` 
+        ? `${window.location.origin}/invite/${event.slug || eventId}${selectedGuest.guest_token ? `?g=${selectedGuest.guest_token}` : ''}` 
         : ''
       
       let message: string
