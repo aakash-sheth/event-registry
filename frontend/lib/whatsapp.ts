@@ -60,6 +60,7 @@ export function replaceTemplateVariables(
   
   // Define allowed variables and their replacements
   const replacements: Record<string, string> = {}
+  const customFieldReplacements: Record<string, string> = {}
   
   if (variables.name !== undefined) {
     replacements['[name]'] = variables.name
@@ -100,10 +101,45 @@ export function replaceTemplateVariables(
     const encodedLocation = encodeURIComponent(variables.event_location)
     replacements['[map_direction]'] = `https://maps.google.com/?q=${encodedLocation}`
   }
+
+  // Custom fields from CSV / guest profile (e.g. [allergies], [table_number])
+  // Normalize keys so "Test" becomes "test" and spaces become underscores.
+  const normalizeCustomKey = (raw: string) => {
+    return String(raw || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[\s\-]+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 50)
+  }
+  const reserved = new Set([
+    'name',
+    'event_title',
+    'event_date',
+    'event_location',
+    'event_url',
+    'host_name',
+    'map_direction',
+  ])
+
+  if (variables.custom_fields && typeof variables.custom_fields === 'object') {
+    Object.entries(variables.custom_fields).forEach(([rawKey, rawVal]) => {
+      const key = normalizeCustomKey(rawKey)
+      if (!key || reserved.has(key)) return
+      const val = rawVal === null || rawVal === undefined ? '' : String(rawVal).trim()
+      // Replace empty values with '—' so the template doesn't show the literal variable
+      customFieldReplacements[`[${key}]`] = val || '—'
+    })
+  }
   
   // Replace all known variables
   Object.entries(replacements).forEach(([variable, value]) => {
     message = message.replace(new RegExp(variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value)
+  })
+
+  // Replace custom field variables (case-insensitive so [Test] also works for key "test")
+  Object.entries(customFieldReplacements).forEach(([variable, value]) => {
+    message = message.replace(new RegExp(variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), value)
   })
   
   return message
