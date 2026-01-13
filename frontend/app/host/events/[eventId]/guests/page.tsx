@@ -809,11 +809,11 @@ export default function GuestsPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <div className="flex gap-2 mb-4">
-            <Link href={`/host/events/${eventId}`}>
+          <Link href={`/host/events/${eventId}`}>
               <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
-                ← Back to Event
-              </Button>
-            </Link>
+              ← Back to Event
+            </Button>
+          </Link>
             <Link href={`/host/events/${eventId}/communications`}>
               <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
                 Communications

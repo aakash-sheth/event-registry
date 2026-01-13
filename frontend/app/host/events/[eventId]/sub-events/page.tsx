@@ -547,11 +547,11 @@ export default function SubEventsPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <div className="flex gap-2 mb-2">
-              <Link href={`/host/events/${eventId}`}>
+            <Link href={`/host/events/${eventId}`}>
                 <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
                   ← Back to Event
                 </Button>
-              </Link>
+            </Link>
               <Link href={`/host/events/${eventId}/design`}>
                 <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
                   Design Invitation

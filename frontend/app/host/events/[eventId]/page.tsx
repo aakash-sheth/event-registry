@@ -413,9 +413,37 @@ export default function EventDetailPage() {
   const rsvpsNo = activeRSVPs.filter(r => r.will_attend === 'no');
   const rsvpsMaybe = activeRSVPs.filter(r => r.will_attend === 'maybe');
   
-  // Attendance estimates (using guests_count from RSVPs)
-  const confirmedAttendees = rsvpsYes.reduce((sum, r) => sum + (r.guests_count || 1), 0);
-  const maybeAttendees = rsvpsMaybe.reduce((sum, r) => sum + (r.guests_count || 1), 0);
+  // Attendance estimates (deduplicate per guest for PER_SUBEVENT to avoid double counting)
+  const isPerSubeventMode = event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT';
+  const getAttendeeKey = (r: any) => String(r.guest_id ?? r.phone ?? r.id);
+  
+  const aggregateCounts = (
+    list: any[],
+    existingKeysToSkip: Set<string> = new Set()
+  ) => {
+    const map = new Map<string, number>();
+    list.forEach((rsvp) => {
+      const key = getAttendeeKey(rsvp);
+      if (existingKeysToSkip.has(key)) return;
+      const count = rsvp.guests_count || 1;
+      map.set(key, Math.max(map.get(key) || 0, count));
+    });
+    return map;
+  };
+  
+  const confirmedMap = isPerSubeventMode ? aggregateCounts(rsvpsYes) : null;
+  const maybeMap = isPerSubeventMode
+    ? aggregateCounts(rsvpsMaybe, new Set(confirmedMap ? Array.from(confirmedMap.keys()) : []))
+    : null;
+  
+  const confirmedAttendees = isPerSubeventMode
+    ? Array.from(confirmedMap?.values() || []).reduce((sum, count) => sum + count, 0)
+    : rsvpsYes.reduce((sum, r) => sum + (r.guests_count || 1), 0);
+  
+  const maybeAttendees = isPerSubeventMode
+    ? Array.from(maybeMap?.values() || []).reduce((sum, count) => sum + count, 0)
+    : rsvpsMaybe.reduce((sum, r) => sum + (r.guests_count || 1), 0);
+  
   const totalExpectedAttendees = confirmedAttendees + maybeAttendees;
   
   // Guest list coverage (exclude removed)
