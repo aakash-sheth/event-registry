@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -27,6 +27,11 @@ import {
   Link as LinkIcon
 } from 'lucide-react'
 
+export interface RichTextEditorRef {
+  insertText: (text: string) => void
+  focus: () => void
+}
+
 interface RichTextEditorProps {
   value: string
   onChange: (value: string) => void
@@ -48,7 +53,8 @@ const FONTS = [
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]
 
-export default function RichTextEditor({ value, onChange, placeholder }: RichTextEditorProps) {
+const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
+  ({ value, onChange, placeholder }, ref) => {
   const [showFontMenu, setShowFontMenu] = useState(false)
   const [showSizeMenu, setShowSizeMenu] = useState(false)
   const [showListMenu, setShowListMenu] = useState(false)
@@ -68,6 +74,9 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
   }, [onChange])
 
   // Memoize extensions to prevent editor recreation on every render
+  // Note: TipTap may warn about duplicate extension names in development mode
+  // when multiple editor instances exist (e.g., in settings and modal).
+  // This is a development-only warning and doesn't affect functionality.
   const extensions = useMemo(() => [
     StarterKit.configure({
       heading: false,
@@ -153,6 +162,20 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
       }
     }
   }, [value, editor])
+
+  // Expose insertText and focus methods via ref
+  useImperativeHandle(ref, () => ({
+    insertText: (text: string) => {
+      if (editor) {
+        editor.chain().focus().insertContent(text).run()
+      }
+    },
+    focus: () => {
+      if (editor) {
+        editor.chain().focus().run()
+      }
+    }
+  }), [editor])
 
   // Update UI state from editor selection
   useEffect(() => {
@@ -626,4 +649,8 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
       `}</style>
     </div>
   )
-}
+})
+
+RichTextEditor.displayName = 'RichTextEditor'
+
+export default RichTextEditor

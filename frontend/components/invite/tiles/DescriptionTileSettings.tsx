@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Maximize2 } from 'lucide-react'
 import type { DescriptionTileSettings } from '@/lib/invite/schema'
-import RichTextEditor from '@/components/invite/RichTextEditor'
+import RichTextEditor, { type RichTextEditorRef } from '@/components/invite/RichTextEditor'
 import DescriptionEditorModal from '@/components/invite/DescriptionEditorModal'
 import { Button } from '@/components/ui/button'
 import { getDescriptionVariables } from '@/lib/api'
@@ -17,6 +17,7 @@ interface DescriptionTileSettingsProps {
 export default function DescriptionTileSettings({ settings, onChange, eventId }: DescriptionTileSettingsProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [showMoreInfo, setShowMoreInfo] = useState(false)
+  const editorRef = useRef<RichTextEditorRef>(null)
   const [availableVariables, setAvailableVariables] = useState<Array<{
     key: string
     label: string
@@ -54,6 +55,7 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
           </Button>
         </div>
         <RichTextEditor
+          ref={editorRef}
           value={settings.content || ''}
           onChange={(value) => onChange({ ...settings, content: value })}
           placeholder="Enter event description..."
@@ -101,7 +103,18 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
             <>
               {/* Guest Name */}
               {availableVariables.filter(v => !v.is_custom).map((variable) => (
-                <div key={variable.key} className="bg-white p-2 rounded border border-gray-200">
+                <button
+                  key={variable.key}
+                  type="button"
+                  onClick={() => {
+                    if (editorRef.current) {
+                      editorRef.current.insertText(variable.key)
+                      editorRef.current.focus()
+                    }
+                  }}
+                  className="w-full text-left bg-white p-2 rounded border border-gray-200 hover:bg-gray-50 hover:border-eco-green transition-colors cursor-pointer"
+                  title={`Click to insert ${variable.key} at cursor position`}
+                >
                   <code className="bg-gray-100 px-1.5 py-0.5 rounded text-eco-green font-mono text-xs">
                     {variable.key}
                   </code>
@@ -109,7 +122,7 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
                   <p className="text-xs text-gray-500 mt-1">
                     {variable.description}
                   </p>
-                </div>
+                </button>
               ))}
               
               {/* Custom Variables */}
@@ -118,12 +131,23 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
                   <h4 className="text-xs font-semibold text-gray-600 mb-2">Custom Fields</h4>
                   <div className="space-y-2">
                     {availableVariables.filter(v => v.is_custom).map((variable) => (
-                      <div key={variable.key} className="bg-white p-2 rounded border border-gray-200">
+                      <button
+                        key={variable.key}
+                        type="button"
+                        onClick={() => {
+                          if (editorRef.current) {
+                            editorRef.current.insertText(variable.key)
+                            editorRef.current.focus()
+                          }
+                        }}
+                        className="w-full text-left bg-white p-2 rounded border border-gray-200 hover:bg-gray-50 hover:border-eco-green transition-colors cursor-pointer"
+                        title={`Click to insert ${variable.key} at cursor position`}
+                      >
                         <code className="bg-gray-100 px-1.5 py-0.5 rounded text-eco-green font-mono text-xs">
                           {variable.key}
                         </code>
                         <span className="ml-2 text-sm text-gray-700">{variable.label}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -140,6 +164,7 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
         value={settings.content || ''}
         onChange={(value) => onChange({ ...settings, content: value })}
         placeholder="Enter event description..."
+        eventId={eventId}
       />
     </div>
   )

@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { X, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import RichTextEditor from './RichTextEditor'
+import RichTextEditor, { type RichTextEditorRef } from './RichTextEditor'
+import { getDescriptionVariables } from '@/lib/api'
 
 interface DescriptionEditorModalProps {
   isOpen: boolean
@@ -11,6 +12,7 @@ interface DescriptionEditorModalProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  eventId?: number
 }
 
 export default function DescriptionEditorModal({
@@ -19,8 +21,31 @@ export default function DescriptionEditorModal({
   value,
   onChange,
   placeholder = 'Enter event description...',
+  eventId,
 }: DescriptionEditorModalProps) {
   const [localValue, setLocalValue] = useState(value)
+  const editorRef = useRef<RichTextEditorRef>(null)
+  const [availableVariables, setAvailableVariables] = useState<Array<{
+    key: string
+    label: string
+    description: string
+    example: string
+    is_custom?: boolean
+  }>>([])
+  const [showVariablesPanel, setShowVariablesPanel] = useState(false)
+
+  // Load variables when modal opens and eventId is available
+  useEffect(() => {
+    if (isOpen && eventId) {
+      getDescriptionVariables(eventId)
+        .then(setAvailableVariables)
+        .catch((error) => {
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Failed to load description variables:', error)
+          }
+        })
+    }
+  }, [isOpen, eventId])
 
   // Sync local value with prop value when modal opens
   useEffect(() => {
@@ -78,6 +103,15 @@ export default function DescriptionEditorModal({
             <Maximize2 className="h-5 w-5 text-eco-green" />
             <h2 className="text-lg font-semibold text-eco-green">Full Screen Editor</h2>
             <span className="text-xs text-gray-500 ml-2">Edit your description with more space</span>
+            {eventId && availableVariables.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowVariablesPanel(!showVariablesPanel)}
+                className="ml-4 text-xs px-3 py-1 bg-eco-green text-white rounded hover:bg-green-600 transition-colors"
+              >
+                {showVariablesPanel ? 'Hide' : 'Show'} Variables
+              </button>
+            )}
           </div>
           <button
             onClick={handleCancel}
@@ -89,9 +123,69 @@ export default function DescriptionEditorModal({
         </div>
 
         {/* Editor Content - Takes most of the space */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="min-h-full">
+        <div className="flex-1 overflow-y-auto p-6 flex gap-4">
+          {/* Variables Panel */}
+          {showVariablesPanel && eventId && availableVariables.length > 0 && (
+            <div className="w-64 bg-gray-50 p-4 rounded-md border border-gray-200 overflow-y-auto flex-shrink-0">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">📝 Available Variables</h3>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-600 mb-3">
+                  Click a variable to insert it at the cursor position. You can then select and style it using the toolbar.
+                </p>
+                {availableVariables.filter(v => !v.is_custom).map((variable) => (
+                  <button
+                    key={variable.key}
+                    type="button"
+                    onClick={() => {
+                      if (editorRef.current) {
+                        editorRef.current.insertText(variable.key)
+                        editorRef.current.focus()
+                      }
+                    }}
+                    className="w-full text-left bg-white p-2 rounded border border-gray-200 hover:bg-gray-50 hover:border-eco-green transition-colors cursor-pointer"
+                    title={`Click to insert ${variable.key} at cursor position`}
+                  >
+                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-eco-green font-mono text-xs">
+                      {variable.key}
+                    </code>
+                    <span className="ml-2 text-sm text-gray-700">{variable.label}</span>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {variable.description}
+                    </p>
+                  </button>
+                ))}
+                {availableVariables.filter(v => v.is_custom).length > 0 && (
+                  <div className="mt-3">
+                    <h4 className="text-xs font-semibold text-gray-600 mb-2">Custom Fields</h4>
+                    <div className="space-y-2">
+                      {availableVariables.filter(v => v.is_custom).map((variable) => (
+                        <button
+                          key={variable.key}
+                          type="button"
+                          onClick={() => {
+                            if (editorRef.current) {
+                              editorRef.current.insertText(variable.key)
+                              editorRef.current.focus()
+                            }
+                          }}
+                          className="w-full text-left bg-white p-2 rounded border border-gray-200 hover:bg-gray-50 hover:border-eco-green transition-colors cursor-pointer"
+                          title={`Click to insert ${variable.key} at cursor position`}
+                        >
+                          <code className="bg-gray-100 px-1.5 py-0.5 rounded text-eco-green font-mono text-xs">
+                            {variable.key}
+                          </code>
+                          <span className="ml-2 text-sm text-gray-700">{variable.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="flex-1 min-h-full">
             <RichTextEditor
+              ref={editorRef}
               value={localValue}
               onChange={setLocalValue}
               placeholder={placeholder}
