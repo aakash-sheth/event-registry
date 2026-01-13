@@ -122,7 +122,7 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     if (value !== lastSentContentRef.current && value !== currentContent) {
       isUpdatingFromPropRef.current = true
       try {
-        editor.commands.setContent(value || '', false)
+        editor.commands.setContent(value || '', { emitUpdate: false })
         lastSentContentRef.current = value
       } finally {
         // Reset flag after a brief delay to allow onUpdate to complete
