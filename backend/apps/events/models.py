@@ -587,8 +587,28 @@ def update_counts_on_subevent_save(sender, instance, created, **kwargs):
     - New sub-event creation
     - Sub-event updates (including soft delete via is_removed=True)
     - Visibility changes (is_public_visible toggle)
+    - Any field changes (title, location, description, etc.) - invalidates cache
     """
     if instance.event_id:  # Ensure event exists
+        # Always invalidate cache when sub-event is saved (any field change)
+        # This ensures invite page shows updated sub-event details immediately
+        try:
+            invite_page_slug = InvitePage.objects.filter(event_id=instance.event_id).values_list('slug', flat=True).first()
+            if invite_page_slug:
+                from django.core.cache import cache
+                import logging
+                logger = logging.getLogger(__name__)
+                cache_key = f'invite_page:{invite_page_slug}'
+                cache.delete(cache_key)
+                logger.info(
+                    f"[Cache] INVALIDATE - slug: {invite_page_slug}, key: {cache_key}, "
+                    f"reason: sub_event_updated (id: {instance.id})"
+                )
+        except Exception:
+            # If cache invalidation fails, don't break the save operation
+            pass
+        
+        # Update cached counts
         update_event_sub_event_counts(instance.event)
 
 
@@ -601,6 +621,23 @@ def update_counts_on_subevent_delete(sender, instance, **kwargs):
     # Store event_id before instance is deleted
     event_id = instance.event_id if hasattr(instance, 'event_id') else None
     if event_id:
+        # Invalidate cache when sub-event is deleted
+        try:
+            invite_page_slug = InvitePage.objects.filter(event_id=event_id).values_list('slug', flat=True).first()
+            if invite_page_slug:
+                from django.core.cache import cache
+                import logging
+                logger = logging.getLogger(__name__)
+                cache_key = f'invite_page:{invite_page_slug}'
+                cache.delete(cache_key)
+                logger.info(
+                    f"[Cache] INVALIDATE - slug: {invite_page_slug}, key: {cache_key}, "
+                    f"reason: sub_event_deleted"
+                )
+        except Exception:
+            # If cache invalidation fails, don't break the delete operation
+            pass
+        
         try:
             # Get event directly by ID to avoid accessing deleted relationship
             event = Event.objects.get(pk=event_id)

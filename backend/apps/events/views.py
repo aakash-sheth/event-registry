@@ -1332,7 +1332,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                         is_removed=False
                     ).only(
                         'id', 'title', 'start_at', 'end_at', 'location',
-                        'description', 'image_url', 'rsvp_enabled'
+                        'description', 'image_url', 'background_color', 'rsvp_enabled', 'is_public_visible'
                     ).order_by('start_at')
 
                 except Guest.DoesNotExist:
@@ -1353,7 +1353,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                             is_removed=False
                         ).only(
                             'id', 'title', 'start_at', 'end_at', 'location',
-                            'description', 'image_url', 'rsvp_enabled'
+                            'description', 'image_url', 'background_color', 'rsvp_enabled', 'is_public_visible'
                         ).order_by('start_at')
                     else:
                         # Fallback to separate query if prefetch didn't happen
@@ -1363,7 +1363,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                             is_removed=False
                         ).only(
                             'id', 'title', 'start_at', 'end_at', 'location',
-                            'description', 'image_url', 'rsvp_enabled'
+                            'description', 'image_url', 'background_color', 'rsvp_enabled', 'is_public_visible'
                         ).order_by('start_at')
 
             # Convert to list early to evaluate queryset and check count efficiently
