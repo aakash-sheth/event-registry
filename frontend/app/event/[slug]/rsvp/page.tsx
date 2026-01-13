@@ -16,6 +16,7 @@ import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { getEventDetailsFromConfig } from '@/lib/event/utils'
 import { BRAND_NAME, COMPANY_HOMEPAGE } from '@/lib/brand_utility'
+import { getTimezoneFromLocation } from '@/lib/invite/timezone'
 
 const rsvpSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -1103,14 +1104,21 @@ export default function RSVPPage() {
                           <div className="font-medium text-gray-900">{subEvent.title}</div>
                           {subEvent.start_at && (
                             <div className="text-sm text-gray-600 mt-1">
-                              {new Date(subEvent.start_at).toLocaleDateString('en-US', {
-                                weekday: 'long',
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
+                              {(() => {
+                                const date = new Date(subEvent.start_at)
+                                const location = subEvent.location || ''
+                                const timezone = location ? getTimezoneFromLocation(location) : undefined
+                                
+                                return date.toLocaleDateString('en-US', {
+                                  weekday: 'long',
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  ...(timezone && { timeZone: timezone }),
+                                })
+                              })()}
                             </div>
                           )}
                           {subEvent.location && (

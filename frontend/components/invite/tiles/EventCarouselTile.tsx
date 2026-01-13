@@ -10,6 +10,7 @@ import {
   getRecommendedCarouselDimensions,
   type ImageDimensions 
 } from '@/lib/invite/imageUtils'
+import { getTimezoneFromLocation } from '@/lib/invite/timezone'
 
 interface SubEvent {
   id: number
@@ -310,9 +311,22 @@ export default function EventCarouselTile({
     }
   }, [])
 
-  const formatTime = useCallback((dateString: string) => {
+  const formatTime = useCallback((dateString: string, location?: string) => {
     try {
       const date = new Date(dateString)
+      
+      // If location is provided, format in that timezone; otherwise use browser's local timezone
+      if (location) {
+        const timezone = getTimezoneFromLocation(location)
+        return date.toLocaleTimeString('en-US', {
+          timeZone: timezone,
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        })
+      }
+      
+      // Fallback to browser's local timezone
       return date.toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
@@ -323,12 +337,12 @@ export default function EventCarouselTile({
     }
   }, [])
 
-  const formatDateTime = useCallback((startAt: string, endAt?: string | null) => {
+  const formatDateTime = useCallback((startAt: string, endAt?: string | null, location?: string) => {
     const startDate = formatDate(startAt)
-    const startTime = formatTime(startAt)
+    const startTime = formatTime(startAt, location)
     
     if (endAt) {
-      const endTime = formatTime(endAt)
+      const endTime = formatTime(endAt, location)
       return `${startDate} • ${startTime} - ${endTime}`
     }
     
@@ -503,7 +517,7 @@ export default function EventCarouselTile({
             >
               <Calendar className="w-5 h-5 flex-shrink-0" />
               <span className="text-sm" suppressHydrationWarning>
-                {formatDateTime(subEvent.start_at, subEvent.end_at)}
+                {formatDateTime(subEvent.start_at, subEvent.end_at, subEvent.location)}
               </span>
             </div>
           )}

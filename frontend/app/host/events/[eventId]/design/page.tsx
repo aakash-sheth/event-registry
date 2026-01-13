@@ -270,7 +270,7 @@ export default function DesignInvitationPage(): JSX.Element {
             eventData?.city
           )
 
-          // Preserve customColors, customFonts, and texture from loaded config
+          // Preserve customColors, customFonts, texture, and linkMetadata from loaded config
           // IMPORTANT: Explicitly preserve customColors even if it's an empty object
           const preservedConfig = {
             ...migratedConfig,
@@ -284,6 +284,9 @@ export default function DesignInvitationPage(): JSX.Element {
             texture: loadedConfig.texture !== undefined
               ? loadedConfig.texture
               : migratedConfig.texture,
+            linkMetadata: loadedConfig.linkMetadata !== undefined
+              ? loadedConfig.linkMetadata
+              : migratedConfig.linkMetadata,
           }
 
           // Ensure we have tiles and preserve all settings (especially coverPosition for image tiles)
@@ -643,6 +646,12 @@ export default function DesignInvitationPage(): JSX.Element {
       }
       // If customColors is empty or doesn't exist, don't include it (undefined)
       
+      // Clean up linkMetadata - only include if it has at least one defined property
+      const linkMetadataToSave = config.linkMetadata && 
+        (config.linkMetadata.title || config.linkMetadata.description || config.linkMetadata.image)
+        ? config.linkMetadata
+        : undefined
+      
       const configToSave: InviteConfig = {
         themeId: config.themeId,
         tiles: tilesToSave,
@@ -650,6 +659,7 @@ export default function DesignInvitationPage(): JSX.Element {
         ...(config.customFonts && { customFonts: config.customFonts }),
         ...(config.texture && { texture: config.texture }),
         ...(config.pageBorder && { pageBorder: config.pageBorder }),
+        ...(linkMetadataToSave && { linkMetadata: linkMetadataToSave }),
       }
       
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
