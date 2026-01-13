@@ -12,6 +12,7 @@ import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import { FontSize } from '@/lib/tiptap/extensions/FontSize'
+import { FONT_OPTIONS, findFontByFamily } from '@/lib/invite/fonts'
 import { 
   Bold, 
   Italic, 
@@ -37,19 +38,6 @@ interface RichTextEditorProps {
   onChange: (value: string) => void
   placeholder?: string
 }
-
-const FONTS = [
-  { label: 'Helvetica', value: 'Helvetica, Arial, sans-serif' },
-  { label: 'Arial', value: 'Arial, sans-serif' },
-  { label: 'Times New Roman', value: 'Times New Roman, serif' },
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Verdana', value: 'Verdana, sans-serif' },
-  { label: 'Courier New', value: 'Courier New, monospace' },
-  { label: 'Comic Sans MS', value: 'Comic Sans MS, cursive' },
-  { label: 'Impact', value: 'Impact, fantasy' },
-  { label: 'Trebuchet MS', value: 'Trebuchet MS, sans-serif' },
-  { label: 'Palatino', value: 'Palatino, serif' },
-]
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]
 
@@ -259,23 +247,25 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             }}
             className="h-8 px-3 bg-gray-600 hover:bg-gray-500 text-white text-sm rounded flex items-center gap-1 border border-gray-500"
           >
-            <span className="text-xs">{FONTS.find(f => f.value === currentFont)?.label || 'Helvetica'}</span>
+            <span className="text-xs">
+              {findFontByFamily(currentFont)?.name || currentFont.split(',')[0].replace(/['"]/g, '').trim() || 'Helvetica'}
+            </span>
             <ChevronDown className="h-3 w-3" />
           </button>
           {showFontMenu && (
             <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-20 max-h-60 overflow-y-auto">
-              {FONTS.map((font) => (
+              {FONT_OPTIONS.map((font) => (
                 <button
-                  key={font.value}
+                  key={font.id}
                   type="button"
                   onClick={() => {
-                    editor.chain().focus().setFontFamily(font.value).run()
+                    editor.chain().focus().setFontFamily(font.family).run()
                     setShowFontMenu(false)
                   }}
                   className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100"
-                  style={{ fontFamily: font.value }}
+                  style={{ fontFamily: font.family }}
                 >
-                  {font.label}
+                  {font.name}
                 </button>
               ))}
             </div>

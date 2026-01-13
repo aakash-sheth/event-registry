@@ -546,9 +546,18 @@ export default function SubEventsPage() {
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <Link href={`/host/events/${eventId}`}>
-              <Button variant="outline">← Back to Event</Button>
-            </Link>
+            <div className="flex gap-2 mb-2">
+              <Link href={`/host/events/${eventId}`}>
+                <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  ← Back to Event
+                </Button>
+              </Link>
+              <Link href={`/host/events/${eventId}/design`}>
+                <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  Design Invitation
+                </Button>
+              </Link>
+            </div>
             <h1 className="text-3xl font-bold text-gray-900 mt-4">Sub-Events</h1>
             <p className="text-gray-600 mt-2">
               Manage sub-events for {event.title}

@@ -862,6 +862,7 @@ export default function RSVPPage() {
                       <div className="flex gap-2">
                         <CountryCodeSelector
                           name="country_code"
+                          value={watch('country_code') || event?.country_code || '+91'}
                           defaultValue={event?.country_code || '+91'}
                           onChange={(value) => {
                             setValue('country_code', value, { shouldValidate: true })
@@ -972,6 +973,7 @@ export default function RSVPPage() {
                 <div className="flex gap-2">
                   <CountryCodeSelector
                     name="country_code"
+                    value={watch('country_code') || event?.country_code || '+91'}
                     defaultValue={event?.country_code || '+91'}
                     onChange={(value) => {
                       setValue('country_code', value, { shouldValidate: true })

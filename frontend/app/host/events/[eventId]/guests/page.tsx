@@ -808,11 +808,18 @@ export default function GuestsPage() {
     <div className="min-h-screen bg-eco-beige">
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
-          <Link href={`/host/events/${eventId}`}>
-            <Button variant="outline" className="mb-4 border-eco-green text-eco-green hover:bg-eco-green-light">
-              ← Back to Event
-            </Button>
-          </Link>
+          <div className="flex gap-2 mb-4">
+            <Link href={`/host/events/${eventId}`}>
+              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                ← Back to Event
+              </Button>
+            </Link>
+            <Link href={`/host/events/${eventId}/communications`}>
+              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                Communications
+              </Button>
+            </Link>
+          </div>
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-4xl font-bold mb-2 text-eco-green">Guest List</h1>

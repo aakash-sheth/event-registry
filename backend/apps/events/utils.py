@@ -617,11 +617,11 @@ def render_description_with_guest(description_text: str, event, guest=None, base
     # Only guest-specific variables allowed
     replacements = {}
     
-    # Guest name (only if guest provided)
+    # Guest name
     if guest:
         replacements['[name]'] = guest.name
     else:
-        # If no guest, leave [name] as-is (will show as [name] in description)
+        # If no guest, replace [name] with empty string (so it doesn't show as [name] in description)
         replacements['[name]'] = ''
     
     # Custom fields from CSV (only if guest provided)

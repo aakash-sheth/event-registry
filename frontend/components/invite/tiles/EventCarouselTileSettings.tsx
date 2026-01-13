@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { EventCarouselTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
 import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
-import { FONT_OPTIONS } from '@/lib/invite/fonts'
+import { FONT_OPTIONS, findFontByFamily } from '@/lib/invite/fonts'
 
 interface EventCarouselTileSettingsProps {
   settings: EventCarouselTileSettings
@@ -149,7 +149,7 @@ export default function EventCarouselTileSettingsComponent({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Event Title Font</label>
               <select
-                value={FONT_OPTIONS.find(f => f.family === settings.subEventTitleStyling?.font)?.id || FONT_OPTIONS[0].id}
+                value={findFontByFamily(settings.subEventTitleStyling?.font)?.id || FONT_OPTIONS[0].id}
                 onChange={(e) => {
                   const font = FONT_OPTIONS.find(f => f.id === e.target.value)
                   handleTitleStylingUpdate({ font: font?.family })

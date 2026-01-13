@@ -1378,8 +1378,8 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         if guest:
             guest_context = GuestSerializer(guest).data
         
-        # Process description tiles with guest variables if guest token is provided
-        if guest and invite_page.config and 'tiles' in invite_page.config:
+        # Process description tiles with guest variables (always process to replace [name] with empty string when no guest)
+        if invite_page.config and 'tiles' in invite_page.config:
             from .utils import render_description_with_guest
             
             base_url = request.build_absolute_uri('/').rstrip('/')
@@ -1389,7 +1389,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     rendered_content, warnings = render_description_with_guest(
                         original_content,
                         event,
-                        guest,
+                        guest,  # This will be None if no guest token
                         base_url=base_url
                     )
                     tile['settings']['content'] = rendered_content

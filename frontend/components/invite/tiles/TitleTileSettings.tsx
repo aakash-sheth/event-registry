@@ -2,7 +2,7 @@
 
 import React from 'react'
 import type { TitleTileSettings, Tile } from '@/lib/invite/schema'
-import { FONT_OPTIONS } from '@/lib/invite/fonts'
+import { FONT_OPTIONS, findFontByFamily } from '@/lib/invite/fonts'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 
@@ -52,7 +52,7 @@ export default function TitleTileSettings({
       <div>
         <label className="block text-sm font-medium mb-2">Font</label>
         <select
-          value={FONT_OPTIONS.find(f => f.family === settings.font)?.id || FONT_OPTIONS[0].id}
+          value={findFontByFamily(settings.font)?.id || FONT_OPTIONS[0].id}
           onChange={(e) => {
             const font = FONT_OPTIONS.find(f => f.id === e.target.value)
             onChange({ ...settings, font: font?.family })

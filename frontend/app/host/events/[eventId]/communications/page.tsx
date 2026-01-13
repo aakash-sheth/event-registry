@@ -256,6 +256,11 @@ export default function CommunicationsPage() {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <Logo href="/" />
           <div className="flex items-center gap-4">
+            <Link href={`/host/events/${eventId}/guests`}>
+              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                Manage Guests
+              </Button>
+            </Link>
             <Link href={`/host/events/${eventId}`}>
               <Button variant="ghost" className="text-eco-green">
                 ← Back to Event

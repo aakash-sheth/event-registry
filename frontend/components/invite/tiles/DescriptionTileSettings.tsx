@@ -84,7 +84,7 @@ export default function DescriptionTileSettings({ settings, onChange, eventId }:
             ) : (
               <>
                 <span className="block mt-1">
-                  Variables will be replaced when guests access the invite page using their guest-specific link (with token). On public links without a token, variables will appear as-is (e.g., [name]).
+                  Variables will be replaced when guests access the invite page using their guest-specific link (with token). On public links without a token, [name] will be replaced with an empty string.
                 </span>
                 <button
                   type="button"
