@@ -2394,13 +2394,16 @@ def create_rsvp(request, event_id):
                         rsvp_enabled=True
                     )
                 else:
-                    # Public event - get all public-visible sub-events
+                    # No guest context:
+                    # - For public events, allow RSVPs for all RSVP-enabled sub-events (regardless of public visibility)
+                    # - For private events (defensive), restrict to public-visible sub-events
                     allowed_sub_events = SubEvent.objects.filter(
                         event=event,
-                        is_public_visible=True,
                         is_removed=False,
                         rsvp_enabled=True
                     )
+                    if not event.is_public:
+                        allowed_sub_events = allowed_sub_events.filter(is_public_visible=True)
                 
                 if not allowed_sub_events.exists():
                     return Response(

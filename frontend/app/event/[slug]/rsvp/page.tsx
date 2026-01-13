@@ -367,32 +367,39 @@ export default function RSVPPage() {
       // Fetch allowed sub-events if event is ENVELOPE
       if (eventData.event_structure === 'ENVELOPE') {
         try {
-          // Use invite endpoint to get allowed sub-events (respects guest tokens if any)
-          const inviteUrl = guestToken 
-            ? `/api/events/invite/${slug}/?g=${guestToken}`
-            : `/api/events/invite/${slug}/`
-          const inviteResponse = await api.get(inviteUrl)
-          const allowedSubEventsData = inviteResponse.data.allowed_sub_events || []
-          // Filter sub-events based on whether we have a guest token
-          // If guest token is present, backend already filtered to guest's invited sub-events
-          // If no token, only show public-visible sub-events
-          const filteredSubEvents = allowedSubEventsData.filter((se: any) => {
-            if (!se.rsvp_enabled) return false
-            // If we have a guest token, show all RSVP-enabled sub-events (backend already filtered by guest access)
-            if (guestToken) return true
+          // Public events without a guest token should still allow RSVP to all RSVP-enabled sub-events.
+          // In that case, fetch from the sub-events endpoint (invite endpoint only returns public-visible sub-events).
+          if (eventData.is_public && !guestToken) {
+            const subEventsResponse = await api.get(`/api/events/envelopes/${eventData.id}/sub-events/`)
+            const subEvents = subEventsResponse.data.results || subEventsResponse.data || []
+            const filteredSubEvents = subEvents.filter((se: any) => se.rsvp_enabled)
+            setAllowedSubEvents(filteredSubEvents)
+          } else {
+            // Use invite endpoint to get allowed sub-events (respects guest tokens if any)
+            const inviteUrl = guestToken
+              ? `/api/events/invite/${slug}/?g=${guestToken}`
+              : `/api/events/invite/${slug}/`
+            const inviteResponse = await api.get(inviteUrl)
+            const allowedSubEventsData = inviteResponse.data.allowed_sub_events || []
+            // Filter sub-events based on whether we have a guest token
+            // If guest token is present, backend already filtered to guest's invited sub-events
             // If no token, only show public-visible sub-events
-            return se.is_public_visible !== false
-          })
-          setAllowedSubEvents(filteredSubEvents)
+            const filteredSubEvents = allowedSubEventsData.filter((se: any) => {
+              if (!se.rsvp_enabled) return false
+              // If we have a guest token, show all RSVP-enabled sub-events (backend already filtered by guest access)
+              if (guestToken) return true
+              // If no token, only show public-visible sub-events
+              return se.is_public_visible !== false
+            })
+            setAllowedSubEvents(filteredSubEvents)
+          }
         } catch (error: any) {
           // Fallback: try sub-events endpoint
           try {
             const subEventsResponse = await api.get(`/api/events/envelopes/${eventData.id}/sub-events/`)
             const subEvents = subEventsResponse.data.results || subEventsResponse.data || []
-            // Filter to only RSVP-enabled, public-visible sub-events (fallback doesn't have guest context)
-            const filteredSubEvents = subEvents.filter((se: any) => 
-              se.rsvp_enabled && (se.is_public_visible !== false)
-            )
+            // Filter to only RSVP-enabled sub-events (fallback doesn't have guest context)
+            const filteredSubEvents = subEvents.filter((se: any) => se.rsvp_enabled)
             setAllowedSubEvents(filteredSubEvents)
           } catch (err) {
             logError('Failed to fetch sub-events:', err)
