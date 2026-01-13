@@ -8,7 +8,9 @@ from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, Http404
 from django.conf import settings
 from django.utils import timezone
+from django.db import transaction
 import csv
+import re
 import os
 from urllib.parse import quote
 from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
@@ -214,6 +216,147 @@ class EventViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You can only access your own events.")
         return True
 
+    @action(detail=True, methods=['patch'], url_path='custom-fields')
+    def custom_fields(self, request, id=None):
+        """
+        Manage event-level custom fields schema (host-only).
+
+        Payload supports:
+        - upsert: [{ key, display_label?, active? }]
+        - rename: [{ from, to, display_label? }]
+        - disable: [key]
+        """
+        event = self.get_object()
+        self._verify_event_ownership(event)
+
+        CUSTOM_FIELDS_MAX = 50
+        KEY_RE = re.compile(r'^[a-z0-9_]{1,50}$')
+        VALUE_LABEL_MAX = 80
+        reserved_keys = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
+
+        def normalize_meta(meta):
+            if not isinstance(meta, dict):
+                return {}
+            out = {}
+            for k, v in meta.items():
+                if isinstance(v, dict):
+                    out[k] = {
+                        'display_label': str(v.get('display_label') or k)[:VALUE_LABEL_MAX],
+                        'example': str(v.get('example') or '')[:120],
+                        'active': bool(v.get('active', True)),
+                    }
+                else:
+                    out[k] = {
+                        'display_label': str(v)[:VALUE_LABEL_MAX] if v else str(k)[:VALUE_LABEL_MAX],
+                        'example': '',
+                        'active': True,
+                    }
+            return out
+
+        def normalize_key(raw):
+            k = normalize_csv_header(str(raw or ''))
+            return k
+
+        data = request.data if isinstance(request.data, dict) else {}
+        upsert = data.get('upsert', []) or []
+        rename = data.get('rename', []) or []
+        disable = data.get('disable', []) or []
+
+        if not isinstance(upsert, list) or not isinstance(rename, list) or not isinstance(disable, list):
+            return Response(
+                {'error': 'Invalid payload format (upsert/rename/disable must be lists).'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        meta = normalize_meta(event.custom_fields_metadata or {})
+        changed = False
+
+        # Disable fields
+        for raw_key in disable:
+            key = normalize_key(raw_key)
+            if not key:
+                continue
+            if key in meta and meta[key].get('active', True) is True:
+                meta[key]['active'] = False
+                changed = True
+
+        # Rename keys (and migrate guest custom_fields JSON)
+        with transaction.atomic():
+            for item in rename:
+                if not isinstance(item, dict):
+                    continue
+                from_key = normalize_key(item.get('from'))
+                to_key = normalize_key(item.get('to'))
+                if not from_key or not to_key:
+                    return Response({'error': 'rename entries require from/to'}, status=status.HTTP_400_BAD_REQUEST)
+                if from_key == to_key:
+                    continue
+                if from_key not in meta:
+                    return Response({'error': f'Cannot rename missing field: {from_key}'}, status=status.HTTP_400_BAD_REQUEST)
+                if to_key in reserved_keys:
+                    return Response({'error': f'Invalid target key (reserved): {to_key}'}, status=status.HTTP_400_BAD_REQUEST)
+                if not KEY_RE.match(to_key):
+                    return Response({'error': f'Invalid target key: {to_key}'}, status=status.HTTP_400_BAD_REQUEST)
+                if to_key in meta:
+                    return Response({'error': f'Target key already exists: {to_key}'}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Move metadata
+                moved = meta.pop(from_key)
+                moved_label = item.get('display_label')
+                if moved_label:
+                    moved['display_label'] = str(moved_label)[:VALUE_LABEL_MAX]
+                meta[to_key] = moved
+                changed = True
+
+                # Migrate guest values (best-effort, non-destructive)
+                guests_qs = Guest.objects.filter(event=event)
+                for g in guests_qs.iterator():
+                    cf = g.custom_fields if isinstance(g.custom_fields, dict) else {}
+                    if from_key in cf and to_key not in cf:
+                        cf[to_key] = cf[from_key]
+                        cf.pop(from_key, None)
+                        g.custom_fields = cf
+                        g.save(update_fields=['custom_fields', 'updated_at'])
+
+            # Upsert fields
+            for item in upsert:
+                if not isinstance(item, dict):
+                    continue
+                key = normalize_key(item.get('key'))
+                if not key:
+                    continue
+                if key in reserved_keys:
+                    return Response({'error': f'Invalid key (reserved): {key}'}, status=status.HTTP_400_BAD_REQUEST)
+                if not KEY_RE.match(key):
+                    return Response({'error': f'Invalid key: {key}'}, status=status.HTTP_400_BAD_REQUEST)
+
+                display_label = item.get('display_label')
+                active = item.get('active', True)
+                if key not in meta and len(meta) >= CUSTOM_FIELDS_MAX:
+                    return Response(
+                        {'error': f'Max custom fields per event exceeded ({CUSTOM_FIELDS_MAX}).'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if key not in meta:
+                    meta[key] = {'display_label': str(display_label or key)[:VALUE_LABEL_MAX], 'example': '', 'active': bool(active)}
+                    changed = True
+                else:
+                    if display_label is not None:
+                        new_label = str(display_label)[:VALUE_LABEL_MAX]
+                        if meta[key].get('display_label') != new_label:
+                            meta[key]['display_label'] = new_label
+                            changed = True
+                    if active is not None and meta[key].get('active', True) != bool(active):
+                        meta[key]['active'] = bool(active)
+                        changed = True
+
+            if changed:
+                event.custom_fields_metadata = meta
+                event.save(update_fields=['custom_fields_metadata', 'updated_at'])
+
+        return Response({'custom_fields_metadata': event.custom_fields_metadata}, status=status.HTTP_200_OK)
+
     # -------------------------
     # ORDERS
     # -------------------------
@@ -311,13 +454,32 @@ class EventViewSet(viewsets.ModelViewSet):
                 errors.append(f"Phone already exists: {phone}")
                 continue
 
+            # Normalize and validate custom_fields (optional)
+            raw_custom_fields = serializer.validated_data.get('custom_fields') or {}
+            custom_fields = {}
+            if isinstance(raw_custom_fields, dict):
+                KEY_RE = re.compile(r'^[a-z0-9_]{1,50}$')
+                reserved = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
+                for raw_key, raw_val in raw_custom_fields.items():
+                    key = normalize_csv_header(str(raw_key or ''))
+                    if not key:
+                        continue
+                    if key in reserved or not KEY_RE.match(key):
+                        continue
+                    val = '' if raw_val is None else str(raw_val).strip()
+                    if not val:
+                        continue
+                    custom_fields[key] = val[:500]
+
             guest = Guest.objects.create(
                 event=event,
                 phone=phone,
                 name=serializer.validated_data.get('name'),
                 email=serializer.validated_data.get('email'),
+                country_iso=(serializer.validated_data.get('country_iso') or '')[:2],
                 relationship=serializer.validated_data.get('relationship', ''),
-                notes=serializer.validated_data.get('notes', '')
+                notes=serializer.validated_data.get('notes', ''),
+                custom_fields=custom_fields
             )
             created.append(guest)
 
@@ -406,8 +568,44 @@ class EventViewSet(viewsets.ModelViewSet):
         created = 0
         errors = []
         event_country_code = get_country_code(event.country)
+        CUSTOM_FIELDS_MAX = 50
+        CUSTOM_FIELD_KEY_RE = re.compile(r'^[a-z0-9_]{1,50}$')
+
+        def _title_case_label(s: str) -> str:
+            s = (s or '').strip()
+            if not s:
+                return ''
+            # Normalize separators to spaces for nicer labels
+            s = re.sub(r'[_\-]+', ' ', s)
+            s = re.sub(r'\s+', ' ', s).strip()
+            return s.title()[:80]
+
+        def _normalize_custom_fields_metadata(meta):
+            """
+            Normalize custom_fields_metadata to dict[str, dict] while preserving backward compatibility:
+            - Old format: {key: "Label"} becomes {key: {display_label: "Label", active: True}}
+            """
+            if not isinstance(meta, dict):
+                return {}
+            normalized = {}
+            for k, v in meta.items():
+                if isinstance(v, dict):
+                    normalized[k] = {
+                        'display_label': str(v.get('display_label') or k)[:80],
+                        'example': str(v.get('example') or '')[:120],
+                        'active': bool(v.get('active', True)),
+                    }
+                else:
+                    normalized[k] = {
+                        'display_label': str(v)[:80] if v else str(k)[:80],
+                        'example': '',
+                        'active': True,
+                    }
+            return normalized
         
         try:
+            custom_headers_to_upsert = []  # list[tuple[normalized_key, display_label]]
+
             # Parse file based on extension
             if file_extension in ['csv', 'txt']:
                 import io
@@ -423,6 +621,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 
                 csv_reader = csv_module.DictReader(io.StringIO(file_content), delimiter=delimiter)
                 rows = list(csv_reader)
+                raw_headers = csv_reader.fieldnames or []
             else:
                 # Excel file
                 from openpyxl import load_workbook
@@ -434,6 +633,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 headers = []
                 for cell in sheet[1]:
                     headers.append(str(cell.value).strip() if cell.value else '')
+                raw_headers = headers
                 
                 # Read data rows
                 rows = []
@@ -447,6 +647,47 @@ class EventViewSet(viewsets.ModelViewSet):
                         rows.append((row_num, row_dict))
                 
                 workbook.close()
+
+            # Upsert custom field schema at event level (so empty values can be filled later and manual adds see fields)
+            # Standard fields are excluded; everything else is a custom field candidate.
+            standard_fields = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
+            for raw_header in raw_headers:
+                if not raw_header:
+                    continue
+                normalized_key = normalize_csv_header(str(raw_header))
+                if not normalized_key or normalized_key in standard_fields:
+                    continue
+                if not CUSTOM_FIELD_KEY_RE.match(normalized_key):
+                    # Ignore invalid keys rather than failing entire import
+                    continue
+                custom_headers_to_upsert.append((normalized_key, _title_case_label(str(raw_header)) or normalized_key))
+
+            if custom_headers_to_upsert:
+                meta = _normalize_custom_fields_metadata(getattr(event, 'custom_fields_metadata', {}) or {})
+                changed = False
+                existing_count = len(meta)
+                for normalized_key, display_label in custom_headers_to_upsert:
+                    if normalized_key in meta:
+                        continue
+                    if existing_count >= CUSTOM_FIELDS_MAX:
+                        if not any('Too many custom fields' in e for e in errors):
+                            errors.append(
+                                f"Too many custom columns detected. Max allowed is {CUSTOM_FIELDS_MAX}. "
+                                f"Extra custom columns will be ignored."
+                            )
+                        break
+                    meta[normalized_key] = {
+                        'display_label': display_label[:80],
+                        'example': '',
+                        'active': True,
+                    }
+                    existing_count += 1
+                    changed = True
+
+                if changed:
+                    event.custom_fields_metadata = meta
+                    # Include updated_at so the auto_now field updates even when using update_fields
+                    event.save(update_fields=['custom_fields_metadata', 'updated_at'])
             
             # Process each row
             for idx, row in enumerate(rows, start=2):  # Start at 2 (1 is header)
@@ -518,7 +759,6 @@ class EventViewSet(viewsets.ModelViewSet):
                 notes = normalized_row.get('notes', '').strip() or ''
                 
                 # Store custom fields (all fields except standard ones)
-                standard_fields = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
                 custom_fields = {}
                 for key, value in normalized_row.items():
                     if key not in standard_fields and value:
@@ -1371,10 +1611,14 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         # Serialize sub-events (use list to avoid re-evaluating queryset)
         serialized_sub_events = SubEventSerializer(sub_events_list, many=True).data
 
-        # Serialize guest context only if guest exists (avoid unnecessary serialization)
+        # Serialize minimal guest context only if guest exists.
+        # Avoid sending guest.custom_fields to the public invite payload; description personalization is server-rendered.
         guest_context = None
         if guest:
-            guest_context = GuestSerializer(guest).data
+            guest_context = {
+                'id': guest.id,
+                'name': guest.name,
+            }
         
         # Process description tiles with guest variables (always process to replace [name] with empty string when no guest)
         if invite_page.config and 'tiles' in invite_page.config:

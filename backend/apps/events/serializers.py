@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
 from apps.users.serializers import UserSerializer
-from .utils import get_country_code, format_phone_with_country_code
+from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header
+import re
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -211,6 +212,68 @@ class GuestSerializer(serializers.ModelSerializer):
         model = Guest
         fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'rsvp_guests_count', 'guest_token', 'sub_event_invites', 'custom_fields', 'invitation_sent', 'invitation_sent_at', 'created_at')
         read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'rsvp_guests_count', 'country_code', 'local_number', 'guest_token', 'sub_event_invites')
+
+    def validate_custom_fields(self, value):
+        """
+        Validate and normalize guest custom fields.
+        - Keys normalized with normalize_csv_header
+        - Enforce max keys and value lengths to prevent abuse/bloat
+        - Return a normalized dict
+        """
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("custom_fields must be an object")
+
+        KEY_RE = re.compile(r'^[a-z0-9_]{1,50}$')
+        MAX_KEYS = 50
+        MAX_VALUE_LEN = 500
+        reserved = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
+
+        if len(value) > MAX_KEYS:
+            raise serializers.ValidationError(f"Too many custom fields (max {MAX_KEYS})")
+
+        normalized = {}
+        for raw_key, raw_val in value.items():
+            key = normalize_csv_header(str(raw_key or ''))
+            if not key:
+                continue
+            if key in reserved:
+                raise serializers.ValidationError(f"Invalid custom field key (reserved): {key}")
+            if not KEY_RE.match(key):
+                raise serializers.ValidationError(f"Invalid custom field key: {key}")
+
+            val = '' if raw_val is None else str(raw_val)
+            val = val.strip()
+            if len(val) > MAX_VALUE_LEN:
+                raise serializers.ValidationError(f"Custom field '{key}' value too long (max {MAX_VALUE_LEN})")
+            normalized[key] = val
+
+        return normalized
+
+    def update(self, instance, validated_data):
+        """
+        Merge custom_fields instead of overwriting:
+        - Provided keys with non-empty values are set
+        - Provided keys with empty values remove the key
+        """
+        incoming_custom_fields = validated_data.pop('custom_fields', None)
+
+        # Regular field updates
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if incoming_custom_fields is not None:
+            current = instance.custom_fields if isinstance(instance.custom_fields, dict) else {}
+            for k, v in incoming_custom_fields.items():
+                if v:
+                    current[k] = v
+                else:
+                    current.pop(k, None)
+            instance.custom_fields = current
+
+        instance.save()
+        return instance
     
     def get_sub_event_invites(self, obj):
         """Get list of sub-event IDs this guest is invited to"""
@@ -285,6 +348,7 @@ class GuestCreateSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
     relationship = serializers.CharField(required=False, allow_blank=True)
     notes = serializers.CharField(required=False, allow_blank=True)
+    custom_fields = serializers.DictField(required=False)
     
     def validate_phone(self, value):
         """Validate phone is not empty"""

@@ -617,9 +617,10 @@ def render_description_with_guest(description_text: str, event, guest=None, base
     # Only guest-specific variables allowed
     replacements = {}
     
-    # Guest name
+    # Guest name (escape to avoid injecting HTML into description tiles)
+    from django.utils.html import escape
     if guest:
-        replacements['[name]'] = guest.name
+        replacements['[name]'] = escape(guest.name)
     else:
         # If no guest, replace [name] with empty string (so it doesn't show as [name] in description)
         replacements['[name]'] = ''
@@ -630,7 +631,8 @@ def render_description_with_guest(description_text: str, event, guest=None, base
         for normalized_key, value in guest.custom_fields.items():
             variable_key = f'[{normalized_key}]'
             if value:
-                replacements[variable_key] = str(value)
+                # Escape to prevent HTML injection in description content
+                replacements[variable_key] = escape(str(value))
             else:
                 replacements[variable_key] = '—'
                 warnings['missing_custom_fields'].append(normalized_key)

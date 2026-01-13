@@ -33,6 +33,7 @@ const guestSchema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   relationship: z.string().optional(),
   notes: z.string().optional(),
+  custom_fields: z.record(z.string()).optional(),
 })
 
 type GuestForm = z.infer<typeof guestSchema>
@@ -87,6 +88,14 @@ interface Event {
   event_structure?: 'SIMPLE' | 'ENVELOPE'
   rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
   host_name?: string
+  custom_fields_metadata?: Record<string, any>
+}
+
+type CustomFieldMeta = {
+  key: string
+  display_label: string
+  active: boolean
+  originalKey?: string
 }
 
 interface SubEvent {
@@ -131,6 +140,8 @@ export default function GuestsPage() {
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set())
   const [showBulkSubEventAssignment, setShowBulkSubEventAssignment] = useState(false)
   const [bulkSelectedSubEventIds, setBulkSelectedSubEventIds] = useState<Set<number>>(new Set())
+  const [showCustomFieldsManager, setShowCustomFieldsManager] = useState(false)
+  const [customFieldsDraft, setCustomFieldsDraft] = useState<CustomFieldMeta[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -187,6 +198,20 @@ export default function GuestsPage() {
     try {
       const response = await api.get(`/api/events/${eventId}/`)
       setEvent(response.data)
+      // Initialize custom fields draft from event metadata (if present)
+      const meta = response.data?.custom_fields_metadata || {}
+      const rows: CustomFieldMeta[] = Object.entries(meta).map(([key, value]: any) => {
+        if (typeof value === 'string') {
+          return { key, originalKey: key, display_label: value, active: true }
+        }
+        return {
+          key,
+          originalKey: key,
+          display_label: value?.display_label || key,
+          active: value?.active !== false,
+        }
+      })
+      setCustomFieldsDraft(rows.sort((a, b) => a.display_label.localeCompare(b.display_label)))
     } catch (error: any) {
       if (error.response?.status === 401) {
         router.push('/host/login')
@@ -196,6 +221,78 @@ export default function GuestsPage() {
       } else {
         logError('Failed to fetch event:', error)
       }
+    }
+  }
+
+  const getActiveCustomFields = () => {
+    const meta = event?.custom_fields_metadata || {}
+    const fields: { key: string; display_label: string }[] = []
+    Object.entries(meta).forEach(([key, value]: any) => {
+      if (typeof value === 'string') {
+        fields.push({ key, display_label: value || key })
+      } else if (value?.active !== false) {
+        fields.push({ key, display_label: value?.display_label || key })
+      }
+    })
+    return fields.sort((a, b) => a.display_label.localeCompare(b.display_label))
+  }
+
+  const normalizeCustomFieldKey = (raw: string) => {
+    return raw
+      .toLowerCase()
+      .trim()
+      .replace(/[\s\-]+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 50)
+  }
+
+  const handleSaveCustomFields = async () => {
+    try {
+      const MAX_FIELDS = 50
+      if (customFieldsDraft.length > MAX_FIELDS) {
+        showToast(`Too many custom fields (max ${MAX_FIELDS})`, 'error')
+        return
+      }
+
+      const upsert: any[] = []
+      const rename: any[] = []
+
+      customFieldsDraft.forEach((row) => {
+        const key = normalizeCustomFieldKey(row.key)
+        if (!key) return
+        const display_label = (row.display_label || key).slice(0, 80)
+        const active = row.active !== false
+
+        if (row.originalKey && row.originalKey !== key) {
+          rename.push({ from: row.originalKey, to: key, display_label })
+          upsert.push({ key, display_label, active })
+        } else {
+          upsert.push({ key, display_label, active })
+        }
+      })
+
+      const resp = await api.patch(`/api/events/${eventId}/custom-fields/`, { upsert, rename })
+      setEvent((prev) => (prev ? { ...prev, custom_fields_metadata: resp.data.custom_fields_metadata } : prev))
+
+      // Refresh draft from canonical metadata
+      const meta = resp.data.custom_fields_metadata || {}
+      const rows: CustomFieldMeta[] = Object.entries(meta).map(([key, value]: any) => {
+        if (typeof value === 'string') {
+          return { key, originalKey: key, display_label: value, active: true }
+        }
+        return {
+          key,
+          originalKey: key,
+          display_label: value?.display_label || key,
+          active: value?.active !== false,
+        }
+      })
+      setCustomFieldsDraft(rows.sort((a, b) => a.display_label.localeCompare(b.display_label)))
+      showToast('Custom fields updated', 'success')
+      setShowCustomFieldsManager(false)
+    } catch (error: any) {
+      const msg = error.response?.data?.error || 'Failed to update custom fields'
+      showToast(msg, 'error')
     }
   }
 
@@ -470,6 +567,7 @@ export default function GuestsPage() {
           ...data,
           phone: formattedPhone,
           country_code: countryCode,
+          custom_fields: data.custom_fields || {},
         })
         showToast('Guest updated successfully', 'success')
         setEditingGuest(null)
@@ -480,6 +578,7 @@ export default function GuestsPage() {
             ...data,
             phone: formattedPhone,
             country_code: countryCode,
+            custom_fields: data.custom_fields || {},
           }],
         })
         
@@ -534,6 +633,7 @@ export default function GuestsPage() {
       email: guest.email || '',
       relationship: guest.relationship || '',
       notes: guest.notes || '',
+      custom_fields: guest.custom_fields || {},
     })
     setShowForm(true)
   }
@@ -842,6 +942,15 @@ export default function GuestsPage() {
               >
                 {showForm ? 'Cancel' : '+ Add Guest'}
               </Button>
+
+              {/* Custom Fields Manager */}
+              <Button
+                variant="outline"
+                onClick={() => setShowCustomFieldsManager((v) => !v)}
+                className="border-eco-green text-eco-green hover:bg-eco-green-light"
+              >
+                Custom Fields
+              </Button>
               
               {/* Import/Export Dropdown */}
               <div className="relative" ref={menuRef}>
@@ -899,6 +1008,84 @@ export default function GuestsPage() {
             </div>
           </div>
         </div>
+
+        {showCustomFieldsManager && (
+          <Card className="mb-8 bg-white border-2 border-eco-green-light">
+            <CardHeader>
+              <CardTitle className="text-eco-green">Custom Fields</CardTitle>
+              <CardDescription>
+                Define additional guest information for this event (used in communications and personalized invite descriptions).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                {customFieldsDraft.length === 0 ? (
+                  <p className="text-sm text-gray-600">No custom fields yet. Add one below.</p>
+                ) : (
+                  customFieldsDraft.map((row, idx) => (
+                    <div key={`${row.originalKey || row.key}-${idx}`} className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-4">
+                        <label className="block text-xs text-gray-500 mb-1">Key</label>
+                        <Input
+                          value={row.key}
+                          onChange={(e) => {
+                            const next = [...customFieldsDraft]
+                            next[idx] = { ...row, key: e.target.value }
+                            setCustomFieldsDraft(next)
+                          }}
+                          placeholder="e.g. allergies"
+                        />
+                      </div>
+                      <div className="col-span-6">
+                        <label className="block text-xs text-gray-500 mb-1">Label</label>
+                        <Input
+                          value={row.display_label}
+                          onChange={(e) => {
+                            const next = [...customFieldsDraft]
+                            next[idx] = { ...row, display_label: e.target.value }
+                            setCustomFieldsDraft(next)
+                          }}
+                          placeholder="e.g. Allergies"
+                        />
+                      </div>
+                      <div className="col-span-2 flex items-end gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={row.active !== false}
+                            onChange={(e) => {
+                              const next = [...customFieldsDraft]
+                              next[idx] = { ...row, active: e.target.checked }
+                              setCustomFieldsDraft(next)
+                            }}
+                          />
+                          Active
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCustomFieldsDraft((prev) => [...prev, { key: '', display_label: '', active: true }])}
+                >
+                  + Add Field
+                </Button>
+                <div className="flex-1" />
+                <Button type="button" variant="outline" onClick={() => setShowCustomFieldsManager(false)}>
+                  Close
+                </Button>
+                <Button type="button" className="bg-eco-green hover:bg-green-600 text-white" onClick={handleSaveCustomFields}>
+                  Save
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {showForm && (
           <Card className="mb-8 bg-white border-2 border-eco-green-light">
@@ -966,6 +1153,26 @@ export default function GuestsPage() {
                     placeholder="Additional notes"
                   />
                 </div>
+
+                {getActiveCustomFields().length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Custom Fields</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      {getActiveCustomFields().map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-xs text-gray-500 mb-1">{field.display_label}</label>
+                          <Input
+                            {...register(`custom_fields.${field.key}` as any)}
+                            placeholder={`Enter ${field.display_label.toLowerCase()}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      These can be used as variables like <span className="font-mono">[{getActiveCustomFields()[0].key}]</span> in templates/description.
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <Button
