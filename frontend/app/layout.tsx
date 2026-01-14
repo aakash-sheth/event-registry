@@ -2,20 +2,41 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { ToastProvider } from '@/components/ui/toast'
 import { BRAND_NAME } from '@/lib/brand_utility'
+import { getSiteUrl } from '@/lib/site-url'
 
 // Get frontend URL for metadata base (used for resolving relative URLs in Open Graph images)
 function getMetadataBase(): string {
-  const frontendUrl = process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || 
-                      process.env.NEXT_PUBLIC_API_BASE || 
-                      'http://localhost:3000'
-  // Remove /api suffix if present
-  return frontendUrl.replace('/api', '')
+  return getSiteUrl()
 }
 
 export const metadata: Metadata = {
   metadataBase: new URL(getMetadataBase()),
-  title: BRAND_NAME,
+  title: {
+    default: BRAND_NAME,
+    template: `%s | ${BRAND_NAME}`,
+  },
   description: `${BRAND_NAME} - Invitations, RSVP, and Gift Registry for any celebration`,
+  applicationName: BRAND_NAME,
+  openGraph: {
+    type: 'website',
+    siteName: BRAND_NAME,
+    title: BRAND_NAME,
+    description: `${BRAND_NAME} - Invitations, RSVP, and Gift Registry for any celebration`,
+    images: [
+      {
+        url: '/og-image.svg',
+        width: 1200,
+        height: 630,
+        alt: BRAND_NAME,
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: BRAND_NAME,
+    description: `${BRAND_NAME} - Invitations, RSVP, and Gift Registry for any celebration`,
+    images: ['/og-image.svg'],
+  },
 }
 
 export default function RootLayout({
