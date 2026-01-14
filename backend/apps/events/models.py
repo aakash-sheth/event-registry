@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, IntegrityError
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from apps.users.models import User
@@ -263,6 +263,36 @@ class Guest(models.Model):
         db_table = 'guests'
         unique_together = [['event', 'phone']]  # Phone is unique per event
         ordering = ['name']
+
+    def save(self, *args, **kwargs):
+        """
+        Ensure every guest has a tokenized invite key.
+
+        We generate the token on create (and only if missing) so every newly-added
+        guest gets a stable `guest_token` usable for invite variable resolution and
+        RSVP autofill links.
+        """
+        import secrets
+
+        # Only auto-generate on create to avoid surprising updates during partial saves.
+        should_generate = self._state.adding and not self.guest_token
+
+        # Retry a few times in the extremely unlikely event of a token collision.
+        for _ in range(5):
+            if should_generate and not self.guest_token:
+                self.guest_token = secrets.token_urlsafe(32)  # 32 bytes = ~43 chars
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError:
+                # If the failure was caused by a token collision, clear and retry.
+                # If it's due to other constraints (e.g., duplicate phone), this will
+                # still raise after retries.
+                if should_generate:
+                    self.guest_token = None
+                    continue
+                raise
+        # Final attempt: let the IntegrityError surface with full context.
+        return super().save(*args, **kwargs)
     
     def generate_guest_token(self):
         """Generate a random, unguessable token for guest-specific invite links"""

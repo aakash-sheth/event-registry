@@ -540,7 +540,7 @@ export default function GuestsPage() {
 
   const handleCopyGuestLink = async (guest: Guest) => {
     if (!event || !guest.guest_token) {
-      showToast('Guest token not available. Please assign sub-events first.', 'error')
+      showToast('Guest token not available yet. Please refresh and try again.', 'error')
       return
     }
     
@@ -1594,7 +1594,7 @@ export default function GuestsPage() {
                           <td className="p-2 text-sm text-gray-600">{guest.notes || '-'}</td>
                           <td className="p-2">
                             <div className="flex gap-2 flex-wrap">
-                              {event?.event_structure === 'ENVELOPE' && guest.guest_token && (
+                              {guest.guest_token && (
                                 <Button
                                   variant="outline"
                                   size="sm"
