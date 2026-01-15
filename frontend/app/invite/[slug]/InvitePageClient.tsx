@@ -23,6 +23,8 @@ interface Event {
   page_config?: InviteConfig
   has_rsvp?: boolean
   has_registry?: boolean
+  country?: string
+  timezone?: string
 }
 
 interface InvitePageClientProps {
@@ -787,6 +789,7 @@ export default function InvitePageClient({
               config={configForClient}
               eventSlug={slug}
               eventDate={event?.date}
+              eventTimezone={event?.timezone}
               hasRsvp={event?.has_rsvp}
               hasRegistry={event?.has_registry}
               skipTextureOverlay={true}
@@ -824,6 +827,7 @@ export default function InvitePageClient({
             config={configForClient}
             eventSlug={slug}
             eventDate={event?.date}
+            eventTimezone={event?.timezone}
             hasRsvp={event?.has_rsvp}
             hasRegistry={event?.has_registry}
             skipTextureOverlay={true}

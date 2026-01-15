@@ -13,6 +13,7 @@ interface LivingPosterPageProps {
   config: InviteConfig
   eventSlug: string
   eventDate?: string
+  eventTimezone?: string
   showBadge?: boolean
   hasRsvp?: boolean
   hasRegistry?: boolean
@@ -26,6 +27,7 @@ function LivingPosterContent({
   config,
   eventSlug,
   eventDate,
+  eventTimezone,
   showBadge = true,
   hasRsvp = false,
   hasRegistry = false,
@@ -99,6 +101,7 @@ function LivingPosterContent({
                   <TilePreview
                     tile={imageTile}
                     eventDate={eventDate}
+                    eventTimezone={eventTimezone}
                     eventSlug={eventSlug}
                     hasRsvp={hasRsvp}
                     hasRegistry={hasRegistry}
@@ -109,6 +112,7 @@ function LivingPosterContent({
                   <TilePreview
                     tile={tile}
                     eventDate={eventDate}
+                    eventTimezone={eventTimezone}
                     eventSlug={eventSlug}
                     hasRsvp={hasRsvp}
                     hasRegistry={hasRegistry}
@@ -131,6 +135,7 @@ function LivingPosterContent({
               key={tile.id}
               tile={tile}
               eventDate={eventDate}
+              eventTimezone={eventTimezone}
               eventSlug={eventSlug}
               hasRsvp={hasRsvp}
               hasRegistry={hasRegistry}

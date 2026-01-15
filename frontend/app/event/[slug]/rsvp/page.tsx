@@ -16,7 +16,7 @@ import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { getEventDetailsFromConfig } from '@/lib/event/utils'
 import { BRAND_NAME, COMPANY_HOMEPAGE } from '@/lib/brand_utility'
-import { getTimezoneFromLocation } from '@/lib/invite/timezone'
+import { getTimezoneLabel } from '@/lib/invite/timezone'
 
 const rsvpSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -37,6 +37,7 @@ interface Event {
   date: string
   city: string
   country: string
+  timezone?: string
   country_code: string
   banner_image?: string
   description?: string
@@ -1116,17 +1117,19 @@ export default function RSVPPage() {
                               {(() => {
                                 const date = new Date(subEvent.start_at)
                                 const location = subEvent.location || ''
-                                const timezone = location ? getTimezoneFromLocation(location) : undefined
+                                const timezone = event?.timezone || 'Asia/Kolkata'
                                 
-                                return date.toLocaleDateString('en-US', {
+                                return (
+                                  date.toLocaleDateString('en-US', {
                                   weekday: 'long',
                                   year: 'numeric',
                                   month: 'long',
                                   day: 'numeric',
                                   hour: 'numeric',
                                   minute: '2-digit',
-                                  ...(timezone && { timeZone: timezone }),
-                                })
+                                  timeZone: timezone,
+                                  }) + ` ${getTimezoneLabel(timezone)}`
+                                )
                               })()}
                             </div>
                           )}

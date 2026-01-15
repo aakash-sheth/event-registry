@@ -14,6 +14,7 @@ import EventCarouselTile from './EventCarouselTile'
 export interface TilePreviewProps {
   tile: Tile
   eventDate?: string
+  eventTimezone?: string
   eventSlug?: string
   eventTitle?: string
   hasRsvp?: boolean
@@ -26,6 +27,7 @@ export interface TilePreviewProps {
 export default function TilePreview({
   tile,
   eventDate,
+  eventTimezone,
   eventSlug,
   eventTitle,
   hasRsvp,
@@ -68,7 +70,7 @@ export default function TilePreview({
         const timerDate = eventDetailsDate || eventDate
         return <TimerTile settings={tile.settings as any} preview eventDate={timerDate} eventTime={eventTime} eventSlug={eventSlug} eventTitle={eventTitle} />
       case 'event-details':
-        return <EventDetailsTile settings={tile.settings as any} preview eventSlug={eventSlug} eventTitle={eventTitle} eventDate={eventDate} />
+        return <EventDetailsTile settings={tile.settings as any} preview eventSlug={eventSlug} eventTitle={eventTitle} eventDate={eventDate} eventTimezone={eventTimezone} />
       case 'description':
         return <DescriptionTile settings={tile.settings as any} preview />
       case 'feature-buttons':
@@ -94,6 +96,7 @@ export default function TilePreview({
             key={`event-carousel-${tile.id}`}
             settings={tile.settings as any}
             allowedSubEvents={allowedSubEvents}
+            eventTimezone={eventTimezone}
             preview={true}
             eventSlug={eventSlug}
           />

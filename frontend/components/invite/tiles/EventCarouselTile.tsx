@@ -10,7 +10,7 @@ import {
   getRecommendedCarouselDimensions,
   type ImageDimensions 
 } from '@/lib/invite/imageUtils'
-import { getTimezoneFromLocation } from '@/lib/invite/timezone'
+import { getTimezoneLabel } from '@/lib/invite/timezone'
 
 interface SubEvent {
   id: number
@@ -29,6 +29,7 @@ export interface EventCarouselTileProps {
   allowedSubEvents?: SubEvent[]
   preview?: boolean
   eventSlug?: string
+  eventTimezone?: string
 }
 
 // Design tokens
@@ -61,7 +62,8 @@ export default function EventCarouselTile({
   settings, 
   allowedSubEvents = [], 
   preview = false,
-  eventSlug 
+  eventSlug,
+  eventTimezone
 }: EventCarouselTileProps) {
   // State management
   const [mounted, setMounted] = useState(false)
@@ -305,37 +307,29 @@ export default function EventCarouselTile({
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+        timeZone: eventTimezone || 'Asia/Kolkata',
       })
     } catch {
       return dateString
     }
-  }, [])
+  }, [eventTimezone])
 
   const formatTime = useCallback((dateString: string, location?: string) => {
     try {
       const date = new Date(dateString)
-      
-      // If location is provided, format in that timezone; otherwise use browser's local timezone
-      if (location) {
-        const timezone = getTimezoneFromLocation(location)
-        return date.toLocaleTimeString('en-US', {
-          timeZone: timezone,
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        })
-      }
-      
-      // Fallback to browser's local timezone
-      return date.toLocaleTimeString('en-US', {
+
+      const tz = eventTimezone || 'Asia/Kolkata'
+      const time = date.toLocaleTimeString('en-US', {
+        timeZone: tz,
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
       })
+      return `${time} ${getTimezoneLabel(tz)}`
     } catch {
       return ''
     }
-  }, [])
+  }, [eventTimezone])
 
   const formatDateTime = useCallback((startAt: string, endAt?: string | null, location?: string) => {
     const startDate = formatDate(startAt)

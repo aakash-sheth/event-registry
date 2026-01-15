@@ -29,6 +29,7 @@ const eventSchema = z.object({
   date: z.string().optional(),
   city: z.string().optional(),
   country: z.string().default('IN'),
+  timezone: z.string().default('Asia/Kolkata'),
   is_public: z.boolean().default(true),
   has_rsvp: z.boolean().default(true),
   has_registry: z.boolean().default(true),
@@ -49,6 +50,7 @@ export default function NewEventPage() {
     defaultValues: {
       event_type: 'wedding',
       country: 'IN',
+      timezone: 'Asia/Kolkata',
       is_public: true,
       has_rsvp: true,
       has_registry: true,
@@ -217,6 +219,29 @@ export default function NewEventPage() {
                       ))}
                   </select>
                 </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Timezone</label>
+                <select
+                  {...register('timezone')}
+                  className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="Asia/Kolkata">India (IST) — Asia/Kolkata</option>
+                  <option value="America/New_York">US East — America/New_York</option>
+                  <option value="America/Chicago">US Central — America/Chicago</option>
+                  <option value="America/Denver">US Mountain — America/Denver</option>
+                  <option value="America/Los_Angeles">US Pacific — America/Los_Angeles</option>
+                  <option value="Europe/London">UK — Europe/London</option>
+                  <option value="Asia/Dubai">UAE — Asia/Dubai</option>
+                  <option value="Asia/Singapore">Singapore — Asia/Singapore</option>
+                  <option value="Australia/Sydney">Australia — Australia/Sydney</option>
+                  <option value="Pacific/Auckland">New Zealand — Pacific/Auckland</option>
+                  <option value="UTC">UTC</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Times will be shown exactly as you enter them, using this timezone.
+                </p>
               </div>
 
               <div>

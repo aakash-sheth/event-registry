@@ -81,6 +81,11 @@ class Event(models.Model):
     event_end_date = models.DateField(null=True, blank=True, help_text="End date for multi-day events (optional)")
     city = models.CharField(max_length=255, blank=True)
     country = models.CharField(max_length=2, default='IN', help_text="ISO 3166-1 alpha-2 country code (e.g., IN, US, UK)")
+    timezone = models.CharField(
+        max_length=64,
+        default='Asia/Kolkata',
+        help_text="IANA timezone name (e.g., Asia/Kolkata, America/New_York)"
+    )
     is_public = models.BooleanField(default=True)
     
     # Event structure and RSVP mode

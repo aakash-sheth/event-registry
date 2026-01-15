@@ -19,6 +19,7 @@ interface Event {
   title: string
   event_structure: 'SIMPLE' | 'ENVELOPE'
   rsvp_mode: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
+  timezone?: string
 }
 
 interface SubEvent {
@@ -63,6 +64,85 @@ export default function SubEventsPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isDescriptionModalOpen, setIsDescriptionModalOpen] = useState(false)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
+
+  const eventTimezone = event?.timezone || 'Asia/Kolkata'
+
+  const toDateTimeLocalInputValueInTimeZone = (isoString: string, timeZone: string) => {
+    // Convert stored ISO timestamp (UTC instant) to `datetime-local` value in EVENT timezone wall-time.
+    try {
+      const d = new Date(isoString)
+      if (Number.isNaN(d.getTime())) return ''
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      const parts = fmt.formatToParts(d)
+      const get = (type: string) => parts.find(p => p.type === type)?.value
+      const year = get('year')
+      const month = get('month')
+      const day = get('day')
+      const hour = get('hour')
+      const minute = get('minute')
+      if (!year || !month || !day || !hour || !minute) return ''
+      return `${year}-${month}-${day}T${hour}:${minute}`
+    } catch {
+      return ''
+    }
+  }
+
+  const dateTimeLocalInTimeZoneToUtcISOString = (dateTimeLocal: string, timeZone: string) => {
+    // Interpret `YYYY-MM-DDTHH:mm` as EVENT timezone wall-time, then store as UTC ISO instant.
+    try {
+      const m = dateTimeLocal.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/)
+      if (!m) return new Date(dateTimeLocal).toISOString()
+      const [, ys, mos, ds, hs, mins] = m
+      const y = Number(ys)
+      const mo = Number(mos)
+      const d = Number(ds)
+      const h = Number(hs)
+      const min = Number(mins)
+
+      // Initial guess: treat the desired wall-time as if it were UTC.
+      let utc = new Date(Date.UTC(y, mo - 1, d, h, min, 0))
+
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      const getTzParts = (date: Date) => {
+        const parts = fmt.formatToParts(date)
+        const get = (type: string) => parts.find(p => p.type === type)?.value
+        return {
+          year: Number(get('year')),
+          month: Number(get('month')),
+          day: Number(get('day')),
+          hour: Number(get('hour')),
+          minute: Number(get('minute')),
+        }
+      }
+
+      const desiredMs = Date.UTC(y, mo - 1, d, h, min, 0)
+      for (let i = 0; i < 2; i++) {
+        const tzp = getTzParts(utc)
+        const tzMs = Date.UTC(tzp.year, tzp.month - 1, tzp.day, tzp.hour, tzp.minute, 0)
+        const diffMs = desiredMs - tzMs
+        utc = new Date(utc.getTime() + diffMs)
+      }
+      return utc.toISOString()
+    } catch {
+      return new Date(dateTimeLocal).toISOString()
+    }
+  }
 
   useEffect(() => {
     if (!eventId || isNaN(eventId)) {
@@ -123,8 +203,8 @@ export default function SubEventsPage() {
     setEditingSubEvent(subEvent)
     setFormData({
       title: subEvent.title,
-      start_at: subEvent.start_at.slice(0, 16), // Convert to datetime-local format
-      end_at: subEvent.end_at ? subEvent.end_at.slice(0, 16) : '',
+      start_at: toDateTimeLocalInputValueInTimeZone(subEvent.start_at, eventTimezone),
+      end_at: subEvent.end_at ? toDateTimeLocalInputValueInTimeZone(subEvent.end_at, eventTimezone) : '',
       location: subEvent.location || '',
       description: subEvent.description || '',
       image_url: subEvent.image_url || '',
@@ -156,8 +236,8 @@ export default function SubEventsPage() {
 
     const payload = {
       ...formData,
-      start_at: new Date(formData.start_at).toISOString(),
-      end_at: formData.end_at ? new Date(formData.end_at).toISOString() : null,
+      start_at: dateTimeLocalInTimeZoneToUtcISOString(formData.start_at, eventTimezone),
+      end_at: formData.end_at ? dateTimeLocalInTimeZoneToUtcISOString(formData.end_at, eventTimezone) : null,
       description: formData.description || null,
       image_url: formData.image_url || null,
       background_color: formData.background_color || null,
@@ -194,7 +274,7 @@ export default function SubEventsPage() {
   const formatDateTime = (dateString: string) => {
     try {
       const date = new Date(dateString)
-      return date.toLocaleString('en-US', {
+      const formatted = date.toLocaleString('en-US', {
         weekday: 'short',
         year: 'numeric',
         month: 'short',
@@ -202,7 +282,9 @@ export default function SubEventsPage() {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
+        timeZone: eventTimezone,
       })
+      return `${formatted} (${eventTimezone})`
     } catch {
       return dateString
     }

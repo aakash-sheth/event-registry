@@ -1,7 +1,7 @@
 import React from 'react'
 import { MapPin } from 'lucide-react'
 import { EventDetailsTileSettings } from '@/lib/invite/schema'
-import { getTimezoneFromLocation, formatTimeInTimezone } from '@/lib/invite/timezone'
+import { getTimezoneLabel } from '@/lib/invite/timezone'
 import { getAutomaticLabelColor } from '@/lib/invite/colorUtils'
 import { isValidMapUrl, getEmbedUrl, canShowMap, generateMapUrlFromLocation, generateMapUrlFromCoordinates } from '@/lib/invite/mapUtils'
 
@@ -150,6 +150,7 @@ interface EventDetailsTileSSRProps {
   eventSlug?: string
   eventTitle?: string
   eventDate?: string
+  eventTimezone?: string
 }
 
 /**
@@ -161,8 +162,10 @@ export default function EventDetailsTileSSR({
   settings, 
   eventSlug, 
   eventTitle, 
-  eventDate 
+  eventDate,
+  eventTimezone
 }: EventDetailsTileSSRProps) {
+  const tz = eventTimezone || 'Asia/Kolkata'
   const formatDate = (dateString: string) => {
     try {
       let date: Date
@@ -192,12 +195,12 @@ export default function EventDetailsTileSSR({
 
   const formatTime = (timeString: string) => {
     if (!timeString) return timeString
-    
-    // Get timezone from location
-    const timezone = getTimezoneFromLocation(settings.location || '')
-    
-    // Format time in the event location's timezone
-    return formatTimeInTimezone(timeString, timezone, settings.date)
+
+    const [hours, minutes] = timeString.split(':').map(Number)
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return timeString
+    const hour12 = ((hours + 11) % 12) + 1
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm} ${getTimezoneLabel(tz)}`
   }
 
   // Calculate button colors based on settings.buttonColor

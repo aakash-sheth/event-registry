@@ -89,6 +89,8 @@ interface Event {
   page_config?: InviteConfig
   has_rsvp?: boolean
   has_registry?: boolean
+  country?: string
+  timezone?: string
 }
 
 // Get API base URL for server-side fetching
@@ -953,6 +955,8 @@ export default async function InvitePage({
           page_config: inviteData.config,
           has_rsvp: inviteData.has_rsvp,
           has_registry: inviteData.has_registry,
+          country: inviteData.event_country,
+          timezone: inviteData.event_timezone,
         } as Event
         
         tracker?.step('DATA_PROCESSING_COMPLETE', 'Event object constructed from invite data')

@@ -13,7 +13,7 @@ class EventSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'is_expired', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'timezone', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'is_expired', 'created_at', 'updated_at')
         read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
     
     def validate_slug(self, value):
@@ -43,6 +43,8 @@ class EventSerializer(serializers.ModelSerializer):
 class InvitePageSerializer(serializers.ModelSerializer):
     """Full serializer for InvitePage - read/write"""
     event_slug = serializers.CharField(source='event.slug', read_only=True)
+    event_country = serializers.CharField(source='event.country', read_only=True)
+    event_timezone = serializers.CharField(source='event.timezone', read_only=True)
     allowed_sub_events = serializers.SerializerMethodField()
     guest_context = serializers.SerializerMethodField()
     event_structure = serializers.CharField(source='event.event_structure', read_only=True)
@@ -53,8 +55,8 @@ class InvitePageSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = InvitePage
-        fields = ('id', 'event', 'event_slug', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'event_slug', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'event_slug', 'event_country', 'event_timezone', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event_slug', 'event_country', 'event_timezone', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
     
     def get_allowed_sub_events(self, obj):
         """Get allowed sub-events - set by view based on guest token or public visibility"""
@@ -119,7 +121,7 @@ class InvitePageUpdateSerializer(serializers.ModelSerializer):
 class EventCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
-        fields = ('slug', 'title', 'event_type', 'date', 'city', 'country', 'is_public', 'has_rsvp', 'has_registry')
+        fields = ('slug', 'title', 'event_type', 'date', 'city', 'country', 'timezone', 'is_public', 'has_rsvp', 'has_registry')
         read_only_fields = ('id',)
     
     def validate_slug(self, value):

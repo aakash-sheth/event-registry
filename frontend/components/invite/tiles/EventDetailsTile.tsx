@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import { MapPin, ChevronDown, Calendar, Download } from 'lucide-react'
 import { EventDetailsTileSettings } from '@/lib/invite/schema'
-import { getTimezoneFromLocation, formatTimeInTimezone } from '@/lib/invite/timezone'
+import { getTimezoneLabel } from '@/lib/invite/timezone'
 import { getGoogleCalendarHref } from '@/lib/calendar'
 import { getAutomaticLabelColor, hexToRgb, getBrightnessPercentage } from '@/lib/invite/colorUtils'
 import { isValidMapUrl, getEmbedUrl, canShowMap, generateMapUrlFromLocation, generateMapUrlFromCoordinates } from '@/lib/invite/mapUtils'
@@ -14,6 +14,7 @@ export interface EventDetailsTileProps {
   eventSlug?: string
   eventTitle?: string
   eventDate?: string
+  eventTimezone?: string
 }
 
 // Border style configurations
@@ -156,8 +157,9 @@ function renderDecorativeBorder(
   return null
 }
 
-export default function EventDetailsTile({ settings, preview = false, eventSlug, eventTitle, eventDate }: EventDetailsTileProps) {
+export default function EventDetailsTile({ settings, preview = false, eventSlug, eventTitle, eventDate, eventTimezone }: EventDetailsTileProps) {
   const [showCalendarMenu, setShowCalendarMenu] = useState(false)
+  const tz = eventTimezone || 'Asia/Kolkata'
   
   // Calculate button colors based on settings.buttonColor
   const buttonColor = settings.buttonColor || '#1F2937'
@@ -194,12 +196,11 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
 
   const formatTime = (timeString: string) => {
     if (!timeString) return timeString
-    
-    // Get timezone from location
-    const timezone = getTimezoneFromLocation(settings.location || '')
-    
-    // Format time in the event location's timezone
-    return formatTimeInTimezone(timeString, timezone, settings.date)
+    const [hours, minutes] = timeString.split(':').map(Number)
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return timeString
+    const hour12 = ((hours + 11) % 12) + 1
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm} ${getTimezoneLabel(tz)}`
   }
 
   const handleSaveTheDate = (e?: React.MouseEvent<HTMLButtonElement>) => {

@@ -2,6 +2,38 @@
  * Get IANA timezone identifier from location string
  * Supports common cities and countries
  */
+export function getTimezoneFromCountry(countryCode: string): string {
+  const cc = (countryCode || '').trim().toUpperCase()
+  // NOTE: Country-only is ambiguous for many countries (US/CA/AU/etc).
+  // This is a pragmatic default map; expand as needed or store explicit event timezone.
+  const map: Record<string, string> = {
+    IN: 'Asia/Kolkata',
+    GB: 'Europe/London',
+    UK: 'Europe/London', // defensive
+    AE: 'Asia/Dubai',
+    SG: 'Asia/Singapore',
+    NZ: 'Pacific/Auckland',
+    // Multi-timezone countries (defaults)
+    US: 'America/New_York',
+    CA: 'America/Toronto',
+    AU: 'Australia/Sydney',
+  }
+  return map[cc] || 'UTC'
+}
+
+export function getTimezoneLabel(timeZone: string): string {
+  // Stable, user-friendly labels for common zones
+  if (timeZone === 'Asia/Kolkata') return 'IST'
+  if (timeZone === 'Europe/London') return 'UK'
+  if (timeZone === 'America/New_York') return 'ET'
+  if (timeZone === 'America/Toronto') return 'ET'
+  if (timeZone === 'Australia/Sydney') return 'AET'
+  if (timeZone === 'Asia/Dubai') return 'GST'
+  if (timeZone === 'Asia/Singapore') return 'SGT'
+  if (timeZone === 'Pacific/Auckland') return 'NZT'
+  return timeZone
+}
+
 export function getTimezoneFromLocation(location: string): string {
   if (!location) return 'UTC'
   
