@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import PublishModal from '@/components/invite/PublishModal'
+import ImageCropModal from '@/components/invite/ImageCropModal'
 import api, { uploadImage } from '@/lib/api'
 import { InviteConfig, Tile, InvitePage } from '@/lib/invite/schema'
 import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
@@ -18,6 +19,7 @@ import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import TileList from '@/components/invite/tiles/TileList'
 import TileSettingsList from '@/components/invite/tiles/TileSettingsList'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
+import { cropImage } from '@/lib/invite/imageAnalysis'
 
 interface Event {
   id: number
@@ -134,6 +136,10 @@ export default function DesignInvitationPage(): JSX.Element {
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [showLinkMetadata, setShowLinkMetadata] = useState(false)
   const [uploadingPreviewImage, setUploadingPreviewImage] = useState(false)
+  const [isPreviewCropOpen, setIsPreviewCropOpen] = useState(false)
+  const [previewCropSrc, setPreviewCropSrc] = useState<string | null>(null)
+  const [previewCropDimensions, setPreviewCropDimensions] = useState<{ width: number; height: number; aspectRatio: number } | null>(null)
+  const [previewCropFilename, setPreviewCropFilename] = useState<string>('preview.jpg')
   const [spacerHeight, setSpacerHeight] = useState<number | null>(null)
   const [allTilesExpanded, setAllTilesExpanded] = useState(false)
   const [config, setConfig] = useState<InviteConfig>({
@@ -839,6 +845,37 @@ export default function DesignInvitationPage(): JSX.Element {
     })
   }
 
+  const getImageDimensions = (src: string): Promise<{ width: number; height: number; aspectRatio: number }> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        resolve({
+          width: img.width,
+          height: img.height,
+          aspectRatio: img.width && img.height ? img.width / img.height : 1,
+        })
+      }
+      img.onerror = () => reject(new Error('Failed to load image for dimensions'))
+      img.src = src
+    })
+  }
+
+  const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> => {
+    const res = await fetch(dataUrl)
+    const blob = await res.blob()
+    const safeName = filename?.trim() ? filename.trim() : 'preview.jpg'
+    const base = safeName.replace(/\.[^/.]+$/, '')
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: Date.now() })
+  }
+
+  const openPreviewCropper = async (src: string, filename: string) => {
+    const dims = await getImageDimensions(src)
+    setPreviewCropSrc(src)
+    setPreviewCropFilename(filename || 'preview.jpg')
+    setPreviewCropDimensions(dims)
+    setIsPreviewCropOpen(true)
+  }
+
   // Handle preview image upload
   const handlePreviewImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -860,47 +897,20 @@ export default function DesignInvitationPage(): JSX.Element {
 
     setUploadingPreviewImage(true)
     try {
-      // Resize and optimize image for link previews
-      const optimizedFile = await resizeImageForPreview(file)
-      
-      // Development-only logging for compression statistics
-      if (process.env.NODE_ENV === 'development') {
-        const finalSizeKB = (optimizedFile.size / 1024).toFixed(1)
-        const originalSizeKB = (file.size / 1024).toFixed(1)
-        console.log('[Preview Image] Compression stats:', {
-          original: `${originalSizeKB}KB`,
-          optimized: `${finalSizeKB}KB`,
-          reduction: `${((1 - optimizedFile.size / file.size) * 100).toFixed(1)}%`,
-          whatsappCompatible: optimizedFile.size <= 300 * 1024,
-        })
-        
-        // Warn if final size exceeds 300KB (development only)
-        if (optimizedFile.size > 300 * 1024) {
-          console.warn('[Preview Image] Warning: Optimized image exceeds WhatsApp limit:', {
-            size: `${finalSizeKB}KB`,
-            limit: '300KB',
-          })
-        }
-      }
-      
-      // Upload optimized image
-      const imageUrl = await uploadImage(optimizedFile, eventId)
-      
-      // Update config with uploaded image URL
+      // Upload the original image first so we have a stable URL for re-editing framing later
+      const originalUrl = await uploadImage(file, eventId)
+
+      // Store original URL for future “Adjust framing”
       setConfig(prev => ({
         ...prev,
         linkMetadata: {
           ...prev.linkMetadata,
-          image: imageUrl,
+          previewImageOriginal: originalUrl,
         },
       }))
-      
-      // Show success message with file size info
-      const finalSizeKB = (optimizedFile.size / 1024).toFixed(1)
-      const sizeInfo = optimizedFile.size <= 300 * 1024 
-        ? ` (${finalSizeKB}KB - WhatsApp compatible)`
-        : ` (${finalSizeKB}KB)`
-      showToast(`Preview image uploaded and optimized successfully${sizeInfo}`, 'success')
+
+      // Open cropper to let host choose what’s visible in the 1200x630 frame
+      await openPreviewCropper(originalUrl, file.name)
     } catch (error) {
       logError('Failed to upload preview image:', error)
       showToast('Failed to upload image. Please try again.', 'error')
@@ -910,6 +920,58 @@ export default function DesignInvitationPage(): JSX.Element {
       if (e.target) {
         e.target.value = ''
       }
+    }
+  }
+
+  const handleAdjustPreviewFraming = async () => {
+    const src = config.linkMetadata?.previewImageOriginal || config.linkMetadata?.image
+    if (!src) return
+    try {
+      setUploadingPreviewImage(true)
+      await openPreviewCropper(src, previewCropFilename)
+    } catch (error) {
+      logError('Failed to open preview cropper:', error)
+      showToast('Could not open framing tool. Please try again.', 'error')
+    } finally {
+      setUploadingPreviewImage(false)
+    }
+  }
+
+  const handleApplyPreviewCrop = async (
+    originalImageSrc: string,
+    metadata: { cropData: { x: number; y: number; width: number; height: number }; aspectRatio: number }
+  ) => {
+    setUploadingPreviewImage(true)
+    try {
+      // Crop to exactly 1200x630 for maximum consistency across platforms
+      const croppedDataUrl = await cropImage(originalImageSrc, metadata.cropData, 1200, 630)
+      const croppedFile = await dataUrlToFile(croppedDataUrl, previewCropFilename)
+
+      // Compress to meet WhatsApp 300KB requirement (keeps 1200x630)
+      const optimizedFile = await resizeImageForPreview(croppedFile)
+
+      // Upload final OG image
+      const imageUrl = await uploadImage(optimizedFile, eventId)
+
+      setConfig(prev => ({
+        ...prev,
+        linkMetadata: {
+          ...prev.linkMetadata,
+          image: imageUrl,
+          previewImageCrop: metadata.cropData,
+          previewImageCropAspectRatio: metadata.aspectRatio,
+        },
+      }))
+
+      const finalSizeKB = (optimizedFile.size / 1024).toFixed(1)
+      const sizeInfo = optimizedFile.size <= 300 * 1024 ? ` (${finalSizeKB}KB - WhatsApp compatible)` : ` (${finalSizeKB}KB)`
+      showToast(`Preview image saved${sizeInfo}`, 'success')
+      setIsPreviewCropOpen(false)
+    } catch (error) {
+      logError('Failed to apply preview crop:', error)
+      showToast('Failed to save framing. Please try again.', 'error')
+    } finally {
+      setUploadingPreviewImage(false)
     }
   }
 
@@ -1644,7 +1706,7 @@ export default function DesignInvitationPage(): JSX.Element {
                               <img
                                 src={config.linkMetadata.image}
                                 alt="Preview"
-                                className="w-full max-w-md h-48 object-cover rounded border border-gray-300"
+                                className="w-full max-w-md h-48 object-contain bg-white rounded border border-gray-300"
                                 onError={(e) => {
                                   e.currentTarget.style.display = 'none'
                                 }}
@@ -1656,6 +1718,9 @@ export default function DesignInvitationPage(): JSX.Element {
                                   linkMetadata: {
                                     ...prev.linkMetadata,
                                     image: undefined,
+                                    previewImageOriginal: undefined,
+                                    previewImageCrop: undefined,
+                                    previewImageCropAspectRatio: undefined,
                                   },
                                 }))}
                                 className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
@@ -1664,6 +1729,16 @@ export default function DesignInvitationPage(): JSX.Element {
                                 ×
                               </button>
                             </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleAdjustPreviewFraming}
+                              disabled={uploadingPreviewImage}
+                              className="w-full"
+                            >
+                              Adjust framing
+                            </Button>
                             <Button
                               type="button"
                               variant="outline"
@@ -1710,7 +1785,8 @@ export default function DesignInvitationPage(): JSX.Element {
                           </div>
                         )}
                         <p className="text-xs text-gray-500 mt-2">
-                          Custom image for link previews. Image will be automatically resized to 1200x630px and optimized for fast loading. Leave empty to use page background image.
+                          Custom image for link previews (WhatsApp, Facebook, Twitter). Recommended: <strong>1200×630 (1.91:1)</strong>. Platforms may crop thumbnails—keep key text/faces centered with padding.
+                          Use <strong>Adjust framing</strong> to choose what’s visible in the 1200×630 frame.
                         </p>
                         <p className="text-xs text-eco-green mt-1 font-medium">
                           WhatsApp requires preview images under 300KB - your image will be automatically compressed to meet this requirement.
@@ -1892,6 +1968,20 @@ export default function DesignInvitationPage(): JSX.Element {
         </div>
       </div>
       
+      {isPreviewCropOpen && previewCropSrc && previewCropDimensions && (
+        <ImageCropModal
+          imageSrc={previewCropSrc}
+          imageDimensions={previewCropDimensions}
+          recommendedAspectRatio={1200 / 630}
+          allowedAspectRatios={[1200 / 630]}
+          existingCropData={config.linkMetadata?.previewImageCrop}
+          existingAspectRatio={config.linkMetadata?.previewImageCropAspectRatio}
+          onCrop={handleApplyPreviewCrop}
+          onCancel={() => setIsPreviewCropOpen(false)}
+          onClose={() => setIsPreviewCropOpen(false)}
+        />
+      )}
+
       {/* Fix 2: Publish Modal */}
       {showPublishModal && (
         <PublishModal

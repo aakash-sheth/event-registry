@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ZoomIn, ZoomOut } from 'lucide-react'
@@ -18,6 +18,7 @@ interface ImageCropModalProps {
   imageSrc: string
   imageDimensions: { width: number; height: number; aspectRatio: number }
   recommendedAspectRatio: number // 0.75 for 3:4 or 0.5625 for 9:16
+  allowedAspectRatios?: number[] // Optional: restrict ratio options (e.g., [1200/630] for link previews)
   existingCropData?: CropArea // Existing crop data if available
   existingAspectRatio?: number // Existing aspect ratio if available
   onCrop: (
@@ -31,7 +32,10 @@ interface ImageCropModalProps {
   onClose?: () => void // Optional close handler for after successful save
 }
 
+const LINK_PREVIEW_ASPECT_RATIO = 1200 / 630 // 1.91:1 (Open Graph standard)
+
 const ASPECT_RATIOS = [
+  { label: 'Link Preview (1.91:1)', value: LINK_PREVIEW_ASPECT_RATIO, description: 'Recommended for WhatsApp/Twitter/Facebook link previews' },
   { label: 'Portrait (3:4)', value: 0.75, description: 'Recommended - works well on all devices' },
   { label: 'Square (1:1)', value: 1.0, description: 'Versatile format' },
   { label: 'Landscape (4:3)', value: 1.333, description: 'Wider format' },
@@ -41,6 +45,7 @@ export default function ImageCropModal({
   imageSrc,
   imageDimensions,
   recommendedAspectRatio,
+  allowedAspectRatios,
   existingCropData,
   existingAspectRatio,
   onCrop,
@@ -65,6 +70,26 @@ export default function ImageCropModal({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false) // Track if there are unsaved changes after initial save
   const [savedCropArea, setSavedCropArea] = useState<CropArea | null>(null) // Track what was last saved
   const [savedAspectRatio, setSavedAspectRatio] = useState<number | null>(null) // Track what aspect ratio was last saved
+
+  const availableAspectRatios = useMemo(() => {
+    if (!allowedAspectRatios || allowedAspectRatios.length === 0) return ASPECT_RATIOS
+    const allowed = new Set(allowedAspectRatios.map(r => Number(r)))
+    const filtered = ASPECT_RATIOS.filter(r => allowed.has(Number(r.value)))
+    // Ensure the recommended ratio is available even if not explicitly included.
+    if (recommendedAspectRatio && !filtered.some(r => Number(r.value) === Number(recommendedAspectRatio))) {
+      filtered.unshift({
+        label: `Recommended (${recommendedAspectRatio.toFixed(2)}:1)`,
+        value: recommendedAspectRatio,
+        description: 'Recommended aspect ratio',
+      })
+    }
+    return filtered.length > 0 ? filtered : ASPECT_RATIOS
+  }, [allowedAspectRatios, recommendedAspectRatio])
+
+  const selectedAspectRatioDescription = useMemo(() => {
+    const match = availableAspectRatios.find(r => Number(r.value) === Number(selectedAspectRatio))
+    return match?.description
+  }, [availableAspectRatios, selectedAspectRatio])
 
   // Calculate initial setup - Instagram style: fixed crop frame, image moves behind it
   useEffect(() => {
@@ -810,23 +835,32 @@ export default function ImageCropModal({
           {/* Aspect Ratio Selector */}
           <div className="mt-4">
             <label className="block text-xs font-medium mb-2">Aspect Ratio</label>
-            <select
-              value={selectedAspectRatio}
-              onChange={(e) => {
-                const newRatio = parseFloat(e.target.value)
-                setSelectedAspectRatio(newRatio)
-              }}
-              className="w-full text-sm border rounded px-2 py-1"
-            >
-              {ASPECT_RATIOS.map(ratio => (
-                <option key={ratio.value} value={ratio.value}>
-                  {ratio.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">
-              {ASPECT_RATIOS.find(r => r.value === selectedAspectRatio)?.description}
-            </p>
+            {availableAspectRatios.length > 1 ? (
+              <>
+                <select
+                  value={selectedAspectRatio}
+                  onChange={(e) => {
+                    const newRatio = parseFloat(e.target.value)
+                    setSelectedAspectRatio(newRatio)
+                  }}
+                  className="w-full text-sm border rounded px-2 py-1"
+                >
+                  {availableAspectRatios.map(ratio => (
+                    <option key={ratio.value} value={ratio.value}>
+                      {ratio.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">{selectedAspectRatioDescription}</p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-700">
+                {availableAspectRatios[0]?.label}
+                {selectedAspectRatioDescription ? (
+                  <span className="text-xs text-gray-500 ml-2">{selectedAspectRatioDescription}</span>
+                ) : null}
+              </p>
+            )}
           </div>
 
           {/* Zoom Controls */}

@@ -139,6 +139,9 @@ export interface LinkMetadata {
   title?: string // Custom title for link previews (WhatsApp, Facebook, Twitter) - overrides auto-generated
   description?: string // Custom description for link previews - overrides auto-generated
   image?: string // Custom image URL for link previews - overrides auto-generated (recommended: 1200x630px)
+  previewImageOriginal?: string // Original uploaded image URL for re-editing framing
+  previewImageCrop?: { x: number; y: number; width: number; height: number } // Crop rectangle in original image coordinates
+  previewImageCropAspectRatio?: number // Aspect ratio used when cropping (e.g., 1200/630)
 }
 
 export type TileSettings = 

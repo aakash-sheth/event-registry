@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -114,6 +114,7 @@ interface SubEvent {
 export default function GuestsPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const eventId = params.eventId as string
   const { showToast } = useToast()
   const [guests, setGuests] = useState<Guest[]>([])
@@ -131,6 +132,45 @@ export default function GuestsPage() {
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
   const [rsvpFilter, setRsvpFilter] = useState<'all' | 'unconfirmed' | 'confirmed' | 'no'>('all')
+  type CategorySource = 'relationship' | `cf:${string}`
+  const [categorySource, setCategorySource] = useState<CategorySource>('relationship')
+  const [categoryValue, setCategoryValue] = useState<string>('all')
+  const [inviteSentFilter, setInviteSentFilter] = useState<'all' | 'sent' | 'not_sent'>('all')
+  const [selectedSubEventFilterIds, setSelectedSubEventFilterIds] = useState<Set<number>>(new Set())
+  const [showSubEventFilterMenu, setShowSubEventFilterMenu] = useState(false)
+  const subEventFilterRef = useRef<HTMLDivElement>(null)
+
+  // Column visibility (host configurable, middle-only)
+  type MiddleColumnKey =
+    | 'email'
+    | 'relationship'
+    | 'guests_count'
+    | 'notes'
+    | 'sub_events_attending'
+    | `cf:${string}`
+
+  const MAX_MIDDLE_COLUMNS = 5
+  const columnsStorageKey = `guestTableColumns:${eventId}`
+  const [visibleMiddleColumns, setVisibleMiddleColumns] = useState<MiddleColumnKey[]>([
+    'email', // default ON (per request)
+    'relationship',
+    'guests_count',
+    'notes',
+  ])
+  const [showColumnsMenu, setShowColumnsMenu] = useState(false)
+  const columnsMenuRef = useRef<HTMLDivElement>(null)
+  const [sortKey, setSortKey] = useState<
+    | 'name'
+    | 'email'
+    | 'category'
+    | 'rsvp_status'
+    | 'guests_count'
+    | 'invite_sent'
+    | 'sub_events_assigned'
+    | 'sub_events_attending'
+    | 'notes'
+  >('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [showImportExportMenu, setShowImportExportMenu] = useState(false)
   const [showImportInstructions, setShowImportInstructions] = useState(false)
   const [subEvents, setSubEvents] = useState<SubEvent[]>([])
@@ -145,6 +185,7 @@ export default function GuestsPage() {
   const [customFieldsDraft, setCustomFieldsDraft] = useState<CustomFieldMeta[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const hasInitializedFiltersRef = useRef(false)
 
   const makeDraftId = () => {
     try {
@@ -197,10 +238,333 @@ export default function GuestsPage() {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowImportExportMenu(false)
       }
+      if (subEventFilterRef.current && !subEventFilterRef.current.contains(event.target as Node)) {
+        setShowSubEventFilterMenu(false)
+      }
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(event.target as Node)) {
+        setShowColumnsMenu(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Initialize filter/sort state from URL query params (one-time)
+  useEffect(() => {
+    if (hasInitializedFiltersRef.current) return
+    const catSrc = searchParams.get('catSrc')
+    const catVal = searchParams.get('catVal')
+    const cat = searchParams.get('cat') // backward compat: relationship value
+    const sent = searchParams.get('sent')
+    const sub = searchParams.get('sub')
+    const sort = searchParams.get('sort')
+    const dir = searchParams.get('dir')
+
+    if (catSrc && (catSrc === 'relationship' || catSrc.startsWith('cf:'))) {
+      setCategorySource(catSrc as CategorySource)
+      setCategoryValue(catVal || 'all')
+    } else if (cat) {
+      // Backward compat: old `cat` meant relationship filter value
+      setCategorySource('relationship')
+      setCategoryValue(cat)
+    }
+    if (sent === 'sent' || sent === 'not_sent' || sent === 'all') setInviteSentFilter(sent)
+    if (sub) {
+      const ids = sub
+        .split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => Number.isFinite(n))
+      setSelectedSubEventFilterIds(new Set(ids))
+    }
+    if (
+      sort === 'name' ||
+      sort === 'email' ||
+      sort === 'category' ||
+      sort === 'rsvp_status' ||
+      sort === 'guests_count' ||
+      sort === 'invite_sent' ||
+      sort === 'sub_events_assigned' ||
+      sort === 'sub_events_attending' ||
+      sort === 'notes'
+    ) {
+      setSortKey(sort)
+    }
+    if (dir === 'asc' || dir === 'desc') setSortDir(dir)
+
+    hasInitializedFiltersRef.current = true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
+  // Initialize visible columns from localStorage (one-time per event)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(columnsStorageKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        const cleaned = parsed
+          .filter((c: any) => typeof c === 'string')
+          .slice(0, MAX_MIDDLE_COLUMNS) as MiddleColumnKey[]
+        if (cleaned.length > 0) setVisibleMiddleColumns(cleaned)
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId])
+
+  // Persist visible columns to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(columnsStorageKey, JSON.stringify(visibleMiddleColumns.slice(0, MAX_MIDDLE_COLUMNS)))
+    } catch {
+      // ignore
+    }
+  }, [columnsStorageKey, visibleMiddleColumns])
+
+  // Persist filter/sort state to URL query params
+  useEffect(() => {
+    if (!hasInitializedFiltersRef.current) return
+    const params = new URLSearchParams(searchParams.toString())
+    const basePath = `/host/events/${eventId}/guests`
+
+    const isDefault =
+      categorySource === 'relationship' &&
+      categoryValue === 'all' &&
+      inviteSentFilter === 'all' &&
+      selectedSubEventFilterIds.size === 0 &&
+      sortKey === 'name' &&
+      sortDir === 'asc'
+
+    if (isDefault) {
+      params.delete('cat')
+      params.delete('catSrc')
+      params.delete('catVal')
+      params.delete('sent')
+      params.delete('sub')
+      params.delete('sort')
+      params.delete('dir')
+    } else {
+      // Remove legacy param always
+      params.delete('cat')
+
+      if (categorySource === 'relationship' && categoryValue === 'all') {
+        params.delete('catSrc')
+        params.delete('catVal')
+      } else {
+        params.set('catSrc', categorySource)
+        if (categoryValue === 'all') params.delete('catVal')
+        else params.set('catVal', categoryValue)
+      }
+
+      if (inviteSentFilter === 'all') params.delete('sent')
+      else params.set('sent', inviteSentFilter)
+
+      if (selectedSubEventFilterIds.size === 0) params.delete('sub')
+      else params.set('sub', Array.from(selectedSubEventFilterIds).sort((a, b) => a - b).join(','))
+
+      if (sortKey === 'name') params.delete('sort')
+      else params.set('sort', sortKey)
+
+      if (sortDir === 'asc') params.delete('dir')
+      else params.set('dir', sortDir)
+    }
+
+    const qs = params.toString()
+    router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categorySource, categoryValue, inviteSentFilter, selectedSubEventFilterIds, sortKey, sortDir, eventId])
+
+  const getAssignedSubEventIds = (guest: Guest): number[] => {
+    const ids = guestSubEventAssignments[guest.id] ?? guest.sub_event_invites ?? []
+    return Array.isArray(ids) ? ids : []
+  }
+
+  const getRsvpSortValue = (guest: Guest): number => {
+    const status = (guest.rsvp_status || guest.rsvp_will_attend || '').toLowerCase()
+    // Pending first, then yes, maybe, no (most useful grouping)
+    if (!status) return 0
+    if (status === 'yes') return 1
+    if (status === 'maybe') return 2
+    if (status === 'no') return 3
+    return 4
+  }
+
+  const getSubEventsAttendingSortValue = (guest: Guest): number => {
+    const rsvps = guestRSVPs[guest.id] || []
+    const attending = rsvps.filter((r: any) => r.will_attend === 'yes' && r.sub_event_title)
+    return attending.length
+  }
+
+  const visibleGuests = useMemo(() => {
+    let list = guests.filter(g => !g.is_removed)
+
+    // RSVP status filter
+    if (rsvpFilter === 'unconfirmed') {
+      list = list.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
+    } else if (rsvpFilter === 'confirmed') {
+      list = list.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
+    } else if (rsvpFilter === 'no') {
+      list = list.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
+    }
+
+    // Category filter (relationship OR selected custom field)
+    if (categoryValue !== 'all') {
+      if (categorySource === 'relationship') {
+        list = list.filter(g => (g.relationship || '').trim() === categoryValue)
+      } else {
+        const key = categorySource.slice(3)
+        list = list.filter(g => (g.custom_fields?.[key] || '').trim() === categoryValue)
+      }
+    }
+
+    // Invite sent filter
+    if (inviteSentFilter === 'sent') {
+      list = list.filter(g => !!g.invitation_sent)
+    } else if (inviteSentFilter === 'not_sent') {
+      list = list.filter(g => !g.invitation_sent)
+    }
+
+    // Sub-event assignment filter (any match)
+    if (selectedSubEventFilterIds.size > 0) {
+      const selected = selectedSubEventFilterIds
+      list = list.filter(g => {
+        const assigned = getAssignedSubEventIds(g)
+        return assigned.some(id => selected.has(id))
+      })
+    }
+
+    // Sorting
+    const dir = sortDir === 'asc' ? 1 : -1
+    const byStr = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }) * dir
+
+    const sorted = [...list].sort((a, b) => {
+      if (sortKey === 'name') return byStr(a.name || '', b.name || '')
+      if (sortKey === 'email') return byStr(a.email || '', b.email || '') || byStr(a.name || '', b.name || '')
+      if (sortKey === 'category') return byStr((a.relationship || '').trim(), (b.relationship || '').trim())
+      if (sortKey === 'rsvp_status') return (getRsvpSortValue(a) - getRsvpSortValue(b)) * dir || byStr(a.name || '', b.name || '')
+      if (sortKey === 'guests_count') {
+        const av = a.rsvp_guests_count ?? -1
+        const bv = b.rsvp_guests_count ?? -1
+        return (av - bv) * dir || byStr(a.name || '', b.name || '')
+      }
+      if (sortKey === 'invite_sent') {
+        const av = a.invitation_sent ? 1 : 0
+        const bv = b.invitation_sent ? 1 : 0
+        return (av - bv) * dir || byStr(a.name || '', b.name || '')
+      }
+      if (sortKey === 'sub_events_assigned') {
+        const av = getAssignedSubEventIds(a).length
+        const bv = getAssignedSubEventIds(b).length
+        return (av - bv) * dir || byStr(a.name || '', b.name || '')
+      }
+      if (sortKey === 'sub_events_attending') {
+        const av = getSubEventsAttendingSortValue(a)
+        const bv = getSubEventsAttendingSortValue(b)
+        return (av - bv) * dir || byStr(a.name || '', b.name || '')
+      }
+      if (sortKey === 'notes') return byStr(a.notes || '', b.notes || '') || byStr(a.name || '', b.name || '')
+      return byStr(a.name || '', b.name || '')
+    })
+
+    return sorted
+  }, [
+    guests,
+    rsvpFilter,
+    categorySource,
+    categoryValue,
+    inviteSentFilter,
+    selectedSubEventFilterIds,
+    sortKey,
+    sortDir,
+    guestSubEventAssignments,
+  ])
+
+  const toggleSort = (nextKey: typeof sortKey) => {
+    if (sortKey === nextKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(nextKey)
+      setSortDir('asc')
+    }
+  }
+
+  const sortArrow = (key: typeof sortKey) => {
+    if (sortKey !== key) return null
+    return <span className="ml-1 text-xs text-gray-500">{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
+
+  const toggleMiddleColumn = (key: MiddleColumnKey) => {
+    setVisibleMiddleColumns(prev => {
+      const has = prev.includes(key)
+      if (has) return prev.filter(k => k !== key)
+      if (prev.length >= MAX_MIDDLE_COLUMNS) {
+        showToast(`You can show up to ${MAX_MIDDLE_COLUMNS} middle columns`, 'error')
+        return prev
+      }
+      return [...prev, key]
+    })
+  }
+
+  const resetMiddleColumns = () => {
+    setVisibleMiddleColumns(['email', 'relationship', 'guests_count', 'notes'])
+  }
+
+  const getDisplayPhone = (guest: Guest): string => {
+    const local = (guest.local_number || '').toString().trim()
+    if (local) {
+      const cc = (guest.country_code || '').toString().trim()
+      return `${cc} ${local}`.trim()
+    }
+    const phone = (guest.phone || '').toString().trim()
+    return phone || '-'
+  }
+
+  const getMiddleColumnLabel = (col: MiddleColumnKey): string => {
+    if (col === 'email') return 'Email'
+    if (col === 'relationship') return 'Relationship'
+    if (col === 'guests_count') return 'Guests Count'
+    if (col === 'notes') return 'Notes'
+    if (col === 'sub_events_attending') return 'Sub-Events Attending'
+    if (col.startsWith('cf:')) {
+      const key = col.slice(3)
+      return getActiveCustomFields().find(f => f.key === key)?.display_label || key
+    }
+    return col
+  }
+
+  const middleColumnOptions = (): Array<{ key: MiddleColumnKey; label: string }> => {
+    const opts: Array<{ key: MiddleColumnKey; label: string }> = [
+      { key: 'email', label: 'Email' },
+      { key: 'relationship', label: 'Relationship' },
+      { key: 'guests_count', label: 'Guests Count' },
+      { key: 'notes', label: 'Notes' },
+    ]
+
+    if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
+      opts.push({ key: 'sub_events_attending', label: 'Sub-Events Attending' })
+    }
+
+    getActiveCustomFields().forEach(f => {
+      opts.push({ key: `cf:${f.key}`, label: f.display_label })
+    })
+
+    return opts
+  }
+
+  const middleColumnsToRender = useMemo(() => {
+    const allowed = new Set(middleColumnOptions().map(o => o.key))
+    return visibleMiddleColumns.filter(c => allowed.has(c)).slice(0, MAX_MIDDLE_COLUMNS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleMiddleColumns, event?.event_structure, event?.rsvp_mode, event?.custom_fields_metadata])
+
+  const tableColSpan =
+    1 + // selection checkbox
+    2 + // name + phone
+    middleColumnsToRender.length +
+    2 + // rsvp status + invitation sent
+    (event?.event_structure === 'ENVELOPE' ? 1 : 0) + // sub-events assigned
+    1 // actions
 
   
   const fetchEvent = async () => {
@@ -234,7 +598,7 @@ export default function GuestsPage() {
     }
   }
 
-  const getActiveCustomFields = () => {
+  function getActiveCustomFields() {
     const meta = event?.custom_fields_metadata || {}
     const fields: { key: string; display_label: string }[] = []
     Object.entries(meta).forEach(([key, value]: any) => {
@@ -246,6 +610,39 @@ export default function GuestsPage() {
     })
     return fields.sort((a, b) => a.display_label.localeCompare(b.display_label))
   }
+
+  const categorySourceOptions = useMemo(() => {
+    const opts: Array<{ value: CategorySource; label: string }> = [{ value: 'relationship', label: 'Relationship' }]
+    getActiveCustomFields().forEach((f) => {
+      opts.push({ value: `cf:${f.key}`, label: f.display_label })
+    })
+    return opts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.custom_fields_metadata])
+
+  const categoryValueOptions = useMemo(() => {
+    const values = new Set<string>()
+    if (categorySource === 'relationship') {
+      guests.forEach((g) => {
+        const v = (g.relationship || '').trim()
+        if (v) values.add(v)
+      })
+    } else {
+      const key = categorySource.slice(3)
+      guests.forEach((g) => {
+        const v = (g.custom_fields?.[key] || '').trim()
+        if (v) values.add(v)
+      })
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b))
+  }, [guests, categorySource])
+
+  // If source changes (or data changes), keep the selected value valid
+  useEffect(() => {
+    if (categoryValue !== 'all' && !categoryValueOptions.includes(categoryValue)) {
+      setCategoryValue('all')
+    }
+  }, [categorySource, categoryValue, categoryValueOptions])
 
   const normalizeCustomFieldKey = (raw: string) => {
     return raw
@@ -1344,6 +1741,228 @@ export default function GuestsPage() {
                 Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
               </button>
             </div>
+
+            {/* Filter + Sort */}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600">Category</span>
+                <select
+                  value={categorySource}
+                  onChange={(e) => {
+                    setCategorySource(e.target.value as any)
+                    setCategoryValue('all')
+                  }}
+                  className="text-sm border rounded px-2 py-1 bg-white"
+                >
+                  {categorySourceOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={categoryValue}
+                  onChange={(e) => setCategoryValue(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-white"
+                >
+                  <option value="all">All</option>
+                  {categoryValueOptions.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
+                <div className="relative" ref={subEventFilterRef}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSubEventFilterMenu((v) => !v)}
+                    className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                  >
+                    Sub-Events{selectedSubEventFilterIds.size > 0 ? ` (${selectedSubEventFilterIds.size})` : ''}
+                  </Button>
+                  {showSubEventFilterMenu && (
+                    <div className="absolute left-0 mt-2 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-gray-700">Filter by assigned sub-events</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSubEventFilterIds(new Set())
+                          }}
+                          className="text-xs text-gray-500 hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto space-y-2">
+                        {subEvents.map((se) => {
+                          const checked = selectedSubEventFilterIds.has(se.id)
+                          return (
+                            <label key={se.id} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  setSelectedSubEventFilterIds((prev) => {
+                                    const next = new Set(prev)
+                                    if (e.target.checked) next.add(se.id)
+                                    else next.delete(se.id)
+                                    return next
+                                  })
+                                }}
+                              />
+                              <span className="truncate" title={se.title}>
+                                {se.title}
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button type="button" size="sm" onClick={() => setShowSubEventFilterMenu(false)}>
+                          Done
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600">Invite sent</span>
+                <select
+                  value={inviteSentFilter}
+                  onChange={(e) => setInviteSentFilter(e.target.value as any)}
+                  className="text-sm border rounded px-2 py-1 bg-white"
+                >
+                  <option value="all">All</option>
+                  <option value="sent">Sent</option>
+                  <option value="not_sent">Not sent</option>
+                </select>
+              </div>
+
+              {/* Columns picker (middle columns only, max 5) */}
+              <div className="relative" ref={columnsMenuRef}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowColumnsMenu((v) => !v)}
+                  className="border-gray-300 text-gray-800 hover:bg-gray-50"
+                >
+                  Columns ({middleColumnsToRender.length}/{MAX_MIDDLE_COLUMNS})
+                </Button>
+                {showColumnsMenu && (
+                  <div className="absolute left-0 mt-2 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-gray-700">Choose middle columns</span>
+                      <button
+                        type="button"
+                        onClick={resetMiddleColumns}
+                        className="text-xs text-gray-500 hover:underline"
+                      >
+                        Reset
+                      </button>
+                    </div>
+
+                    <div className="text-xs text-gray-500 mb-2">
+                      Selected {middleColumnsToRender.length} / {MAX_MIDDLE_COLUMNS}
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto space-y-2">
+                      {middleColumnOptions().map((opt) => {
+                        const checked = middleColumnsToRender.includes(opt.key)
+                        const atLimit = middleColumnsToRender.length >= MAX_MIDDLE_COLUMNS
+                        const disabled = !checked && atLimit
+                        return (
+                          <label
+                            key={opt.key}
+                            className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-50' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => toggleMiddleColumn(opt.key)}
+                            />
+                            <span className="truncate" title={opt.label}>
+                              {opt.label}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex justify-end">
+                      <Button type="button" size="sm" onClick={() => setShowColumnsMenu(false)}>
+                        Done
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="hidden sm:block text-xs text-gray-500">
+                Tip: click column headers to sort
+              </div>
+
+              {/* Mobile fallback */}
+              <div className="flex items-center gap-2 sm:hidden">
+                <span className="text-xs text-gray-600">Sort</span>
+                <select
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value as any)}
+                  className="text-sm border rounded px-2 py-1 bg-white"
+                >
+                  <option value="name">Name</option>
+                  <option value="email">Email</option>
+                  <option value="category">Category</option>
+                  <option value="rsvp_status">RSVP Status</option>
+                  <option value="guests_count">Guests Count</option>
+                  <option value="invite_sent">Invite sent</option>
+                  {event?.event_structure === 'ENVELOPE' && <option value="sub_events_assigned">Sub-events assigned</option>}
+                  {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
+                    <option value="sub_events_attending">Sub-events attending</option>
+                  )}
+                  <option value="notes">Notes</option>
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                >
+                  {sortDir === 'asc' ? '↑' : '↓'}
+                </Button>
+              </div>
+
+              <div className="flex-1" />
+
+              <div className="text-xs text-gray-500">
+                Showing {visibleGuests.length} of {guests.filter(g => !g.is_removed).length}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setCategorySource('relationship')
+                  setCategoryValue('all')
+                  setInviteSentFilter('all')
+                  setSelectedSubEventFilterIds(new Set())
+                  setSortKey('name')
+                  setSortDir('asc')
+                }}
+              >
+                Reset
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {guests.length === 0 ? (
@@ -1397,19 +2016,9 @@ export default function GuestsPage() {
                     <tr className="border-b">
                       <th className="text-left p-2 w-12">
                         {(() => {
-                          // Filter guests based on RSVP status (exclude removed guests)
-                          let filteredGuests = guests.filter(g => !g.is_removed)
-                          
-                          if (rsvpFilter === 'unconfirmed') {
-                            filteredGuests = filteredGuests.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
-                          } else if (rsvpFilter === 'confirmed') {
-                            filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
-                          } else if (rsvpFilter === 'no') {
-                            filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
-                          }
-                          
-                          const allSelected = filteredGuests.length > 0 && filteredGuests.every(g => selectedGuestIds.has(g.id))
-                          const someSelected = filteredGuests.some(g => selectedGuestIds.has(g.id))
+                          const allSelected =
+                            visibleGuests.length > 0 && visibleGuests.every(g => selectedGuestIds.has(g.id))
+                          const someSelected = visibleGuests.some(g => selectedGuestIds.has(g.id))
                           
                           return (
                             <input
@@ -1418,48 +2027,147 @@ export default function GuestsPage() {
                               ref={(el) => {
                                 if (el) el.indeterminate = someSelected && !allSelected
                               }}
-                              onChange={(e) => handleSelectAllGuests(e.target.checked, filteredGuests)}
+                              onChange={(e) => handleSelectAllGuests(e.target.checked, visibleGuests)}
                               className="cursor-pointer"
                             />
                           )
                         })()}
                       </th>
-                      <th className="text-left p-2">Name</th>
-                      <th className="text-left p-2">Country Code</th>
-                      <th className="text-left p-2">Phone Number</th>
-                      <th className="text-left p-2">Email</th>
-                      <th className="text-left p-2">Relationship</th>
-                      <th className="text-left p-2">RSVP Status</th>
-                      <th className="text-left p-2">Guests Count</th>
-                      <th className="text-left p-2">Invitation Sent</th>
+                      <th className="text-left p-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort('name')}
+                          className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                          title="Sort by name"
+                        >
+                          Name{sortArrow('name')}
+                        </button>
+                      </th>
+                      <th className="text-left p-2">Phone</th>
+
+                      {middleColumnsToRender.map((col) => {
+                        if (col === 'email') {
+                          return (
+                            <th key={col} className="text-left p-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleSort('email')}
+                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                title="Sort by email"
+                              >
+                                Email{sortArrow('email')}
+                              </button>
+                            </th>
+                          )
+                        }
+                        if (col === 'relationship') {
+                          return (
+                            <th key={col} className="text-left p-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleSort('category')}
+                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                title="Sort by relationship"
+                              >
+                                Relationship{sortArrow('category')}
+                              </button>
+                            </th>
+                          )
+                        }
+                        if (col === 'guests_count') {
+                          return (
+                            <th key={col} className="text-left p-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleSort('guests_count')}
+                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                title="Sort by guests count"
+                              >
+                                Guests Count{sortArrow('guests_count')}
+                              </button>
+                            </th>
+                          )
+                        }
+                        if (col === 'notes') {
+                          return (
+                            <th key={col} className="text-left p-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleSort('notes')}
+                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                title="Sort by notes"
+                              >
+                                Notes{sortArrow('notes')}
+                              </button>
+                            </th>
+                          )
+                        }
+                        if (col === 'sub_events_attending') {
+                          return (
+                            <th key={col} className="text-left p-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleSort('sub_events_attending')}
+                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                title="Sort by sub-events attending"
+                              >
+                                {getMiddleColumnLabel(col)}
+                                {sortArrow('sub_events_attending')}
+                              </button>
+                            </th>
+                          )
+                        }
+
+                        return (
+                          <th key={col} className="text-left p-2">
+                            {getMiddleColumnLabel(col)}
+                          </th>
+                        )
+                      })}
+
+                      <th className="text-left p-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort('rsvp_status')}
+                          className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                          title="Sort by RSVP status"
+                        >
+                          RSVP Status{sortArrow('rsvp_status')}
+                        </button>
+                      </th>
+
+                      <th className="text-left p-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort('invite_sent')}
+                          className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                          title="Sort by invite sent"
+                        >
+                          Invitation Sent{sortArrow('invite_sent')}
+                        </button>
+                      </th>
+
                       {event?.event_structure === 'ENVELOPE' && (
-                        <th className="text-left p-2">Sub-Events</th>
+                        <th className="text-left p-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleSort('sub_events_assigned')}
+                            className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                            title="Sort by sub-events assigned"
+                          >
+                            Sub-Events{sortArrow('sub_events_assigned')}
+                          </button>
+                        </th>
                       )}
-                      {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
-                        <th className="text-left p-2">Sub-Events Attending</th>
-                      )}
-                      <th className="text-left p-2">Notes</th>
                       <th className="text-left p-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(() => {
-                      // Filter guests based on RSVP status (exclude removed guests)
-                      let filteredGuests = guests.filter(g => !g.is_removed)
-                      
-                      if (rsvpFilter === 'unconfirmed') {
-                        filteredGuests = filteredGuests.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
-                      } else if (rsvpFilter === 'confirmed') {
-                        filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
-                      } else if (rsvpFilter === 'no') {
-                        filteredGuests = filteredGuests.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
-                      }
-                      
-                      if (filteredGuests.length === 0) {
-                        const colSpan = 12 + (event?.event_structure === 'ENVELOPE' ? 1 : 0) + (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' ? 1 : 0)
+                      if (visibleGuests.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={colSpan} className="p-8 text-center text-gray-500">
+                            <td colSpan={tableColSpan} className="p-8 text-center text-gray-500">
                               {rsvpFilter === 'unconfirmed' && 'No unconfirmed guests'}
                               {rsvpFilter === 'confirmed' && 'No confirmed guests'}
                               {rsvpFilter === 'no' && 'No declined guests'}
@@ -1469,7 +2177,7 @@ export default function GuestsPage() {
                         )
                       }
                       
-                      return filteredGuests.map((guest) => {
+                      return visibleGuests.map((guest) => {
                         const getRsvpStatusBadge = (status: string | null) => {
                         if (!status) {
                           return (
@@ -1502,22 +2210,78 @@ export default function GuestsPage() {
                             />
                           </td>
                           <td className="p-2 font-medium">{guest.name}</td>
-                          <td className="p-2 text-sm text-gray-700 font-mono">
-                            {guest.country_code || '-'}
-                          </td>
-                          <td className="p-2 text-sm text-gray-600 font-mono">
-                            {guest.local_number || guest.phone || '-'}
-                          </td>
-                          <td className="p-2 text-sm text-gray-600">{guest.email || '-'}</td>
-                          <td className="p-2 text-sm text-gray-600">{guest.relationship || '-'}</td>
-                          <td className="p-2">
-                            {getRsvpStatusBadge(guest.rsvp_status || guest.rsvp_will_attend)}
-                          </td>
-                          <td className="p-2 text-sm text-gray-600">
-                            {guest.rsvp_guests_count !== null && guest.rsvp_guests_count !== undefined 
-                              ? guest.rsvp_guests_count 
-                              : '-'}
-                          </td>
+                          <td className="p-2 text-sm text-gray-600 font-mono">{getDisplayPhone(guest)}</td>
+
+                          {middleColumnsToRender.map((col) => {
+                            if (col === 'email') {
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-600">
+                                  {guest.email || '-'}
+                                </td>
+                              )
+                            }
+                            if (col === 'relationship') {
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-600">
+                                  {guest.relationship || '-'}
+                                </td>
+                              )
+                            }
+                            if (col === 'guests_count') {
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-600">
+                                  {guest.rsvp_guests_count !== null && guest.rsvp_guests_count !== undefined
+                                    ? guest.rsvp_guests_count
+                                    : '-'}
+                                </td>
+                              )
+                            }
+                            if (col === 'notes') {
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-600">
+                                  {guest.notes || '-'}
+                                </td>
+                              )
+                            }
+                            if (col === 'sub_events_attending') {
+                              const rsvps = guestRSVPs[guest.id] || []
+                              const attendingSubEvents = rsvps
+                                .filter((r: any) => r.will_attend === 'yes' && r.sub_event_title)
+                                .map((r: any) => r.sub_event_title)
+
+                              return (
+                                <td key={col} className="p-2">
+                                  {attendingSubEvents.length === 0 ? (
+                                    <span className="text-xs text-gray-400">-</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                      {attendingSubEvents.map((title: string, idx: number) => (
+                                        <span key={idx} className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
+                                          {title}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                              )
+                            }
+                            if (col.startsWith('cf:')) {
+                              const key = col.slice(3)
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-600">
+                                  {guest.custom_fields?.[key] || '-'}
+                                </td>
+                              )
+                            }
+                            return (
+                              <td key={col} className="p-2 text-sm text-gray-600">
+                                -
+                              </td>
+                            )
+                          })}
+
+                          <td className="p-2">{getRsvpStatusBadge(guest.rsvp_status || guest.rsvp_will_attend)}</td>
+
                           <td className="p-2">
                             <div className="flex flex-col items-start gap-1">
                               <input
@@ -1567,31 +2331,6 @@ export default function GuestsPage() {
                               </Button>
                             </td>
                           )}
-                          {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
-                            <td className="p-2">
-                              {(() => {
-                                const rsvps = guestRSVPs[guest.id] || []
-                                const attendingSubEvents = rsvps
-                                  .filter((r: any) => r.will_attend === 'yes' && r.sub_event_title)
-                                  .map((r: any) => r.sub_event_title)
-                                
-                                if (attendingSubEvents.length === 0) {
-                                  return <span className="text-xs text-gray-400">-</span>
-                                }
-                                
-                                return (
-                                  <div className="flex flex-wrap gap-1">
-                                    {attendingSubEvents.map((title: string, idx: number) => (
-                                      <span key={idx} className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
-                                        {title}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )
-                              })()}
-                            </td>
-                          )}
-                          <td className="p-2 text-sm text-gray-600">{guest.notes || '-'}</td>
                           <td className="p-2">
                             <div className="flex gap-2 flex-wrap">
                               {guest.guest_token && (
@@ -1644,11 +2383,79 @@ export default function GuestsPage() {
                       <>
                         {removedGuestsList.map((guest) => (
                           <tr key={guest.id} className="border-b bg-gray-50 opacity-60">
-                            <td className="p-2 font-medium text-gray-500">{guest.name} <span className="text-xs text-gray-400">(Removed)</span></td>
-                            <td className="p-2 text-sm text-gray-500 font-mono">{guest.country_code || '-'}</td>
-                            <td className="p-2 text-sm text-gray-500 font-mono">{guest.local_number || guest.phone || '-'}</td>
-                            <td className="p-2 text-sm text-gray-500">{guest.email || '-'}</td>
-                            <td className="p-2 text-sm text-gray-500">{guest.relationship || '-'}</td>
+                            <td className="p-2" />
+                            <td className="p-2 font-medium text-gray-500">
+                              {guest.name} <span className="text-xs text-gray-400">(Removed)</span>
+                            </td>
+                            <td className="p-2 text-sm text-gray-500 font-mono">{getDisplayPhone(guest)}</td>
+
+                            {middleColumnsToRender.map((col) => {
+                              if (col === 'email') {
+                                return (
+                                  <td key={col} className="p-2 text-sm text-gray-500">
+                                    {guest.email || '-'}
+                                  </td>
+                                )
+                              }
+                              if (col === 'relationship') {
+                                return (
+                                  <td key={col} className="p-2 text-sm text-gray-500">
+                                    {guest.relationship || '-'}
+                                  </td>
+                                )
+                              }
+                              if (col === 'guests_count') {
+                                return (
+                                  <td key={col} className="p-2 text-sm text-gray-500">
+                                    {guest.rsvp_guests_count !== null && guest.rsvp_guests_count !== undefined
+                                      ? guest.rsvp_guests_count
+                                      : '-'}
+                                  </td>
+                                )
+                              }
+                              if (col === 'notes') {
+                                return (
+                                  <td key={col} className="p-2 text-sm text-gray-500">
+                                    {guest.notes || '-'}
+                                  </td>
+                                )
+                              }
+                              if (col === 'sub_events_attending') {
+                                const rsvps = guestRSVPs[guest.id] || []
+                                const attendingSubEvents = rsvps
+                                  .filter((r: any) => r.will_attend === 'yes' && r.sub_event_title)
+                                  .map((r: any) => r.sub_event_title)
+                                return (
+                                  <td key={col} className="p-2">
+                                    {attendingSubEvents.length === 0 ? (
+                                      <span className="text-xs text-gray-400">-</span>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-1">
+                                        {attendingSubEvents.map((title: string, idx: number) => (
+                                          <span key={idx} className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">
+                                            {title}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                )
+                              }
+                              if (col.startsWith('cf:')) {
+                                const key = col.slice(3)
+                                return (
+                                  <td key={col} className="p-2 text-sm text-gray-500">
+                                    {guest.custom_fields?.[key] || '-'}
+                                  </td>
+                                )
+                              }
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-500">
+                                  -
+                                </td>
+                              )
+                            })}
+
                             <td className="p-2">
                               {guest.rsvp_status || guest.rsvp_will_attend ? (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600">
@@ -1657,11 +2464,6 @@ export default function GuestsPage() {
                               ) : (
                                 <span className="text-gray-400">-</span>
                               )}
-                            </td>
-                            <td className="p-2 text-sm text-gray-500">
-                              {guest.rsvp_guests_count !== null && guest.rsvp_guests_count !== undefined 
-                                ? guest.rsvp_guests_count 
-                                : '-'}
                             </td>
                             <td className="p-2 text-sm text-gray-500">
                               <div className="flex flex-col items-start gap-1">
@@ -1684,7 +2486,18 @@ export default function GuestsPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="p-2 text-sm text-gray-500">{guest.notes || '-'}</td>
+                            {event?.event_structure === 'ENVELOPE' && (
+                              <td className="p-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled
+                                  className="text-xs border-purple-300 text-purple-600 hover:bg-purple-50 opacity-60"
+                                >
+                                  {getAssignedSubEventIds(guest).length} assigned
+                                </Button>
+                              </td>
+                            )}
                             <td className="p-2">
                               <Button
                                 variant="outline"
