@@ -406,54 +406,115 @@ export default function EventDetailPage() {
   const activeRSVPs = rsvps.filter(r => !r.is_removed);
   
   const totalGuests = activeGuests.length;
-  const totalRSVPs = activeRSVPs.length;
-  
-  // RSVP breakdown by status (exclude removed)
-  const rsvpsYes = activeRSVPs.filter(r => r.will_attend === 'yes');
-  const rsvpsNo = activeRSVPs.filter(r => r.will_attend === 'no');
-  const rsvpsMaybe = activeRSVPs.filter(r => r.will_attend === 'maybe');
-  
-  // Attendance estimates (deduplicate per guest for PER_SUBEVENT to avoid double counting)
+
+  // In PER_SUBEVENT, /rsvps/ returns one row per sub-event, so stats must dedupe per guest.
   const isPerSubeventMode = event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT';
-  const getAttendeeKey = (r: any) => String(r.guest_id ?? r.phone ?? r.id);
-  
-  const aggregateCounts = (
-    list: any[],
-    existingKeysToSkip: Set<string> = new Set()
-  ) => {
-    const map = new Map<string, number>();
-    list.forEach((rsvp) => {
-      const key = getAttendeeKey(rsvp);
-      if (existingKeysToSkip.has(key)) return;
-      const count = rsvp.guests_count || 1;
-      map.set(key, Math.max(map.get(key) || 0, count));
-    });
-    return map;
-  };
-  
-  const confirmedMap = isPerSubeventMode ? aggregateCounts(rsvpsYes) : null;
-  const maybeMap = isPerSubeventMode
-    ? aggregateCounts(rsvpsMaybe, new Set(confirmedMap ? Array.from(confirmedMap.keys()) : []))
-    : null;
-  
+
+  const normalizePhoneKey = (r: any): string => {
+    const ccDigits = String(r?.country_code || '').replace(/\D/g, '') // "+91" -> "91"
+    const localDigits = String(r?.local_number || '').replace(/\D/g, '')
+    if (localDigits.length >= 10) {
+      return `phone:${ccDigits}:${localDigits.slice(-10)}`
+    }
+    const phoneDigits = String(r?.phone || '').replace(/\D/g, '')
+    if (phoneDigits.length >= 10) {
+      return `phone:${ccDigits}:${phoneDigits.slice(-10)}`
+    }
+    if (phoneDigits) return `phone_raw:${ccDigits}:${phoneDigits}`
+    return ''
+  }
+
+  const getAttendeeKey = (r: any) => {
+    // Primary: unique RSVP submission per invited guest (event + guest_id)
+    if (r?.guest_id) return `event:${eventId}:guest:${String(r.guest_id)}`
+    const phoneKey = normalizePhoneKey(r)
+    // Fallback: direct RSVPs may not have guest_id; dedupe by event + normalized phone
+    if (phoneKey) return `event:${eventId}:${phoneKey}`
+    return `event:${eventId}:rsvp:${String(r?.id ?? '')}`
+  }
+
+  // Compute an overall RSVP status per guest (priority: yes > maybe > no)
+  const perGuest = new Map<
+    string,
+    {
+      isCore: boolean
+      hasYes: boolean
+      hasMaybe: boolean
+      hasNo: boolean
+      maxYesCount: number
+      maxMaybeCount: number
+    }
+  >();
+
+  activeRSVPs.forEach((r) => {
+    const key = getAttendeeKey(r);
+    const entry =
+      perGuest.get(key) || {
+        isCore: false,
+        hasYes: false,
+        hasMaybe: false,
+        hasNo: false,
+        maxYesCount: 0,
+        maxMaybeCount: 0,
+      };
+
+    entry.isCore = entry.isCore || !!(r.is_core_guest || r.guest_id);
+
+    const status = r.will_attend;
+    const count = r.guests_count || 1;
+    if (status === 'yes') {
+      entry.hasYes = true;
+      entry.maxYesCount = Math.max(entry.maxYesCount, count);
+    } else if (status === 'maybe') {
+      entry.hasMaybe = true;
+      entry.maxMaybeCount = Math.max(entry.maxMaybeCount, count);
+    } else if (status === 'no') {
+      entry.hasNo = true;
+    }
+
+    perGuest.set(key, entry);
+  });
+
+  // RSVP breakdown: use per-guest classification for PER_SUBEVENT; raw rows otherwise.
+  const rsvpsYesCount = isPerSubeventMode
+    ? Array.from(perGuest.values()).filter(v => v.hasYes).length
+    : activeRSVPs.filter(r => r.will_attend === 'yes').length;
+  const rsvpsNoCount = isPerSubeventMode
+    ? Array.from(perGuest.values()).filter(v => !v.hasYes && !v.hasMaybe && v.hasNo).length
+    : activeRSVPs.filter(r => r.will_attend === 'no').length;
+  const rsvpsMaybeCount = isPerSubeventMode
+    ? Array.from(perGuest.values()).filter(v => !v.hasYes && v.hasMaybe).length
+    : activeRSVPs.filter(r => r.will_attend === 'maybe').length;
+
+  const totalRSVPs = isPerSubeventMode ? perGuest.size : activeRSVPs.length;
+
+  // Attendance estimate: sum max guests_count per guest for yes; then for maybe (only if no yes)
   const confirmedAttendees = isPerSubeventMode
-    ? Array.from(confirmedMap?.values() || []).reduce((sum, count) => sum + count, 0)
-    : rsvpsYes.reduce((sum, r) => sum + (r.guests_count || 1), 0);
-  
+    ? Array.from(perGuest.values()).reduce((sum, v) => sum + (v.hasYes ? (v.maxYesCount || 1) : 0), 0)
+    : activeRSVPs
+        .filter(r => r.will_attend === 'yes')
+        .reduce((sum, r) => sum + (r.guests_count || 1), 0);
+
   const maybeAttendees = isPerSubeventMode
-    ? Array.from(maybeMap?.values() || []).reduce((sum, count) => sum + count, 0)
-    : rsvpsMaybe.reduce((sum, r) => sum + (r.guests_count || 1), 0);
-  
+    ? Array.from(perGuest.values()).reduce((sum, v) => sum + (!v.hasYes && v.hasMaybe ? (v.maxMaybeCount || 1) : 0), 0)
+    : activeRSVPs
+        .filter(r => r.will_attend === 'maybe')
+        .reduce((sum, r) => sum + (r.guests_count || 1), 0);
+
   const totalExpectedAttendees = confirmedAttendees + maybeAttendees;
-  
-  // Guest list coverage (exclude removed)
-  const coreGuestsWithRSVP = activeRSVPs.filter(r => r.is_core_guest || r.guest_id).length;
-  const coreGuestsPending = totalGuests - coreGuestsWithRSVP;
-  const otherGuestsRSVP = activeRSVPs.filter(r => !r.is_core_guest && !r.guest_id).length;
-  
-  // Confirmed count from invited guests (core guests who said yes, exclude removed)
-  const coreGuestsConfirmed = activeRSVPs.filter(r => (r.is_core_guest || r.guest_id) && r.will_attend === 'yes').length;
-  
+
+  // Guest list coverage + breakdown (core/invited vs direct/other)
+  const coreGuestsWithRSVP = isPerSubeventMode
+    ? Array.from(perGuest.values()).filter(v => v.isCore).length
+    : activeRSVPs.filter(r => r.is_core_guest || r.guest_id).length;
+  const otherGuestsRSVP = isPerSubeventMode
+    ? Array.from(perGuest.values()).filter(v => !v.isCore).length
+    : activeRSVPs.filter(r => !r.is_core_guest && !r.guest_id).length;
+
+  const coreGuestsConfirmed = isPerSubeventMode
+    ? Array.from(perGuest.values()).filter(v => v.isCore && v.hasYes).length
+    : activeRSVPs.filter(r => (r.is_core_guest || r.guest_id) && r.will_attend === 'yes').length;
+
   // Response rate
   const responseRate = totalGuests > 0 ? Math.round((coreGuestsWithRSVP / totalGuests) * 100) : 0;
   
@@ -598,15 +659,15 @@ export default function EventDetailPage() {
                       <div className="flex gap-3">
                         <div className="flex-1 bg-green-50 rounded-lg p-3 text-center">
                           <p className="text-green-700 text-xs font-semibold mb-1 uppercase">Yes</p>
-                          <p className="text-2xl font-bold text-green-700">{rsvpsYes.length}</p>
+                          <p className="text-2xl font-bold text-green-700">{rsvpsYesCount}</p>
                         </div>
                         <div className="flex-1 bg-red-50 rounded-lg p-3 text-center">
                           <p className="text-red-700 text-xs font-semibold mb-1 uppercase">No</p>
-                          <p className="text-2xl font-bold text-red-700">{rsvpsNo.length}</p>
+                          <p className="text-2xl font-bold text-red-700">{rsvpsNoCount}</p>
                         </div>
                         <div className="flex-1 bg-yellow-50 rounded-lg p-3 text-center">
                           <p className="text-yellow-700 text-xs font-semibold mb-1 uppercase">Maybe</p>
-                          <p className="text-2xl font-bold text-yellow-700">{rsvpsMaybe.length}</p>
+                          <p className="text-2xl font-bold text-yellow-700">{rsvpsMaybeCount}</p>
                         </div>
                       </div>
                     </div>

@@ -7,7 +7,7 @@ from django.utils import timezone
 from datetime import timedelta
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.events.models import Event, Guest, RSVP, InvitePage, MessageTemplate, SubEvent
+from apps.events.models import Event, Guest, RSVP, InvitePage, MessageTemplate, SubEvent, GuestSubEventInvite
 from django.core.cache import cache
 
 User = get_user_model()
@@ -236,6 +236,15 @@ class CreateRSVPEnvelopeTestCase(TestCase):
             phone='+911234567890',
             will_attend='yes'
         )
+
+        # Create MAIN RSVP first (so the next call is a pure update, not partially creating new rows)
+        RSVP.objects.create(
+            event=self.event,
+            sub_event=None,
+            name='Test Guest',
+            phone='+911234567890',
+            will_attend='yes'
+        )
         
         # Update them
         response = self.client.post(
@@ -250,6 +259,44 @@ class CreateRSVPEnvelopeTestCase(TestCase):
         )
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_no_selection_allowed_for_no_applies_to_all(self):
+        """PER_SUBEVENT: empty selectedSubEventIds should still create/update MAIN RSVP (sub_event=NULL) only"""
+        response = self.client.post(
+            f'/api/events/{self.event.id}/rsvp/',
+            {
+                'name': 'Test Guest',
+                'phone': '+911234567890',
+                'will_attend': 'no',
+                'selectedSubEventIds': []  # explicitly empty
+            },
+            format='json'
+        )
+
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+        self.assertTrue(isinstance(response.data, list))
+        # Should return only MAIN RSVP
+        self.assertEqual(len(response.data), 1)
+        self.assertIsNone(response.data[0].get('sub_event'))
+        self.assertIsNone(response.data[0].get('sub_event_id'))
+
+    def test_selected_subevents_creates_main_plus_selected(self):
+        """PER_SUBEVENT: selecting sub-events creates/updates MAIN RSVP plus selected sub-event RSVPs"""
+        response = self.client.post(
+            f'/api/events/{self.event.id}/rsvp/',
+            {
+                'name': 'Test Guest',
+                'phone': '+911234567890',
+                'will_attend': 'yes',
+                'selectedSubEventIds': [self.sub_event1.id]
+            },
+            format='json'
+        )
+
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+        self.assertTrue(isinstance(response.data, list))
+        # main + 1 selected sub-event
+        self.assertEqual(len(response.data), 2)
     
     def test_mixed_new_and_existing_returns_201(self):
         """Test that if any new RSVP is created, return 201 even if some exist"""
@@ -276,6 +323,70 @@ class CreateRSVPEnvelopeTestCase(TestCase):
         
         # Should return 201 because at least one new RSVP was created
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class CreateRSVPEnvelopeOneTapAllTestCase(TestCase):
+    """ONE_TAP_ALL should allow MAIN RSVP even when guest has no sub-event invites"""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.host = User.objects.create_user(email='host2@test.com', name='Test Host 2')
+        self.event = Event.objects.create(
+            host=self.host,
+            slug='test-event-one-tap',
+            title='Test Event One Tap',
+            is_public=True,
+            event_structure='ENVELOPE',
+            rsvp_mode='ONE_TAP_ALL',
+            has_rsvp=True
+        )
+        self.sub_event1 = SubEvent.objects.create(
+            event=self.event,
+            title='Sub Event 1',
+            start_at=timezone.now() + timedelta(days=1),
+            rsvp_enabled=True
+        )
+        self.guest = Guest.objects.create(
+            event=self.event,
+            name='Guest A',
+            phone='+911234567890',
+            is_removed=False
+        )
+
+    def test_no_invites_still_allows_main_rsvp(self):
+        response = self.client.post(
+            f'/api/events/{self.event.id}/rsvp/',
+            {
+                'name': 'Guest A',
+                'phone': '+911234567890',
+                'will_attend': 'yes',
+            },
+            format='json'
+        )
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+        self.assertTrue(isinstance(response.data, list))
+        self.assertEqual(len(response.data), 1)
+        self.assertIsNone(response.data[0].get('sub_event'))
+        self.assertIsNone(response.data[0].get('sub_event_id'))
+
+    def test_with_invite_creates_main_plus_subevent(self):
+        GuestSubEventInvite.objects.create(guest=self.guest, sub_event=self.sub_event1)
+        response = self.client.post(
+            f'/api/events/{self.event.id}/rsvp/',
+            {
+                'name': 'Guest A',
+                'phone': '+911234567890',
+                'will_attend': 'yes',
+            },
+            format='json'
+        )
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+        self.assertTrue(isinstance(response.data, list))
+        # main + 1 allowed sub-event
+        self.assertEqual(len(response.data), 2)
+        self.assertIsNone(response.data[0].get('sub_event'))
+        self.assertEqual(response.data[1].get('sub_event_id'), self.sub_event1.id)
 
 
 class InvitePageCacheTestCase(TestCase):

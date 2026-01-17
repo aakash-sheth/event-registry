@@ -2313,38 +2313,73 @@ def create_rsvp(request, event_id):
         # Handle ENVELOPE events with sub-events
         if event.event_structure == 'ENVELOPE':
             if event.rsvp_mode == 'PER_SUBEVENT':
-                # PER_SUBEVENT mode: Create/update RSVP for each selected sub-event
-                if not selected_sub_event_ids:
-                    return Response(
-                        {'error': 'selectedSubEventIds is required for PER_SUBEVENT mode'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # Verify all sub-events belong to this event and are not removed
-                sub_events = SubEvent.objects.filter(
-                    id__in=selected_sub_event_ids,
+                # PER_SUBEVENT mode:
+                # - Always create/update a MAIN RSVP row (sub_event=NULL) for overall event attendance.
+                # - Create/update sub-event RSVP rows ONLY for selected sub-events (checkboxes).
+                eligible_sub_events = SubEvent.objects.filter(
                     event=event,
                     is_removed=False,
                     rsvp_enabled=True
                 )
-                
-                if sub_events.count() != len(selected_sub_event_ids):
-                    return Response(
-                        {'error': 'Some sub-events not found, disabled, or do not belong to this event'},
-                        status=status.HTTP_400_BAD_REQUEST
+
+                # Create/update MAIN RSVP (sub_event=NULL)
+                existing_main_rsvp = RSVP.objects.filter(
+                    event=event,
+                    phone=phone,
+                    sub_event__isnull=True,
+                    is_removed=False
+                ).first()
+
+                if existing_main_rsvp:
+                    for key, value in rsvp_data.items():
+                        setattr(existing_main_rsvp, key, value)
+                    if guest:
+                        existing_main_rsvp.guest = guest
+                    existing_main_rsvp.save()
+                    main_rsvp = existing_main_rsvp
+                    any_new_main_created = False
+                else:
+                    main_rsvp = RSVP.objects.create(
+                        event=event,
+                        sub_event=None,
+                        guest=guest,
+                        **rsvp_data
                     )
-                
-                # For private events, verify guest has access to these sub-events
-                if not event.is_public and guest:
-                    allowed_sub_event_ids = set(
+                    any_new_main_created = True
+
+                # Determine allowed sub-events for this guest/context
+                if guest:
+                    assigned_ids = list(
                         GuestSubEventInvite.objects.filter(guest=guest)
                         .values_list('sub_event_id', flat=True)
                     )
-                    if not all(se_id in allowed_sub_event_ids for se_id in selected_sub_event_ids):
-                        return Response(
-                            {'error': 'You are not invited to some of the selected sub-events'},
-                            status=status.HTTP_403_FORBIDDEN
-                        )
+                    # If no assignments, guest can still RSVP for MAIN event, but has no sub-events available
+                    allowed_sub_events = eligible_sub_events.filter(id__in=assigned_ids) if assigned_ids else SubEvent.objects.none()
+                else:
+                    # No guest context:
+                    # - Public events: allow selection from all RSVP-enabled sub-events
+                    # - Private events (defensive): restrict to public-visible sub-events
+                    allowed_sub_events = eligible_sub_events
+                    if not event.is_public:
+                        allowed_sub_events = allowed_sub_events.filter(is_public_visible=True)
+
+                allowed_ids = set(allowed_sub_events.values_list('id', flat=True))
+
+                # Sub-event selection is optional. If none selected, return MAIN RSVP only.
+                if not selected_sub_event_ids:
+                    return Response(
+                        RSVPSerializer([main_rsvp], many=True).data,
+                        status=status.HTTP_201_CREATED if any_new_main_created else status.HTTP_200_OK
+                    )
+
+                # Validate selected IDs are allowed and belong to this event and are RSVP-enabled
+                if not all(int(se_id) in allowed_ids for se_id in selected_sub_event_ids):
+                    return Response(
+                        {'error': 'You are not invited to some of the selected sub-events'} if guest else {'error': 'Some selected sub-events are not available'},
+                        status=status.HTTP_403_FORBIDDEN if guest else status.HTTP_400_BAD_REQUEST
+                    )
+
+                sub_events = eligible_sub_events.filter(id__in=selected_sub_event_ids)
                 
                 # Create/update RSVP for each sub-event
                 created_rsvps = []
@@ -2376,55 +2411,94 @@ def create_rsvp(request, event_id):
                         )
                         created_rsvps.append(rsvp)
                         any_new_rsvp_created = True
+
+                # If there are existing sub-event RSVPs for allowed sub-events that are now deselected,
+                # update them to will_attend='no' (so host can see "main only" vs "main + sub-event").
+                deselected = allowed_ids.difference(set(int(x) for x in selected_sub_event_ids))
+                if deselected:
+                    existing_other = RSVP.objects.filter(
+                        event=event,
+                        phone=phone,
+                        sub_event_id__in=list(deselected),
+                        is_removed=False
+                    )
+                    for rsvp in existing_other:
+                        if rsvp.will_attend != 'no':
+                            rsvp.will_attend = 'no'
+                            rsvp.save(update_fields=['will_attend', 'updated_at'])
                 
                 # Return all created/updated RSVPs
                 # Status code based on whether any new RSVP rows were created
                 return Response(
-                    RSVPSerializer(created_rsvps, many=True).data,
-                    status=status.HTTP_201_CREATED if any_new_rsvp_created else status.HTTP_200_OK
+                    RSVPSerializer([main_rsvp] + created_rsvps, many=True).data,
+                    status=status.HTTP_201_CREATED if (any_new_main_created or any_new_rsvp_created) else status.HTTP_200_OK
                 )
             
             elif event.rsvp_mode == 'ONE_TAP_ALL':
-                # ONE_TAP_ALL mode: Create RSVP for all allowed sub-events
-                # Get allowed sub-events for this guest
-                if guest:
-                    allowed_sub_events = SubEvent.objects.filter(
-                        guest_invites__guest=guest,
-                        is_removed=False,
-                        rsvp_enabled=True
+                # ONE_TAP_ALL mode:
+                # - Always create/update a MAIN RSVP row (sub_event=NULL) for overall event attendance.
+                # - If the guest/context has allowed sub-events, apply the same RSVP to ALL of them.
+                eligible_sub_events = SubEvent.objects.filter(
+                    event=event,
+                    is_removed=False,
+                    rsvp_enabled=True
+                )
+
+                # Create/update MAIN RSVP (sub_event=NULL)
+                existing_main_rsvp = RSVP.objects.filter(
+                    event=event,
+                    phone=phone,
+                    sub_event__isnull=True,
+                    is_removed=False
+                ).first()
+
+                if existing_main_rsvp:
+                    for key, value in rsvp_data.items():
+                        setattr(existing_main_rsvp, key, value)
+                    if guest:
+                        existing_main_rsvp.guest = guest
+                    existing_main_rsvp.save()
+                    main_rsvp = existing_main_rsvp
+                    any_new_main_created = False
+                else:
+                    main_rsvp = RSVP.objects.create(
+                        event=event,
+                        sub_event=None,
+                        guest=guest,
+                        **rsvp_data
                     )
+                    any_new_main_created = True
+
+                # Get allowed sub-events for this guest/context
+                if guest:
+                    allowed_sub_events = eligible_sub_events.filter(guest_invites__guest=guest)
                 else:
                     # No guest context:
-                    # - For public events, allow RSVPs for all RSVP-enabled sub-events (regardless of public visibility)
-                    # - For private events (defensive), restrict to public-visible sub-events
-                    allowed_sub_events = SubEvent.objects.filter(
-                        event=event,
-                        is_removed=False,
-                        rsvp_enabled=True
-                    )
+                    # - Public events: allow RSVPs for all RSVP-enabled sub-events (regardless of public visibility)
+                    # - Private events (defensive): restrict to public-visible sub-events
+                    allowed_sub_events = eligible_sub_events
                     if not event.is_public:
                         allowed_sub_events = allowed_sub_events.filter(is_public_visible=True)
-                
+
+                # If no sub-events are available for this guest/context, still allow MAIN RSVP.
                 if not allowed_sub_events.exists():
                     return Response(
-                        {'error': 'No sub-events available for RSVP'},
-                        status=status.HTTP_400_BAD_REQUEST
+                        RSVPSerializer([main_rsvp], many=True).data,
+                        status=status.HTTP_201_CREATED if any_new_main_created else status.HTTP_200_OK
                     )
-                
+
                 # Create/update RSVP for each allowed sub-event
                 created_rsvps = []
                 any_new_rsvp_created = False
                 for sub_event in allowed_sub_events:
-                    # Check if RSVP already exists for this sub-event
                     existing_sub_rsvp = RSVP.objects.filter(
                         event=event,
                         phone=phone,
                         sub_event=sub_event,
                         is_removed=False
                     ).first()
-                    
+
                     if existing_sub_rsvp:
-                        # Update existing RSVP
                         for key, value in rsvp_data.items():
                             setattr(existing_sub_rsvp, key, value)
                         if guest:
@@ -2432,7 +2506,6 @@ def create_rsvp(request, event_id):
                         existing_sub_rsvp.save()
                         created_rsvps.append(existing_sub_rsvp)
                     else:
-                        # Create new RSVP
                         rsvp = RSVP.objects.create(
                             event=event,
                             sub_event=sub_event,
@@ -2441,12 +2514,10 @@ def create_rsvp(request, event_id):
                         )
                         created_rsvps.append(rsvp)
                         any_new_rsvp_created = True
-                
-                # Return all created/updated RSVPs
-                # Status code based on whether any new RSVP rows were created
+
                 return Response(
-                    RSVPSerializer(created_rsvps, many=True).data,
-                    status=status.HTTP_201_CREATED if any_new_rsvp_created else status.HTTP_200_OK
+                    RSVPSerializer([main_rsvp] + created_rsvps, many=True).data,
+                    status=status.HTTP_201_CREATED if (any_new_main_created or any_new_rsvp_created) else status.HTTP_200_OK
                 )
         
         # SIMPLE event: Keep existing behavior (sub_event = NULL)

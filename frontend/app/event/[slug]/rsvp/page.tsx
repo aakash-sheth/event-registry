@@ -126,6 +126,16 @@ export default function RSVPPage() {
   const phoneValue = watch('phone')
   const countryCodeValue = watch('country_code')
 
+  // Keep selected sub-events in sync with what's allowed (prevents stale/invalid IDs causing 400s)
+  useEffect(() => {
+    if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
+      const allowed = new Set((allowedSubEvents || []).map((se: any) => se.id))
+      setSelectedSubEventIds((prev) => prev.filter((id) => allowed.has(id)))
+    } else {
+      setSelectedSubEventIds([])
+    }
+  }, [allowedSubEvents, event?.event_structure, event?.rsvp_mode])
+
   useEffect(() => {
     fetchEvent()
   }, [slug])
@@ -134,6 +144,7 @@ export default function RSVPPage() {
   useEffect(() => {
     if (!event || !phoneValue || phoneValue.length < 10) {
       setExistingRSVP(null)
+      setSelectedSubEventIds([]) // clear stale selection when phone is cleared/too short
       // Clear any pending check
       if (phoneCheckTimeoutRef.current) {
         clearTimeout(phoneCheckTimeoutRef.current)
@@ -264,7 +275,7 @@ export default function RSVPPage() {
           setValue('guests_count', response.data.guests_count || 1, { shouldValidate: false, shouldDirty: true })
           setValue('notes', response.data.notes || '', { shouldValidate: false, shouldDirty: true })
           
-          // For PER_SUBEVENT mode, fetch all RSVPs for this phone to get all selected sub-events
+          // For PER_SUBEVENT mode, fetch all RSVPs and filter by THIS phone to get selected sub-events
           if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && response.data.will_attend === 'yes') {
             try {
               // Fetch all RSVPs for this event and phone to get all sub-events
@@ -274,14 +285,25 @@ export default function RSVPPage() {
               const allRsvps = Array.isArray(allRsvpsResponse.data) 
                 ? allRsvpsResponse.data 
                 : (allRsvpsResponse.data.results || [])
+
+              const normalizeDigits = (p: any) => String(p || '').replace(/\D/g, '')
+              const targetDigits = normalizeDigits(formattedPhoneForApi)
+              const targetLast10 = targetDigits.slice(-10)
+              const matchesPhone = (r: any) => {
+                const d = normalizeDigits(r?.phone)
+                if (!d) return false
+                return d === targetDigits || d.slice(-10) === targetLast10
+              }
               
               // Extract sub-event IDs from RSVPs where will_attend is 'yes'
               const rsvpedSubEventIds = allRsvps
-                .filter((r: any) => r.will_attend === 'yes' && r.sub_event_id)
+                .filter((r: any) => matchesPhone(r) && r.will_attend === 'yes' && r.sub_event_id)
                 .map((r: any) => r.sub_event_id)
               
               if (rsvpedSubEventIds.length > 0) {
                 setSelectedSubEventIds(rsvpedSubEventIds)
+              } else {
+                setSelectedSubEventIds([])
               }
             } catch (err) {
               // If fetching all RSVPs fails, at least try to use the single RSVP's sub_event_id
@@ -299,6 +321,7 @@ export default function RSVPPage() {
           setValue('will_attend', 'yes', { shouldValidate: false, shouldDirty: false })
           setValue('guests_count', 1, { shouldValidate: false, shouldDirty: false })
           setValue('notes', '', { shouldValidate: false, shouldDirty: false })
+          setSelectedSubEventIds([])
         }
         
         logDebug('Form values pre-filled from existing RSVP')
@@ -617,15 +640,7 @@ export default function RSVPPage() {
   const onSubmit = async (data: RSVPForm) => {
     setSubmitting(true)
     try {
-      // Validation: require at least one sub-event selected when in PER_SUBEVENT mode
-      if (event?.event_structure === 'ENVELOPE' && 
-          event?.rsvp_mode === 'PER_SUBEVENT' && 
-          data.will_attend === 'yes' && 
-          selectedSubEventIds.length === 0) {
-        showToast('Please select at least one event to attend', 'error')
-        setSubmitting(false)
-        return
-      }
+      // Sub-event selection is optional. If selected, we will record sub-event RSVPs in addition to the main RSVP.
 
       // Format phone with country code
       const countryCode = data.country_code || event?.country_code || '+91'
@@ -1090,7 +1105,7 @@ export default function RSVPPage() {
                willAttend === 'yes' && (
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-gray-700">
-                    Select which events you'll attend: *
+                    Select which events you'll attend:
                   </label>
                   <div className="space-y-2 border rounded-lg p-4 bg-white max-h-96 overflow-y-auto">
                     {allowedSubEvents.map((subEvent) => (
@@ -1140,9 +1155,6 @@ export default function RSVPPage() {
                       </label>
                     ))}
                   </div>
-                  {selectedSubEventIds.length === 0 && (
-                    <p className="text-sm text-red-600">Please select at least one event</p>
-                  )}
                 </div>
               )}
 
