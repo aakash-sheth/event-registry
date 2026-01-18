@@ -2313,16 +2313,8 @@ def create_rsvp(request, event_id):
         # RSVP custom fields (host-configured, from guest management)
         rsvp_custom_fields = rsvp_data.get('custom_fields') if isinstance(rsvp_data.get('custom_fields'), dict) else None
 
-        # Decide whether to copy RSVP custom fields into Guest.custom_fields
-        # Only if event.page_config.rsvpForm exists and writeBackToGuest is enabled.
-        write_back_to_guest = False
-        try:
-            page_config = event.page_config if isinstance(event.page_config, dict) else {}
-            rsvp_form_cfg = page_config.get('rsvpForm') if isinstance(page_config, dict) else None
-            if isinstance(rsvp_form_cfg, dict):
-                write_back_to_guest = bool(rsvp_form_cfg.get('writeBackToGuest', True))
-        except Exception:
-            write_back_to_guest = False
+        # Copy RSVP custom fields into Guest.custom_fields (default behavior; host toggle removed)
+        write_back_to_guest = True
         
         # Handle ENVELOPE events with sub-events
         if event.event_structure == 'ENVELOPE':

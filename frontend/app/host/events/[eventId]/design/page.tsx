@@ -1928,30 +1928,11 @@ export default function DesignInvitationPage(): JSX.Element {
                           </div>
                         )}
 
-                        <div className="mt-3 flex items-center justify-between">
-                          <label className="text-sm font-medium">Save answers to guest list</label>
-                          <input
-                            type="checkbox"
-                            checked={(config.rsvpForm?.writeBackToGuest ?? true) === true}
-                            onChange={(e) =>
-                              setConfig(prev => {
-                                const prevForm: RsvpFormConfig = (prev.rsvpForm as any) || { version: 1, writeBackToGuest: true }
-                                return {
-                                  ...prev,
-                                  rsvpForm: {
-                                    ...prevForm,
-                                    version: 1,
-                                    writeBackToGuest: e.target.checked,
-                                  },
-                                }
-                              })
-                            }
-                            className="w-4 h-4 text-eco-green focus:ring-eco-green border-gray-300 rounded"
-                          />
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          When possible, we’ll copy RSVP custom answers into the guest list so you can filter/sort by them.
+                      <div className="mt-3 bg-green-50 border border-green-200 rounded-md p-3">
+                        <p className="text-xs text-green-800">
+                          Answers are automatically saved to your guest list (so you can filter/sort by them).
                         </p>
+                      </div>
                       </div>
 
                       {/* Custom fields */}
