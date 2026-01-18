@@ -11,6 +11,18 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // CRITICAL: Next.js static files must be cached properly
+        // This ensures JS chunks are served with correct MIME type
+        source: '/_next/static/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            // Cache static assets for 1 year (immutable)
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
         // Apply to all invitation pages (public, cacheable)
         source: '/invite/:slug*',
         headers: [
