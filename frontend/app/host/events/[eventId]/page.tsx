@@ -689,6 +689,13 @@ export default function EventDetailPage() {
                     Design Invitation Page
                   </Button>
                 </Link>
+                {event?.has_rsvp && (
+                  <Link href={`/host/events/${eventId}/rsvp`}>
+                    <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
+                      Configure RSVP Form
+                    </Button>
+                  </Link>
+                )}
                 {event?.has_registry && (
                   <Link href={`/host/items/${eventId}`}>
                     <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">

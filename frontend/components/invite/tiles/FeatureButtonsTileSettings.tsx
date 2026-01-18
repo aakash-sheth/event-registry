@@ -1,21 +1,25 @@
 'use client'
 
 import React from 'react'
+import Link from 'next/link'
 import type { FeatureButtonsTileSettings } from '@/lib/invite/schema'
 import { Input } from '@/components/ui/input'
+import { ExternalLink } from 'lucide-react'
 
 interface FeatureButtonsTileSettingsProps {
   settings: FeatureButtonsTileSettings
   onChange: (settings: FeatureButtonsTileSettings) => void
   hasRsvp?: boolean
   hasRegistry?: boolean
+  eventId?: number
 }
 
 export default function FeatureButtonsTileSettings({ 
   settings, 
   onChange, 
   hasRsvp = false, 
-  hasRegistry = false 
+  hasRegistry = false,
+  eventId,
 }: FeatureButtonsTileSettingsProps) {
   return (
     <div className="space-y-4">
@@ -55,6 +59,23 @@ export default function FeatureButtonsTileSettings({
           <p className="text-xs text-gray-500 mt-1">
             Custom display name for the RSVP button
           </p>
+
+          {eventId ? (
+            <div className="mt-3">
+              <a
+                href={`/host/events/${eventId}/rsvp`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+              >
+                <span>Configure RSVP Form</span>
+                <ExternalLink className="w-4 h-4" />
+              </a>
+              <p className="text-xs text-gray-500 mt-1">
+                Choose which fields guests see and map guest custom fields into the RSVP form.
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
 

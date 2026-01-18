@@ -1317,11 +1317,8 @@ export default function RSVPPage() {
                   <textarea
                     {...register('notes')}
                     className="flex min-h-[80px] w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-                    placeholder="Dietary preferences, special requests, etc."
+                    placeholder={notesHelpText || 'Dietary preferences, special requests, etc.'}
                   />
-                  {notesHelpText && (
-                    <p className="text-xs text-gray-500 mt-1">{notesHelpText}</p>
-                  )}
                 </div>
               )}
 
