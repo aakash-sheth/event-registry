@@ -283,7 +283,16 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="bg-forest-green text-white py-8 px-4 text-center">
         <p className="text-lg font-bold mb-2">🌿 <strong>{BRAND_NAME}</strong></p>
-        <p className="text-sm opacity-80">Making celebrations smarter, more sustainable, and more meaningful.</p>
+        <p className="text-sm opacity-80 mb-4">Making celebrations smarter, more sustainable, and more meaningful.</p>
+        <div className="flex gap-4 justify-center items-center">
+          <Link href="/privacy" className="text-sm opacity-80 hover:opacity-100 underline">
+            Privacy Policy
+          </Link>
+          <span className="text-sm opacity-60">•</span>
+          <Link href="/contact" className="text-sm opacity-80 hover:opacity-100 underline">
+            Contact Us
+          </Link>
+        </div>
       </footer>
 
       <style jsx global>{`
