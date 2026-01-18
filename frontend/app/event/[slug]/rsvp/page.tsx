@@ -17,6 +17,7 @@ import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { getEventDetailsFromConfig } from '@/lib/event/utils'
 import { BRAND_NAME, COMPANY_HOMEPAGE } from '@/lib/brand_utility'
 import { getTimezoneLabel } from '@/lib/invite/timezone'
+import type { RsvpCustomFieldConfig, RsvpFormConfig } from '@/lib/invite/schema'
 
 const rsvpSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -85,6 +86,8 @@ export default function RSVPPage() {
   const [showThankYou, setShowThankYou] = useState(false)
   const [allowedSubEvents, setAllowedSubEvents] = useState<any[]>([])
   const [selectedSubEventIds, setSelectedSubEventIds] = useState<number[]>([])
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>({})
+  const [customFieldErrors, setCustomFieldErrors] = useState<Record<string, string>>({})
   
   // Stage 0 phone verification for private events
   const [phoneVerified, setPhoneVerified] = useState(false)
@@ -125,6 +128,14 @@ export default function RSVPPage() {
   const willAttend = watch('will_attend')
   const phoneValue = watch('phone')
   const countryCodeValue = watch('country_code')
+
+  const rsvpFormConfig = (event?.page_config as any)?.rsvpForm as RsvpFormConfig | undefined
+  const isEmailEnabled = rsvpFormConfig?.systemFields?.email?.enabled ?? true
+  const isGuestsCountEnabled = rsvpFormConfig?.systemFields?.guests_count?.enabled ?? true
+  const isNotesEnabled = rsvpFormConfig?.systemFields?.notes?.enabled ?? true
+  const notesLabel = rsvpFormConfig?.systemFields?.notes?.label || 'Notes (optional)'
+  const notesHelpText = rsvpFormConfig?.systemFields?.notes?.helpText
+  const activeCustomFields = (rsvpFormConfig?.customFields || []).filter((f: any) => f && (f as any).enabled) as RsvpCustomFieldConfig[]
 
   // Keep selected sub-events in sync with what's allowed (prevents stale/invalid IDs causing 400s)
   useEffect(() => {
@@ -646,15 +657,53 @@ export default function RSVPPage() {
       const countryCode = data.country_code || event?.country_code || '+91'
       const formattedPhone = formatPhoneWithCountryCode(data.phone, countryCode)
       
+      // Validate required custom fields (only when attending)
+      if (data.will_attend === 'yes' && activeCustomFields.length > 0) {
+        const nextErrors: Record<string, string> = {}
+        for (const field of activeCustomFields) {
+          if (!field.required) continue
+          const val = customFieldValues[field.key]
+          const isMissing =
+            field.type === 'checkbox'
+              ? val !== true
+              : val === undefined || val === null || String(val).trim() === ''
+          if (isMissing) {
+            nextErrors[field.key] = 'This field is required'
+          }
+        }
+        setCustomFieldErrors(nextErrors)
+        const firstMissing = activeCustomFields.find(f => nextErrors[f.key])
+        if (firstMissing) {
+          const label = firstMissing.label || firstMissing.key
+          showToast(`Please fill: ${label}`, 'error')
+          setSubmitting(false)
+          return
+        }
+      } else {
+        setCustomFieldErrors({})
+      }
+
       const requestData: any = {
         name: data.name,
         phone: formattedPhone,
         country_code: countryCode,
-        email: data.email || '',
+        ...(isEmailEnabled ? { email: data.email || '' } : {}),
         will_attend: data.will_attend,
-        guests_count: data.guests_count,
-        notes: data.notes || '',
+        ...(isGuestsCountEnabled ? { guests_count: data.guests_count } : {}),
+        ...(isNotesEnabled ? { notes: data.notes || '' } : {}),
         source_channel: sourceChannel,
+      }
+
+      // Include host-configured custom fields (from guest list metadata) when attending
+      if (data.will_attend === 'yes' && activeCustomFields.length > 0) {
+        const allowedKeys = new Set(activeCustomFields.map(f => f.key))
+        const filtered: Record<string, any> = {}
+        for (const [k, v] of Object.entries(customFieldValues || {})) {
+          if (!allowedKeys.has(k)) continue
+          // Normalize empty values to '' so backend can treat as delete/empty if desired
+          filtered[k] = v
+        }
+        requestData.custom_fields = filtered
       }
 
       // Include selectedSubEventIds for PER_SUBEVENT mode
@@ -1041,10 +1090,12 @@ export default function RSVPPage() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Email (optional)</label>
-                <Input type="email" {...register('email')} placeholder="your@email.com" />
-              </div>
+              {isEmailEnabled && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Email (optional)</label>
+                  <Input type="email" {...register('email')} placeholder="your@email.com" />
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium mb-1">Will you attend? *</label>
@@ -1079,7 +1130,7 @@ export default function RSVPPage() {
                 </div>
               </div>
 
-              {willAttend === 'yes' && (
+              {willAttend === 'yes' && isGuestsCountEnabled && (
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Number of guests (including you)
@@ -1095,6 +1146,106 @@ export default function RSVPPage() {
                       {errors.guests_count.message}
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* Host-configured custom fields (from guest management) */}
+              {willAttend === 'yes' && activeCustomFields.length > 0 && (
+                <div className="space-y-4">
+                  {activeCustomFields.map((field) => {
+                    const label = field.label || field.key
+                    const helpText = field.helpText
+                    const errorMsg = customFieldErrors[field.key]
+                    const value = customFieldValues[field.key]
+
+                    const setValueForKey = (next: any) => {
+                      setCustomFieldValues((prev) => ({ ...prev, [field.key]: next }))
+                      setCustomFieldErrors((prev) => {
+                        if (!prev[field.key]) return prev
+                        const { [field.key]: _ignored, ...rest } = prev
+                        return rest
+                      })
+                    }
+
+                    return (
+                      <div key={field.key}>
+                        <label className="block text-sm font-medium mb-1">
+                          {label}{field.required ? ' *' : ''}
+                        </label>
+
+                        {field.type === 'text' && (
+                          <Input
+                            type="text"
+                            value={value ?? ''}
+                            onChange={(e) => setValueForKey(e.target.value)}
+                          />
+                        )}
+
+                        {field.type === 'number' && (
+                          <Input
+                            type="number"
+                            value={value ?? ''}
+                            onChange={(e) => setValueForKey(e.target.value)}
+                          />
+                        )}
+
+                        {field.type === 'checkbox' && (
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={value === true}
+                              onChange={(e) => setValueForKey(e.target.checked)}
+                            />
+                            <span className="text-sm text-gray-700">{helpText || 'Yes'}</span>
+                          </label>
+                        )}
+
+                        {(field.type === 'select' || field.type === 'radio') && (
+                          <>
+                            {(!field.options || field.options.length === 0) ? (
+                              <p className="text-sm text-red-600">
+                                This field is not configured (no options).
+                              </p>
+                            ) : field.type === 'select' ? (
+                              <select
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
+                                value={value ?? ''}
+                                onChange={(e) => setValueForKey(e.target.value)}
+                              >
+                                <option value="">Select…</option>
+                                {field.options.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div className="space-y-2">
+                                {field.options.map((opt) => (
+                                  <label key={opt.value} className="flex items-center gap-2">
+                                    <input
+                                      type="radio"
+                                      name={`cf_${field.key}`}
+                                      checked={value === opt.value}
+                                      onChange={() => setValueForKey(opt.value)}
+                                    />
+                                    <span className="text-sm text-gray-700">{opt.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {helpText && field.type !== 'checkbox' && (
+                          <p className="text-xs text-gray-500 mt-1">{helpText}</p>
+                        )}
+                        {errorMsg && (
+                          <p className="text-red-500 text-sm mt-1">{errorMsg}</p>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -1158,16 +1309,21 @@ export default function RSVPPage() {
                 </div>
               )}
 
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Notes (optional)
-                </label>
-                <textarea
-                  {...register('notes')}
-                  className="flex min-h-[80px] w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-                  placeholder="Dietary preferences, special requests, etc."
-                />
-              </div>
+              {isNotesEnabled && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    {notesLabel}
+                  </label>
+                  <textarea
+                    {...register('notes')}
+                    className="flex min-h-[80px] w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    placeholder="Dietary preferences, special requests, etc."
+                  />
+                  {notesHelpText && (
+                    <p className="text-xs text-gray-500 mt-1">{notesHelpText}</p>
+                  )}
+                </div>
+              )}
 
               <div className="bg-eco-green-light p-4 rounded-lg">
                 <p className="text-sm text-gray-700">

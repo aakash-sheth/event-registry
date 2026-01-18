@@ -144,6 +144,42 @@ export interface LinkMetadata {
   previewImageCropAspectRatio?: number // Aspect ratio used when cropping (e.g., 1200/630)
 }
 
+export type RsvpFieldType = 'text' | 'number' | 'select' | 'radio' | 'checkbox'
+
+export interface RsvpFieldOption {
+  label: string
+  value: string
+}
+
+export interface RsvpSystemFieldConfig {
+  enabled: boolean
+  label?: string
+  helpText?: string
+}
+
+export interface RsvpCustomFieldConfig {
+  /** Normalized guest custom field key (must exist in guest management). */
+  key: string
+  enabled: boolean
+  required?: boolean
+  label?: string
+  helpText?: string
+  type: RsvpFieldType
+  options?: RsvpFieldOption[] // required for select/radio
+}
+
+export interface RsvpFormConfig {
+  version: 1
+  systemFields?: {
+    notes?: RsvpSystemFieldConfig
+    email?: RsvpSystemFieldConfig
+    guests_count?: RsvpSystemFieldConfig
+  }
+  customFields?: RsvpCustomFieldConfig[]
+  /** If true, answers are copied into Guest.custom_fields when the RSVP matches a guest. */
+  writeBackToGuest?: boolean
+}
+
 export type TileSettings = 
   | TitleTileSettings
   | ImageTileSettings
@@ -192,6 +228,8 @@ export interface InviteConfig {
   }
   // Link preview metadata (Open Graph, Twitter Cards, WhatsApp)
   linkMetadata?: LinkMetadata
+  // RSVP form configuration (host-managed)
+  rsvpForm?: RsvpFormConfig
   // New tile-based structure
   tiles?: Tile[]
   // Legacy structure (for backward compatibility)

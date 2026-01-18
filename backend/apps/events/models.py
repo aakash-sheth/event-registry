@@ -368,6 +368,9 @@ class RSVP(models.Model):
     will_attend = models.CharField(max_length=10, choices=STATUS_CHOICES)
     guests_count = models.IntegerField(default=1, help_text="Total guests including the respondent")
     notes = models.TextField(blank=True)
+
+    # Host-configured RSVP form answers (from guest custom fields)
+    custom_fields = models.JSONField(default=dict, blank=True, help_text="RSVP custom answers (normalized key -> value)")
     
     # Link to guest list if this RSVP matches an invited guest
     guest = models.ForeignKey(Guest, on_delete=models.SET_NULL, null=True, blank=True, related_name='rsvps')

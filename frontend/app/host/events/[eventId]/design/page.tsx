@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import PublishModal from '@/components/invite/PublishModal'
 import ImageCropModal from '@/components/invite/ImageCropModal'
 import api, { uploadImage } from '@/lib/api'
-import { InviteConfig, Tile, InvitePage } from '@/lib/invite/schema'
+import { InviteConfig, Tile, InvitePage, RsvpCustomFieldConfig, RsvpFieldOption, RsvpFormConfig } from '@/lib/invite/schema'
 import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
 import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
 import { getInvitePage, createInvitePage, publishInvitePage, getPublicInvite } from '@/lib/invite/api'
@@ -32,6 +32,7 @@ interface Event {
   has_rsvp: boolean
   has_registry: boolean
   event_structure?: 'SIMPLE' | 'ENVELOPE'
+  custom_fields_metadata?: Record<string, any>
 }
 
 const DEFAULT_TILES: Tile[] = [
@@ -135,6 +136,7 @@ export default function DesignInvitationPage(): JSX.Element {
   const [rightPanelStyle, setRightPanelStyle] = useState<React.CSSProperties>({})
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [showLinkMetadata, setShowLinkMetadata] = useState(false)
+  const [showRsvpForm, setShowRsvpForm] = useState(false)
   const [uploadingPreviewImage, setUploadingPreviewImage] = useState(false)
   const [isPreviewCropOpen, setIsPreviewCropOpen] = useState(false)
   const [previewCropSrc, setPreviewCropSrc] = useState<string | null>(null)
@@ -276,7 +278,7 @@ export default function DesignInvitationPage(): JSX.Element {
             eventData?.city
           )
 
-          // Preserve customColors, customFonts, texture, and linkMetadata from loaded config
+          // Preserve customColors, customFonts, texture, linkMetadata, and rsvpForm from loaded config
           // IMPORTANT: Explicitly preserve customColors even if it's an empty object
           const preservedConfig = {
             ...migratedConfig,
@@ -293,6 +295,9 @@ export default function DesignInvitationPage(): JSX.Element {
             linkMetadata: loadedConfig.linkMetadata !== undefined
               ? loadedConfig.linkMetadata
               : migratedConfig.linkMetadata,
+            rsvpForm: loadedConfig.rsvpForm !== undefined
+              ? loadedConfig.rsvpForm
+              : (migratedConfig as any).rsvpForm,
           }
 
           // Ensure we have tiles and preserve all settings (especially coverPosition for image tiles)
@@ -666,6 +671,7 @@ export default function DesignInvitationPage(): JSX.Element {
         ...(config.texture && { texture: config.texture }),
         ...(config.pageBorder && { pageBorder: config.pageBorder }),
         ...(linkMetadataToSave && { linkMetadata: linkMetadataToSave }),
+        ...(config.rsvpForm && { rsvpForm: config.rsvpForm }),
       }
       
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
@@ -1797,6 +1803,303 @@ export default function DesignInvitationPage(): JSX.Element {
                         <p className="text-xs text-blue-800">
                           <strong>💡 Tip:</strong> These settings control how your invite appears when shared on WhatsApp, Facebook, Twitter, and other platforms. If left empty, the system will automatically generate previews from your page content.
                         </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* RSVP Form - Collapsible */}
+                <div className="border-t border-gray-200 pt-4 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowRsvpForm(!showRsvpForm)}
+                    className="flex items-center justify-between w-full text-left focus:outline-none focus:ring-2 focus:ring-eco-green rounded-md p-2 -m-2"
+                  >
+                    <div>
+                      <h3 className="text-sm font-semibold text-eco-green">RSVP Form</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Choose which optional fields guests see and add existing guest custom fields as questions</p>
+                    </div>
+                    <svg
+                      className={`w-5 h-5 text-gray-500 transition-transform ${showRsvpForm ? 'transform rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showRsvpForm && (
+                    <div className="mt-4 space-y-4">
+                      {/* System fields */}
+                      <div className="border rounded-md p-3">
+                        <h4 className="text-sm font-semibold text-gray-800 mb-2">System fields</h4>
+
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium">Notes</label>
+                          <input
+                            type="checkbox"
+                            checked={(config.rsvpForm?.systemFields?.notes?.enabled ?? true) === true}
+                            onChange={(e) =>
+                              setConfig(prev => {
+                                const prevForm: RsvpFormConfig = (prev.rsvpForm as any) || { version: 1, writeBackToGuest: true }
+                                return {
+                                  ...prev,
+                                  rsvpForm: {
+                                    ...prevForm,
+                                    version: 1,
+                                    writeBackToGuest: prevForm.writeBackToGuest ?? true,
+                                    systemFields: {
+                                      ...(prevForm.systemFields || {}),
+                                      notes: {
+                                        enabled: e.target.checked,
+                                        label: (prevForm.systemFields?.notes as any)?.label,
+                                        helpText: (prevForm.systemFields?.notes as any)?.helpText,
+                                      },
+                                    },
+                                  },
+                                }
+                              })
+                            }
+                            className="w-4 h-4 text-eco-green focus:ring-eco-green border-gray-300 rounded"
+                          />
+                        </div>
+
+                        {(config.rsvpForm?.systemFields?.notes?.enabled ?? true) && (
+                          <div className="mt-3 space-y-2">
+                            <div>
+                              <label className="block text-xs font-medium mb-1 text-gray-700">Notes label (optional)</label>
+                              <Input
+                                type="text"
+                                value={config.rsvpForm?.systemFields?.notes?.label || ''}
+                                onChange={(e) =>
+                                  setConfig(prev => {
+                                    const prevForm: RsvpFormConfig = (prev.rsvpForm as any) || { version: 1, writeBackToGuest: true }
+                                    return {
+                                      ...prev,
+                                      rsvpForm: {
+                                        ...prevForm,
+                                        version: 1,
+                                        writeBackToGuest: prevForm.writeBackToGuest ?? true,
+                                        systemFields: {
+                                          ...(prevForm.systemFields || {}),
+                                          notes: {
+                                            enabled: (prevForm.systemFields?.notes?.enabled ?? true) === true,
+                                            label: e.target.value || undefined,
+                                            helpText: prevForm.systemFields?.notes?.helpText,
+                                          },
+                                        },
+                                      },
+                                    }
+                                  })
+                                }
+                                placeholder="e.g., Dietary restrictions"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium mb-1 text-gray-700">Notes help text (optional)</label>
+                              <Input
+                                type="text"
+                                value={config.rsvpForm?.systemFields?.notes?.helpText || ''}
+                                onChange={(e) =>
+                                  setConfig(prev => {
+                                    const prevForm: RsvpFormConfig = (prev.rsvpForm as any) || { version: 1, writeBackToGuest: true }
+                                    return {
+                                      ...prev,
+                                      rsvpForm: {
+                                        ...prevForm,
+                                        version: 1,
+                                        writeBackToGuest: prevForm.writeBackToGuest ?? true,
+                                        systemFields: {
+                                          ...(prevForm.systemFields || {}),
+                                          notes: {
+                                            enabled: (prevForm.systemFields?.notes?.enabled ?? true) === true,
+                                            label: prevForm.systemFields?.notes?.label,
+                                            helpText: e.target.value || undefined,
+                                          },
+                                        },
+                                      },
+                                    }
+                                  })
+                                }
+                                placeholder="Short hint shown under the field"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between">
+                          <label className="text-sm font-medium">Save answers to guest list</label>
+                          <input
+                            type="checkbox"
+                            checked={(config.rsvpForm?.writeBackToGuest ?? true) === true}
+                            onChange={(e) =>
+                              setConfig(prev => {
+                                const prevForm: RsvpFormConfig = (prev.rsvpForm as any) || { version: 1, writeBackToGuest: true }
+                                return {
+                                  ...prev,
+                                  rsvpForm: {
+                                    ...prevForm,
+                                    version: 1,
+                                    writeBackToGuest: e.target.checked,
+                                  },
+                                }
+                              })
+                            }
+                            className="w-4 h-4 text-eco-green focus:ring-eco-green border-gray-300 rounded"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          When possible, we’ll copy RSVP custom answers into the guest list so you can filter/sort by them.
+                        </p>
+                      </div>
+
+                      {/* Custom fields */}
+                      <div className="border rounded-md p-3">
+                        <h4 className="text-sm font-semibold text-gray-800 mb-2">Custom fields (from Guest Management)</h4>
+                        {(() => {
+                          const metadata = (event?.custom_fields_metadata || {}) as Record<string, any>
+                          const keys = Object.keys(metadata || {}).sort()
+                          if (!keys.length) {
+                            return (
+                              <p className="text-xs text-gray-500">
+                                No guest custom fields found. Add custom columns in Guest Management first (CSV import/custom fields metadata), then you can map them into the RSVP form.
+                              </p>
+                            )
+                          }
+
+                          const getDisplayLabel = (key: string) => {
+                            const val = metadata[key]
+                            if (typeof val === 'string') return val
+                            if (val && typeof val === 'object') return val.display_label || val.label || key
+                            return key
+                          }
+
+                          const getForm = (): RsvpFormConfig => (config.rsvpForm as any) || { version: 1, writeBackToGuest: true, customFields: [] }
+                          const form = getForm()
+                          const customFields = (form.customFields || []) as RsvpCustomFieldConfig[]
+
+                          const upsertField = (nextField: RsvpCustomFieldConfig) => {
+                            const next = [...customFields]
+                            const idx = next.findIndex(f => f.key === nextField.key)
+                            if (idx >= 0) next[idx] = nextField
+                            else next.push(nextField)
+                            setConfig(prev => ({
+                              ...prev,
+                              rsvpForm: { ...form, version: 1, customFields: next },
+                            }))
+                          }
+
+                          return (
+                            <div className="space-y-3">
+                              {keys.map((key) => {
+                                const existing = customFields.find(f => f.key === key)
+                                const enabled = existing?.enabled === true
+                                const label = getDisplayLabel(key)
+
+                                return (
+                                  <div key={key} className="border border-gray-200 rounded-md p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium text-gray-900 truncate">{label}</p>
+                                        <p className="text-xs text-gray-500 truncate">{key}</p>
+                                      </div>
+                                      <input
+                                        type="checkbox"
+                                        checked={enabled}
+                                        onChange={(e) => {
+                                          if (!existing) {
+                                            upsertField({
+                                              key,
+                                              enabled: e.target.checked,
+                                              type: 'text',
+                                              required: false,
+                                            })
+                                            return
+                                          }
+                                          upsertField({ ...existing, enabled: e.target.checked })
+                                        }}
+                                        className="w-4 h-4 text-eco-green focus:ring-eco-green border-gray-300 rounded"
+                                      />
+                                    </div>
+
+                                    {enabled && (
+                                      <div className="mt-3 space-y-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="block text-xs font-medium mb-1 text-gray-700">Field type</label>
+                                            <select
+                                              value={existing?.type || 'text'}
+                                              onChange={(e) => upsertField({ ...(existing as any), type: e.target.value as any })}
+                                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green text-sm"
+                                            >
+                                              <option value="text">Text</option>
+                                              <option value="number">Number</option>
+                                              <option value="select">Dropdown</option>
+                                              <option value="radio">Radio</option>
+                                              <option value="checkbox">Checkbox</option>
+                                            </select>
+                                          </div>
+                                          <div className="flex items-center justify-between sm:justify-start sm:gap-3">
+                                            <label className="text-xs font-medium text-gray-700">Required</label>
+                                            <input
+                                              type="checkbox"
+                                              checked={existing?.required === true}
+                                              onChange={(e) => upsertField({ ...(existing as any), required: e.target.checked })}
+                                              className="w-4 h-4 text-eco-green focus:ring-eco-green border-gray-300 rounded"
+                                            />
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="block text-xs font-medium mb-1 text-gray-700">Override label (optional)</label>
+                                          <Input
+                                            type="text"
+                                            value={existing?.label || ''}
+                                            onChange={(e) => upsertField({ ...(existing as any), label: e.target.value || undefined })}
+                                            placeholder={label}
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label className="block text-xs font-medium mb-1 text-gray-700">Help text (optional)</label>
+                                          <Input
+                                            type="text"
+                                            value={existing?.helpText || ''}
+                                            onChange={(e) => upsertField({ ...(existing as any), helpText: e.target.value || undefined })}
+                                            placeholder="Short hint shown under the field"
+                                          />
+                                        </div>
+
+                                        {(existing?.type === 'select' || existing?.type === 'radio') && (
+                                          <div>
+                                            <label className="block text-xs font-medium mb-1 text-gray-700">Options (one per line)</label>
+                                            <textarea
+                                              className="w-full min-h-[90px] px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green text-sm"
+                                              value={(existing?.options || []).map(o => o.label).join('\n')}
+                                              onChange={(e) => {
+                                                const lines = e.target.value
+                                                  .split('\n')
+                                                  .map(s => s.trim())
+                                                  .filter(Boolean)
+                                                const options: RsvpFieldOption[] = lines.map(v => ({ label: v, value: v }))
+                                                upsertField({ ...(existing as any), options })
+                                              }}
+                                              placeholder={"Vegetarian\nNon-Vegetarian\nVegan"}
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                              These will appear as choices to the guest.
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )
+                        })()}
                       </div>
                     </div>
                   )}

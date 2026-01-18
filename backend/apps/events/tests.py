@@ -389,6 +389,73 @@ class CreateRSVPEnvelopeOneTapAllTestCase(TestCase):
         self.assertEqual(response.data[1].get('sub_event_id'), self.sub_event1.id)
 
 
+class CreateRSVPCustomFieldsWritebackTestCase(TestCase):
+    """RSVP custom_fields should be saved on MAIN RSVP and (optionally) copied into Guest.custom_fields."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.host = User.objects.create_user(email='host-cf@test.com', name='Host CF')
+        self.event = Event.objects.create(
+            host=self.host,
+            slug='test-event-cf',
+            title='Test Event CF',
+            is_public=True,
+            event_structure='ENVELOPE',
+            rsvp_mode='PER_SUBEVENT',
+            has_rsvp=True,
+            page_config={
+                'rsvpForm': {
+                    'version': 1,
+                    'writeBackToGuest': True,
+                    'customFields': [{'key': 'diet', 'enabled': True, 'type': 'select'}],
+                    'systemFields': {'notes': {'enabled': False}},
+                }
+            },
+            custom_fields_metadata={'diet': {'display_label': 'Diet'}},
+        )
+        self.sub_event1 = SubEvent.objects.create(
+            event=self.event,
+            title='Sub Event 1',
+            start_at=timezone.now() + timedelta(days=1),
+            rsvp_enabled=True
+        )
+        self.guest = Guest.objects.create(
+            event=self.event,
+            name='Guest CF',
+            phone='+911234567890',
+            is_removed=False,
+            custom_fields={}
+        )
+        GuestSubEventInvite.objects.create(guest=self.guest, sub_event=self.sub_event1)
+
+    def test_custom_fields_saved_on_main_and_written_back_to_guest(self):
+        response = self.client.post(
+            f'/api/events/{self.event.id}/rsvp/',
+            {
+                'name': 'Guest CF',
+                'phone': '+911234567890',
+                'will_attend': 'yes',
+                'selectedSubEventIds': [self.sub_event1.id],
+                'custom_fields': {'diet': 'Vegetarian'},
+            },
+            format='json'
+        )
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+        self.assertTrue(isinstance(response.data, list))
+
+        # MAIN RSVP should include custom_fields, sub-event RSVP should not (default behavior)
+        main = next((r for r in response.data if r.get('sub_event_id') is None), None)
+        sub = next((r for r in response.data if r.get('sub_event_id') == self.sub_event1.id), None)
+        self.assertIsNotNone(main)
+        self.assertIsNotNone(sub)
+        self.assertEqual(main.get('custom_fields', {}).get('diet'), 'Vegetarian')
+        self.assertFalse('custom_fields' in sub and sub.get('custom_fields'), "Sub-event RSVP should not store custom_fields by default")
+
+        self.guest.refresh_from_db()
+        self.assertEqual(self.guest.custom_fields.get('diet'), 'Vegetarian')
+
+
 class InvitePageCacheTestCase(TestCase):
     """Test cache functionality for invite pages"""
     

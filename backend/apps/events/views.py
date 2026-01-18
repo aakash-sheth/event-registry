@@ -2309,6 +2309,20 @@ def create_rsvp(request, event_id):
         serializer.validated_data['phone'] = phone
         selected_sub_event_ids = serializer.validated_data.pop('selectedSubEventIds', [])
         rsvp_data = {k: v for k, v in serializer.validated_data.items() if k not in ['country_code', 'selectedSubEventIds']}
+
+        # RSVP custom fields (host-configured, from guest management)
+        rsvp_custom_fields = rsvp_data.get('custom_fields') if isinstance(rsvp_data.get('custom_fields'), dict) else None
+
+        # Decide whether to copy RSVP custom fields into Guest.custom_fields
+        # Only if event.page_config.rsvpForm exists and writeBackToGuest is enabled.
+        write_back_to_guest = False
+        try:
+            page_config = event.page_config if isinstance(event.page_config, dict) else {}
+            rsvp_form_cfg = page_config.get('rsvpForm') if isinstance(page_config, dict) else None
+            if isinstance(rsvp_form_cfg, dict):
+                write_back_to_guest = bool(rsvp_form_cfg.get('writeBackToGuest', True))
+        except Exception:
+            write_back_to_guest = False
         
         # Handle ENVELOPE events with sub-events
         if event.event_structure == 'ENVELOPE':
@@ -2347,6 +2361,18 @@ def create_rsvp(request, event_id):
                     )
                     any_new_main_created = True
 
+                # Copy custom fields into guest list if enabled
+                if guest and write_back_to_guest and isinstance(rsvp_custom_fields, dict):
+                    current = guest.custom_fields if isinstance(guest.custom_fields, dict) else {}
+                    for k, v in rsvp_custom_fields.items():
+                        # Remove only on explicit empty string / null; keep False/0
+                        if v is None or (isinstance(v, str) and v.strip() == ''):
+                            current.pop(k, None)
+                        else:
+                            current[k] = v
+                    guest.custom_fields = current
+                    guest.save(update_fields=['custom_fields', 'updated_at'])
+
                 # Determine allowed sub-events for this guest/context
                 if guest:
                     assigned_ids = list(
@@ -2380,6 +2406,9 @@ def create_rsvp(request, event_id):
                     )
 
                 sub_events = eligible_sub_events.filter(id__in=selected_sub_event_ids)
+                # Default behavior: store custom_fields only on MAIN RSVP (not on sub-event rows)
+                rsvp_data_for_sub_events = dict(rsvp_data)
+                rsvp_data_for_sub_events.pop('custom_fields', None)
                 
                 # Create/update RSVP for each sub-event
                 created_rsvps = []
@@ -2395,7 +2424,7 @@ def create_rsvp(request, event_id):
                     
                     if existing_sub_rsvp:
                         # Update existing RSVP
-                        for key, value in rsvp_data.items():
+                        for key, value in rsvp_data_for_sub_events.items():
                             setattr(existing_sub_rsvp, key, value)
                         if guest:
                             existing_sub_rsvp.guest = guest
@@ -2407,7 +2436,7 @@ def create_rsvp(request, event_id):
                             event=event,
                             sub_event=sub_event,
                             guest=guest,
-                            **rsvp_data
+                            **rsvp_data_for_sub_events
                         )
                         created_rsvps.append(rsvp)
                         any_new_rsvp_created = True
@@ -2469,6 +2498,17 @@ def create_rsvp(request, event_id):
                     )
                     any_new_main_created = True
 
+                # Copy custom fields into guest list if enabled
+                if guest and write_back_to_guest and isinstance(rsvp_custom_fields, dict):
+                    current = guest.custom_fields if isinstance(guest.custom_fields, dict) else {}
+                    for k, v in rsvp_custom_fields.items():
+                        if v is None or (isinstance(v, str) and v.strip() == ''):
+                            current.pop(k, None)
+                        else:
+                            current[k] = v
+                    guest.custom_fields = current
+                    guest.save(update_fields=['custom_fields', 'updated_at'])
+
                 # Get allowed sub-events for this guest/context
                 if guest:
                     allowed_sub_events = eligible_sub_events.filter(guest_invites__guest=guest)
@@ -2487,6 +2527,10 @@ def create_rsvp(request, event_id):
                         status=status.HTTP_201_CREATED if any_new_main_created else status.HTTP_200_OK
                     )
 
+                # Default behavior: store custom_fields only on MAIN RSVP (not on sub-event rows)
+                rsvp_data_for_sub_events = dict(rsvp_data)
+                rsvp_data_for_sub_events.pop('custom_fields', None)
+
                 # Create/update RSVP for each allowed sub-event
                 created_rsvps = []
                 any_new_rsvp_created = False
@@ -2499,7 +2543,7 @@ def create_rsvp(request, event_id):
                     ).first()
 
                     if existing_sub_rsvp:
-                        for key, value in rsvp_data.items():
+                        for key, value in rsvp_data_for_sub_events.items():
                             setattr(existing_sub_rsvp, key, value)
                         if guest:
                             existing_sub_rsvp.guest = guest
@@ -2510,7 +2554,7 @@ def create_rsvp(request, event_id):
                             event=event,
                             sub_event=sub_event,
                             guest=guest,
-                            **rsvp_data
+                            **rsvp_data_for_sub_events
                         )
                         created_rsvps.append(rsvp)
                         any_new_rsvp_created = True

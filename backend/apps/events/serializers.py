@@ -148,7 +148,7 @@ class RSVPSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = RSVP
-        fields = ('id', 'event', 'sub_event', 'sub_event_id', 'sub_event_title', 'name', 'phone', 'email', 'will_attend', 'guests_count', 'notes', 'source_channel', 'guest_id', 'is_core_guest', 'is_removed', 'country_code', 'local_number', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'sub_event', 'sub_event_id', 'sub_event_title', 'name', 'phone', 'email', 'will_attend', 'guests_count', 'notes', 'custom_fields', 'source_channel', 'guest_id', 'is_core_guest', 'is_removed', 'country_code', 'local_number', 'created_at', 'updated_at')
         read_only_fields = ('id', 'sub_event_id', 'sub_event_title', 'created_at', 'updated_at', 'country_code', 'local_number')
     
     def get_is_core_guest(self, obj):
@@ -192,6 +192,7 @@ class RSVPCreateSerializer(serializers.Serializer):
     will_attend = serializers.ChoiceField(choices=RSVP.STATUS_CHOICES)
     guests_count = serializers.IntegerField(default=1, min_value=0)
     notes = serializers.CharField(required=False, allow_blank=True)
+    custom_fields = serializers.DictField(required=False)
     source_channel = serializers.ChoiceField(choices=[('qr', 'QR Code'), ('link', 'Web Link'), ('manual', 'Manual')], default='link', required=False)
     selectedSubEventIds = serializers.ListField(
         child=serializers.IntegerField(),
@@ -199,6 +200,46 @@ class RSVPCreateSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="Array of sub-event IDs for PER_SUBEVENT mode (only for ENVELOPE events)"
     )
+
+    def validate_custom_fields(self, value):
+        """
+        Validate and normalize RSVP custom fields (keys must be normalized-like, values bounded).
+        We do not enforce membership in event.custom_fields_metadata here because this serializer
+        doesn't have event context; UI enforces membership.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("custom_fields must be an object")
+
+        KEY_RE = re.compile(r'^[a-z0-9_]{1,50}$')
+        MAX_KEYS = 50
+        MAX_VALUE_LEN = 500
+
+        if len(value) > MAX_KEYS:
+            raise serializers.ValidationError(f"Too many custom fields (max {MAX_KEYS})")
+
+        normalized = {}
+        for raw_key, raw_val in value.items():
+            key = str(raw_key or '').strip()
+            if not key:
+                continue
+            if not KEY_RE.match(key):
+                raise serializers.ValidationError(f"Invalid custom field key: {key}")
+
+            # Allow booleans/numbers, store as string for consistency where needed
+            if isinstance(raw_val, bool):
+                val = raw_val
+            elif isinstance(raw_val, (int, float)):
+                val = raw_val
+            else:
+                val = '' if raw_val is None else str(raw_val).strip()
+                if len(val) > MAX_VALUE_LEN:
+                    raise serializers.ValidationError(f"Custom field '{key}' value too long (max {MAX_VALUE_LEN})")
+
+            normalized[key] = val
+
+        return normalized
 
 
 class GuestSerializer(serializers.ModelSerializer):
