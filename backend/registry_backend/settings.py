@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'background_task',  # For async background task processing
     'apps.users',
     'apps.events',
     'apps.items',
@@ -213,6 +214,16 @@ OTP_LENGTH = 6
 
 # Feature Flags
 WHATSAPP_ENABLED = os.environ.get('WHATSAPP_ENABLED', 'False') == 'True'
+
+# Analytics Batch Collection Settings
+# Batch processing interval in minutes
+# Default: 2 minutes for development (DEBUG=True), 30 minutes for production
+# For local testing, you can set ANALYTICS_BATCH_INTERVAL_MINUTES=1 for 1-minute intervals
+default_interval = 2 if DEBUG else 30
+ANALYTICS_BATCH_INTERVAL_MINUTES = int(os.environ.get('ANALYTICS_BATCH_INTERVAL_MINUTES', default_interval))
+# Cache key prefix for pending analytics views
+ANALYTICS_BATCH_CACHE_PREFIX = os.environ.get('ANALYTICS_BATCH_CACHE_PREFIX', 'analytics_pending')
+# Note: For production, Redis is recommended for cache backend to handle high volume
 
 # AWS S3 (for image uploads)
 AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', '')

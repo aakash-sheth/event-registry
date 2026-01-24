@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import api from '@/lib/api'
+import api, { getGuestsAnalytics, getEventAnalyticsSummary, getAnalyticsBatchStatus, type GuestAnalytics, type EventAnalyticsSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -58,6 +58,13 @@ interface Guest {
   guest_token?: string | null
   custom_fields?: Record<string, string>
   sub_event_invites?: number[] // Sub-event IDs this guest is invited to
+  // Analytics fields
+  invite_views_count?: number
+  rsvp_views_count?: number
+  last_invite_view?: string | null
+  last_rsvp_view?: string | null
+  has_viewed_invite?: boolean
+  has_viewed_rsvp?: boolean
 }
 
 interface OtherGuest {
@@ -207,12 +214,78 @@ export default function GuestsPage() {
   })
 
   useEffect(() => {
-    fetchEvent()
-    fetchGuests()
+    const loadData = async () => {
+      await fetchEvent()
+      await fetchGuests()
+      // Fetch analytics after guests are loaded so we can merge the data
+      await fetchAnalytics()
+    }
+    loadData()
+  }, [eventId])
+
+  // Poll analytics directly to detect changes (more reliable than batch status)
+  // Uses guest IDs to compare view counts and detect when batch processing adds new views
+  useEffect(() => {
+    if (!eventId) return
+
+    const pollAnalytics = async () => {
+      try {
+        // Poll analytics endpoint directly - it already filters by event and returns guest IDs
+        const analyticsResponse = await getGuestsAnalytics(parseInt(eventId))
+        
+        // Compare with current analytics data (from ref) to detect changes
+        const currentAnalyticsData = analyticsDataRef.current
+        let hasChanges = false
+        
+        // Check each guest for changes
+        analyticsResponse.guests.forEach((guest: GuestAnalytics) => {
+          const prevGuest = currentAnalyticsData[guest.id]
+          
+          // Check if view counts or timestamps changed
+          if (!prevGuest || 
+              prevGuest.invite_views_count !== guest.invite_views_count ||
+              prevGuest.rsvp_views_count !== guest.rsvp_views_count ||
+              prevGuest.last_invite_view !== guest.last_invite_view ||
+              prevGuest.last_rsvp_view !== guest.last_rsvp_view ||
+              prevGuest.has_viewed_invite !== guest.has_viewed_invite ||
+              prevGuest.has_viewed_rsvp !== guest.has_viewed_rsvp) {
+            hasChanges = true
+          }
+        })
+        
+        // Also check if any guests were removed (had analytics before but not now)
+        Object.keys(currentAnalyticsData).forEach(guestId => {
+          if (!analyticsResponse.guests.find(g => g.id === parseInt(guestId))) {
+            hasChanges = true
+          }
+        })
+        
+        // If changes detected, refresh analytics (which will update state and merge into guests)
+        if (hasChanges) {
+          console.log('[Analytics] Detected changes in analytics data, refreshing UI...', {
+            guests_checked: analyticsResponse.guests.length,
+            event_id: eventId
+          })
+          await fetchAnalytics(true) // Silent refresh - don't show loading indicator
+        }
+      } catch (error) {
+        // Silently fail - polling errors shouldn't break the UI
+        console.debug('Failed to poll analytics:', error)
+      }
+    }
+
+    // Poll every 10 seconds to detect new views after batch processing
+    const interval = setInterval(pollAnalytics, 10000)
+    
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId])
+
+  useEffect(() => {
     if (event?.event_structure === 'ENVELOPE') {
       fetchSubEvents()
     }
-  }, [eventId])
+  }, [event?.event_structure])
 
   useEffect(() => {
     if (event?.event_structure === 'ENVELOPE') {
@@ -561,6 +634,7 @@ export default function GuestsPage() {
   const tableColSpan =
     1 + // selection checkbox
     2 + // name + phone
+    1 + // analytics column
     middleColumnsToRender.length +
     2 + // rsvp status + invitation sent
     (event?.event_structure === 'ENVELOPE' ? 1 : 0) + // sub-events assigned
@@ -704,9 +778,100 @@ export default function GuestsPage() {
     }
   }
 
+  const [analyticsData, setAnalyticsData] = useState<Record<number, GuestAnalytics>>({})
+  const analyticsDataRef = useRef<Record<number, GuestAnalytics>>({})
+  const [analyticsSummary, setAnalyticsSummary] = useState<EventAnalyticsSummary | null>(null)
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false)
+
+  const fetchAnalytics = async (silent = false) => {
+    try {
+      if (!silent) {
+        setLoadingAnalytics(true)
+      }
+      const [analyticsResponse, summaryResponse] = await Promise.all([
+        getGuestsAnalytics(parseInt(eventId)),
+        getEventAnalyticsSummary(parseInt(eventId))
+      ])
+      
+      // Create a map of guest ID to analytics data
+      const analyticsMap: Record<number, GuestAnalytics> = {}
+      analyticsResponse.guests.forEach((guest: GuestAnalytics) => {
+        analyticsMap[guest.id] = guest
+      })
+      setAnalyticsData(analyticsMap)
+      analyticsDataRef.current = analyticsMap // Keep ref in sync
+      setAnalyticsSummary(summaryResponse)
+      
+      // Debug: Log analytics data
+      if (process.env.NODE_ENV === 'development' && !silent) {
+        console.log('[Analytics] Fetched analytics for', Object.keys(analyticsMap).length, 'guests')
+        const sampleGuestId = Object.keys(analyticsMap)[0]
+        if (sampleGuestId) {
+          const sample = analyticsMap[parseInt(sampleGuestId)]
+          console.log('[Analytics] Sample data:', {
+            id: sample.id,
+            name: sample.name,
+            invite_views_count: sample.invite_views_count,
+            rsvp_views_count: sample.rsvp_views_count,
+            has_viewed_invite: sample.has_viewed_invite,
+            has_viewed_rsvp: sample.has_viewed_rsvp,
+          })
+        }
+      }
+      
+      // Merge analytics data into existing guests
+      setGuests(prevGuests => {
+        if (prevGuests.length === 0) {
+          // If no guests loaded yet, analytics will be merged when guests are fetched
+          return prevGuests
+        }
+        return prevGuests.map((guest: Guest) => {
+          const analytics = analyticsMap[guest.id]
+          if (analytics) {
+            return {
+              ...guest,
+              invite_views_count: analytics.invite_views_count,
+              rsvp_views_count: analytics.rsvp_views_count,
+              last_invite_view: analytics.last_invite_view,
+              last_rsvp_view: analytics.last_rsvp_view,
+              has_viewed_invite: analytics.has_viewed_invite,
+              has_viewed_rsvp: analytics.has_viewed_rsvp,
+            }
+          }
+          // If no analytics for this guest, ensure defaults are set
+          return {
+            ...guest,
+            invite_views_count: guest.invite_views_count || 0,
+            rsvp_views_count: guest.rsvp_views_count || 0,
+            has_viewed_invite: guest.has_viewed_invite || false,
+            has_viewed_rsvp: guest.has_viewed_rsvp || false,
+          }
+        })
+      })
+    } catch (error: any) {
+      // Log error for debugging but don't break the UI
+      console.error('Failed to fetch analytics:', error)
+      if (error.response?.status === 404) {
+        console.warn('Analytics endpoints not available - migrations may not be run yet')
+      }
+    } finally {
+      if (!silent) {
+        setLoadingAnalytics(false)
+      }
+    }
+  }
+
   const fetchGuests = async () => {
     try {
-      const response = await api.get(`/api/events/${eventId}/guests/`)
+      // Add cache-busting timestamp to ensure fresh data
+      const timestamp = Date.now()
+      const response = await api.get(`/api/events/${eventId}/guests/`, {
+        params: { _t: timestamp },
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      })
       // Handle both old format (array) and new format (object with guests and other_guests)
       let allGuests: Guest[] = []
       if (Array.isArray(response.data)) {
@@ -717,7 +882,6 @@ export default function GuestsPage() {
         setRemovedGuests([])
       } else {
         allGuests = response.data.guests || []
-        setGuests(allGuests)
         setOtherGuests(response.data.other_guests || [])
         setRemovedGuestsList(response.data.removed_guests_list || [])
         setRemovedGuests(response.data.removed_guests || [])
@@ -738,6 +902,34 @@ export default function GuestsPage() {
       })
       
       setGuestSubEventAssignments(assignments)
+      
+      // Merge analytics data if it's already been fetched
+      if (Object.keys(analyticsData).length > 0) {
+        allGuests = allGuests.map((guest: Guest) => {
+          const analytics = analyticsData[guest.id]
+          if (analytics) {
+            return {
+              ...guest,
+              invite_views_count: analytics.invite_views_count,
+              rsvp_views_count: analytics.rsvp_views_count,
+              last_invite_view: analytics.last_invite_view,
+              last_rsvp_view: analytics.last_rsvp_view,
+              has_viewed_invite: analytics.has_viewed_invite,
+              has_viewed_rsvp: analytics.has_viewed_rsvp,
+            }
+          }
+          // Ensure defaults even if no analytics
+          return {
+            ...guest,
+            invite_views_count: guest.invite_views_count ?? 0,
+            rsvp_views_count: guest.rsvp_views_count ?? 0,
+            has_viewed_invite: guest.has_viewed_invite ?? false,
+            has_viewed_rsvp: guest.has_viewed_rsvp ?? false,
+          }
+        })
+      }
+      
+      setGuests(allGuests)
       
       // Fetch RSVPs for all guests (only for PER_SUBEVENT mode)
       // Check event structure after it's loaded
@@ -1000,7 +1192,10 @@ export default function GuestsPage() {
       
       reset()
       setShowForm(false)
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || 
                       (error.response?.data?.errors ? error.response.data.errors[0] : 'Failed to save guest')
@@ -1093,7 +1288,10 @@ export default function GuestsPage() {
         setImportErrors(null)
         setImportSummary(null)
       }
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to import file',
@@ -1142,7 +1340,10 @@ export default function GuestsPage() {
         ? 'Guest removed (soft delete). Record preserved.'
         : 'Guest deleted successfully'
       showToast(message, 'success')
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to remove guest',
@@ -1155,7 +1356,10 @@ export default function GuestsPage() {
     try {
       await api.post(`/api/events/${eventId}/guests/${guestId}/reinstate/`)
       showToast('Guest reinstated successfully', 'success')
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to reinstate guest',
@@ -1172,7 +1376,10 @@ export default function GuestsPage() {
     try {
       await api.delete(`/api/events/${eventId}/rsvps/${rsvpId}/`)
       showToast('RSVP removed successfully', 'success')
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to remove RSVP',
@@ -1185,7 +1392,10 @@ export default function GuestsPage() {
     try {
       await api.post(`/api/events/${eventId}/rsvps/${rsvpId}/reinstate/`)
       showToast('RSVP reinstated successfully', 'success')
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to reinstate RSVP',
@@ -1209,7 +1419,10 @@ export default function GuestsPage() {
       
       await api.patch(`/api/events/${eventId}/guests/${guestId}/`, updateData)
       showToast(`Invitation status updated`, 'success')
-      fetchGuests()
+      // Wait a moment for backend to process, then fetch fresh data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchGuests()
+      await fetchAnalytics()
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to update invitation status',
@@ -1290,7 +1503,10 @@ export default function GuestsPage() {
           invitation_sent_at: new Date().toISOString(),
         })
         // Refresh guest list to show updated checkbox
-        fetchGuests()
+        // Wait a moment for backend to process, then fetch fresh data
+        await new Promise(resolve => setTimeout(resolve, 100))
+        await fetchGuests()
+        await fetchAnalytics()
       } catch (error: any) {
         // Silently fail - don't block WhatsApp opening if API call fails
         logError('Failed to update invitation_sent:', error)
@@ -1416,6 +1632,41 @@ export default function GuestsPage() {
             </div>
           </div>
         </div>
+
+        {/* Analytics Summary Card */}
+        {analyticsSummary && (
+          <Card className="mb-6 bg-white border-2 border-eco-green-light">
+            <CardHeader>
+              <CardTitle className="text-eco-green">Guest Engagement Analytics</CardTitle>
+              <CardDescription>
+                Track how guests are engaging with your invites and RSVP pages
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-4 bg-eco-green-light rounded-lg">
+                  <div className="text-2xl font-bold text-eco-green">{analyticsSummary.total_guests}</div>
+                  <div className="text-sm text-gray-600 mt-1">Total Guests</div>
+                </div>
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{analyticsSummary.guests_with_invite_views}</div>
+                  <div className="text-sm text-gray-600 mt-1">Viewed Invite</div>
+                  <div className="text-xs text-gray-500 mt-1">{analyticsSummary.invite_view_rate.toFixed(1)}%</div>
+                </div>
+                <div className="text-center p-4 bg-purple-50 rounded-lg">
+                  <div className="text-2xl font-bold text-purple-600">{analyticsSummary.guests_with_rsvp_views}</div>
+                  <div className="text-sm text-gray-600 mt-1">Viewed RSVP</div>
+                  <div className="text-xs text-gray-500 mt-1">{analyticsSummary.rsvp_view_rate.toFixed(1)}%</div>
+                </div>
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{analyticsSummary.total_invite_views}</div>
+                  <div className="text-sm text-gray-600 mt-1">Total Invite Views</div>
+                  <div className="text-xs text-gray-500 mt-1">{analyticsSummary.total_rsvp_views} RSVP views</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {showCustomFieldsManager && (
           <Card className="mb-8 bg-white border-2 border-eco-green-light">
@@ -2137,6 +2388,13 @@ export default function GuestsPage() {
                       </th>
 
                       <th className="text-left p-2">
+                        <div className="flex flex-col gap-1" title="Tracks how many times the guest viewed their invite page and RSVP page">
+                          <span className="text-xs font-medium text-gray-700">Page Views</span>
+                          <span className="text-xs text-gray-500">Invite • RSVP</span>
+                        </div>
+                      </th>
+
+                      <th className="text-left p-2">
                         <button
                           type="button"
                           onClick={() => toggleSort('invite_sent')}
@@ -2178,6 +2436,15 @@ export default function GuestsPage() {
                       }
                       
                       return visibleGuests.map((guest) => {
+                        // Get analytics data - prefer from guest object, fallback to analyticsData state
+                        const analytics = analyticsData[guest.id] || {}
+                        const inviteViewsCount = guest.invite_views_count ?? analytics.invite_views_count ?? 0
+                        const rsvpViewsCount = guest.rsvp_views_count ?? analytics.rsvp_views_count ?? 0
+                        const lastInviteView = guest.last_invite_view ?? analytics.last_invite_view ?? null
+                        const lastRsvpView = guest.last_rsvp_view ?? analytics.last_rsvp_view ?? null
+                        const hasViewedInvite = guest.has_viewed_invite ?? analytics.has_viewed_invite ?? false
+                        const hasViewedRsvp = guest.has_viewed_rsvp ?? analytics.has_viewed_rsvp ?? false
+                        
                         const getRsvpStatusBadge = (status: string | null) => {
                         if (!status) {
                           return (
@@ -2281,6 +2548,52 @@ export default function GuestsPage() {
                           })}
 
                           <td className="p-2">{getRsvpStatusBadge(guest.rsvp_status || guest.rsvp_will_attend)}</td>
+
+                          <td className="p-2">
+                            <div className="flex flex-col gap-2 text-xs">
+                              <div 
+                                className="flex items-center gap-2 group relative cursor-help"
+                                title={`Invite Page Views: ${inviteViewsCount}${lastInviteView ? `\nLast Viewed: ${new Date(lastInviteView).toLocaleString()}` : '\nNever viewed'}`}
+                              >
+                                <div className={`flex items-center gap-1 min-w-[60px] ${hasViewedInvite ? 'text-blue-600 font-semibold' : 'text-gray-400'}`}>
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                  </svg>
+                                  <span className="font-medium">{inviteViewsCount}</span>
+                                </div>
+                                <span className="text-gray-600 text-[10px]">Invite</span>
+                                {lastInviteView && (
+                                  <span 
+                                    className="text-gray-400 text-[10px]"
+                                    title={`Last viewed: ${new Date(lastInviteView).toLocaleString()}`}
+                                  >
+                                    {new Date(lastInviteView).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+                              </div>
+                              <div 
+                                className="flex items-center gap-2 group relative cursor-help"
+                                title={`RSVP Page Views: ${rsvpViewsCount}${lastRsvpView ? `\nLast Viewed: ${new Date(lastRsvpView).toLocaleString()}` : '\nNever viewed'}`}
+                              >
+                                <div className={`flex items-center gap-1 min-w-[60px] ${hasViewedRsvp ? 'text-purple-600 font-semibold' : 'text-gray-400'}`}>
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  <span className="font-medium">{rsvpViewsCount}</span>
+                                </div>
+                                <span className="text-gray-600 text-[10px]">RSVP</span>
+                                {lastRsvpView && (
+                                  <span 
+                                    className="text-gray-400 text-[10px]"
+                                    title={`Last viewed: ${new Date(lastRsvpView).toLocaleString()}`}
+                                  >
+                                    {new Date(lastRsvpView).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
 
                           <td className="p-2">
                             <div className="flex flex-col items-start gap-1">

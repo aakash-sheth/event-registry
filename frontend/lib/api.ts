@@ -1,4 +1,7 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
+'use client'
+
+import axios from 'axios'
+import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 
 /**
  * Get API base URL with automatic mixed content fix
@@ -528,3 +531,55 @@ export async function previewTemplateWithGuest(templateId: number, guestId: numb
   return response.data
 }
 
+// Analytics API functions
+export interface GuestAnalytics {
+  id: number
+  name: string
+  phone: string
+  email: string
+  invite_views_count: number
+  rsvp_views_count: number
+  last_invite_view: string | null
+  last_rsvp_view: string | null
+  has_viewed_invite: boolean
+  has_viewed_rsvp: boolean
+}export interface EventAnalyticsSummary {
+  total_guests: number
+  guests_with_invite_views: number
+  guests_with_rsvp_views: number
+  total_invite_views: number
+  total_rsvp_views: number
+  invite_view_rate: number
+  rsvp_view_rate: number
+  engagement_rate: number
+}
+
+export interface GuestsAnalyticsResponse {
+  event_id: number
+  event_title: string
+  total_guests: number
+  guests: GuestAnalytics[]
+}
+
+export async function getGuestsAnalytics(eventId: number): Promise<GuestsAnalyticsResponse> {
+  const response = await api.get(`/api/events/${eventId}/guests/analytics/`)
+  return response.data
+}
+
+export async function getEventAnalyticsSummary(eventId: number): Promise<EventAnalyticsSummary> {
+  const response = await api.get(`/api/events/${eventId}/analytics/summary/`)
+  return response.data
+}
+
+export interface BatchStatus {
+  run_id: string | null
+  status: string
+  processed_at: string | null
+  views_inserted: number
+  processing_time_ms: number | null
+}
+
+export async function getAnalyticsBatchStatus(eventId: number): Promise<BatchStatus> {
+  const response = await api.get(`/api/events/${eventId}/analytics/batch-status/`)
+  return response.data
+}

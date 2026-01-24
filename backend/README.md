@@ -72,3 +72,78 @@ The backend can be deployed to:
 
 Ensure environment variables are set correctly in production.
 
+## Analytics Batch Processing
+
+The analytics system uses batch processing to reduce database load. Page views are collected in cache and processed periodically.
+
+### Setup
+
+1. **Run migrations:**
+   ```bash
+   python manage.py migrate
+   ```
+
+2. **Set up scheduled task** (choose one method):
+
+   **Option A: Using background_task scheduler (Recommended for Docker)**
+   
+   The batch processing is automatically scheduled when the `backend-worker` service starts.
+   The docker-compose.yml is already configured to schedule it automatically.
+   
+   To manually schedule (if needed):
+   ```bash
+   python manage.py schedule_analytics_batch
+   ```
+   
+   To clear and reschedule:
+   ```bash
+   python manage.py schedule_analytics_batch --clear
+   ```
+
+   **Option B: Using Cron (Alternative for non-Docker deployments)**
+   ```bash
+   # Add to crontab (crontab -e)
+   # Process every 30 minutes
+   */30 * * * * cd /path/to/backend && python manage.py process_analytics_batch
+   ```
+   
+   **Option C: Manual scheduling in code**
+   ```python
+   # In a management command or startup script
+   from apps.events.tasks import process_analytics_batch
+   from background_task import background
+   
+   @background(schedule=1800)  # 30 minutes in seconds
+   def schedule_batch_processing():
+       process_analytics_batch()
+       schedule_batch_processing()  # Reschedule itself
+   ```
+
+3. **Configuration:**
+   - `ANALYTICS_BATCH_INTERVAL_MINUTES`: Batch processing interval in minutes
+     - Default: 2 minutes for development (DEBUG=True), 30 minutes for production
+     - For local testing, you can set to 1 minute: `ANALYTICS_BATCH_INTERVAL_MINUTES=1`
+   - `ANALYTICS_BATCH_CACHE_PREFIX`: Cache key prefix (default: 'analytics_pending')
+
+### Manual Processing
+
+To manually trigger batch processing:
+```bash
+python manage.py process_analytics_batch
+```
+
+To view statistics:
+```bash
+python manage.py process_analytics_batch --stats
+```
+
+### Monitoring
+
+View batch processing status in Django admin:
+- Navigate to `/api/admin/analytics-batch/` for dashboard
+- Or go to Events > Analytics Batch Runs for detailed view
+
+### Cache Requirements
+
+- **Development**: LocMemCache works but has limitations (no key scanning)
+- **Production**: Redis recommended for better performance and key scanning support

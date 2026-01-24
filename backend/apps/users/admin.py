@@ -135,6 +135,18 @@ class CustomAdminSite(AdminSite):
                 'description': 'View comprehensive business metrics, user statistics, engagement data, revenue analytics, and geographic insights.',
                 'icon': '📊'
             })
+            custom_views.append({
+                'name': 'Analytics Batch Processing',
+                'url': '/api/admin/analytics-batch/',
+                'description': 'Monitor analytics batch processing status, view batch run history, and manually trigger batch processing.',
+                'icon': '⚙️'
+            })
+            custom_views.append({
+                'name': 'Analytics Cache Monitor',
+                'url': '/api/admin/analytics-cache-monitor/',
+                'description': 'Real-time monitoring of analytics cache to see pending page views before batch processing.',
+                'icon': '📊'
+            })
         
         extra_context['custom_admin_views'] = custom_views
         
@@ -164,10 +176,12 @@ class CustomAdminSite(AdminSite):
         return response
     
     def get_urls(self):
-        """Add custom analytics view to admin URLs"""
+        """Add custom analytics views to admin URLs"""
         urls = super().get_urls()
         custom_urls = [
             path('analytics/', self.admin_view(self.analytics_view), name='analytics'),
+            path('analytics-batch/', self.admin_view(self.analytics_batch_view), name='analytics-batch'),
+            path('analytics-cache-monitor/', self.admin_view(self.analytics_cache_monitor_view), name='analytics-cache-monitor'),
         ]
         return custom_urls + urls
     
@@ -351,6 +365,206 @@ class CustomAdminSite(AdminSite):
         }
         
         return render(request, 'admin/analytics.html', context)
+    
+    def analytics_batch_view(self, request):
+        """
+        Display analytics batch processing monitoring dashboard
+        Shows status of batch runs, statistics, and allows manual triggering
+        """
+        if not request.user.is_superuser:
+            from django.contrib.auth.views import redirect_to_login
+            return redirect_to_login(request.get_full_path())
+        
+        from django.shortcuts import render, redirect
+        from apps.events.models import AnalyticsBatchRun
+        from apps.events.tasks import process_analytics_batch
+        from django.core.cache import cache
+        from django.conf import settings
+        from django.db.models import Avg, Sum
+        from django.utils import timezone
+        
+        # Handle manual trigger
+        if request.method == 'POST' and 'trigger_batch' in request.POST:
+            try:
+                batch_run = process_analytics_batch()
+                if batch_run and batch_run.status == 'completed':
+                    from django.contrib import messages
+                    messages.success(request, f'Batch processed successfully: {batch_run.views_inserted} views inserted')
+                elif batch_run and batch_run.status == 'failed':
+                    from django.contrib import messages
+                    messages.error(request, f'Batch processing failed: {batch_run.error_message}')
+            except Exception as e:
+                from django.contrib import messages
+                messages.error(request, f'Error triggering batch: {str(e)}')
+            return redirect('customadmin:analytics-batch')
+        
+        try:
+            # Get recent batch runs
+            recent_batches = AnalyticsBatchRun.objects.all().order_by('-started_at')[:50]
+            
+            # Summary statistics
+            total_batches = AnalyticsBatchRun.objects.count()
+            completed_batches = AnalyticsBatchRun.objects.filter(status='completed').count()
+            failed_batches = AnalyticsBatchRun.objects.filter(status='failed').count()
+            processing_batches = AnalyticsBatchRun.objects.filter(status='processing').count()
+            
+            success_rate = (completed_batches / total_batches * 100) if total_batches > 0 else 0
+            
+            # Average statistics from completed batches
+            completed = AnalyticsBatchRun.objects.filter(status='completed')
+            avg_stats = {}
+            if completed.exists():
+                avg_stats = {
+                    'avg_collected': completed.aggregate(Avg('views_collected'))['views_collected__avg'] or 0,
+                    'avg_inserted': completed.aggregate(Avg('views_inserted'))['views_inserted__avg'] or 0,
+                    'avg_time_ms': completed.aggregate(Avg('processing_time_ms'))['processing_time_ms__avg'] or 0,
+                }
+            
+            # Last successful run
+            last_successful = AnalyticsBatchRun.objects.filter(status='completed').order_by('-processed_at').first()
+            
+            # Current pending views count (approximate from cache)
+            cache_prefix = getattr(settings, 'ANALYTICS_BATCH_CACHE_PREFIX', 'analytics_pending')
+            tracking_key = f"{cache_prefix}_keys"
+            tracked_keys = cache.get(tracking_key, [])
+            pending_views_count = len(tracked_keys) if tracked_keys else 0
+            
+            # Today's statistics
+            today = timezone.now().date()
+            today_batches = AnalyticsBatchRun.objects.filter(started_at__date=today)
+            today_stats = {
+                'total': today_batches.count(),
+                'completed': today_batches.filter(status='completed').count(),
+                'failed': today_batches.filter(status='failed').count(),
+                'total_views': today_batches.filter(status='completed').aggregate(Sum('views_inserted'))['views_inserted__sum'] or 0,
+            }
+            
+            # Batch interval setting
+            batch_interval = getattr(settings, 'ANALYTICS_BATCH_INTERVAL_MINUTES', 30)
+            
+            context = {
+                'title': 'Analytics Batch Processing Dashboard',
+                'recent_batches': recent_batches,
+                'summary': {
+                    'total_batches': total_batches,
+                    'completed_batches': completed_batches,
+                    'failed_batches': failed_batches,
+                    'processing_batches': processing_batches,
+                    'success_rate': round(success_rate, 1),
+                },
+                'avg_stats': avg_stats,
+                'last_successful': last_successful,
+                'pending_views_count': pending_views_count,
+                'today_stats': today_stats,
+                'batch_interval': batch_interval,
+            }
+            
+            return render(request, 'admin/analytics_batch.html', context)
+            
+        except Exception as e:
+            from django.contrib import messages
+            messages.error(request, f'Error loading batch dashboard: {str(e)}')
+            context = {
+                'title': 'Analytics Batch Processing Dashboard',
+                'error': str(e),
+            }
+            return render(request, 'admin/analytics_batch.html', context)
+    
+    def analytics_cache_monitor_view(self, request):
+        """
+        Display real-time analytics cache monitoring
+        Shows what views are currently pending in cache
+        """
+        if not request.user.is_superuser:
+            from django.contrib.auth.views import redirect_to_login
+            return redirect_to_login(request.get_full_path())
+        
+        from django.shortcuts import render
+        from django.core.cache import cache
+        from django.conf import settings
+        from apps.events.models import Guest, Event
+        import json
+        
+        cache_prefix = getattr(settings, 'ANALYTICS_BATCH_CACHE_PREFIX', 'analytics_pending')
+        tracking_key = f"{cache_prefix}_keys"
+        tracked_keys = cache.get(tracking_key, [])
+        
+        # Process tracked views
+        pending_views = []
+        invite_count = 0
+        rsvp_count = 0
+        event_counts = {}
+        
+        for key in tracked_keys:
+            value = cache.get(key)
+            if value:
+                try:
+                    view_data = json.loads(value)
+                    view_type = view_data.get('view_type', 'unknown')
+                    event_id = view_data.get('event_id')
+                    guest_id = view_data.get('guest_id')
+                    timestamp = view_data.get('timestamp', '')
+                    
+                    guest_name = "Unknown"
+                    event_title = "Unknown"
+                    try:
+                        if guest_id:
+                            guest = Guest.objects.get(id=guest_id)
+                            guest_name = guest.name
+                        if event_id:
+                            event = Event.objects.get(id=event_id)
+                            event_title = event.title
+                    except Exception:
+                        pass
+                    
+                    pending_views.append({
+                        'key': key,
+                        'guest_id': guest_id,
+                        'guest_name': guest_name,
+                        'event_id': event_id,
+                        'event_title': event_title,
+                        'view_type': view_type,
+                        'timestamp': timestamp,
+                    })
+                    
+                    if view_type == 'invite':
+                        invite_count += 1
+                    elif view_type == 'rsvp':
+                        rsvp_count += 1
+                    
+                    if event_id:
+                        event_counts[event_id] = event_counts.get(event_id, 0) + 1
+                except Exception:
+                    pass
+        
+        # Create a mapping of event_id to event_title for easy lookup
+        event_titles = {}
+        for view in pending_views:
+            if view.get('event_id') and view.get('event_id') not in event_titles:
+                event_titles[view['event_id']] = view.get('event_title', 'Unknown')
+        
+        # Create event_counts with titles included
+        event_counts_with_titles = []
+        for event_id, count in sorted(event_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
+            event_counts_with_titles.append({
+                'event_id': event_id,
+                'count': count,
+                'title': event_titles.get(event_id, 'Unknown')
+            })
+        
+        context = {
+            'title': 'Analytics Cache Monitor',
+            'total_views': len(tracked_keys),
+            'invite_count': invite_count,
+            'rsvp_count': rsvp_count,
+            'unique_events': len(event_counts),
+            'pending_views': pending_views[:50],  # Limit to 50 for display
+            'event_counts': event_counts_with_titles,  # Now includes titles
+            'cache_backend': settings.CACHES['default']['BACKEND'],
+            'cache_prefix': cache_prefix,
+        }
+        
+        return render(request, 'admin/analytics_cache_monitor.html', context)
 
 
 # Create custom admin site instance

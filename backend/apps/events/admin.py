@@ -1,6 +1,6 @@
 from django.contrib import admin
 from apps.users.admin import admin_site
-from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
+from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AnalyticsBatchRun
 
 
 class EventAdmin(admin.ModelAdmin):
@@ -53,6 +53,50 @@ class MessageTemplateAdmin(admin.ModelAdmin):
     raw_id_fields = ('event', 'created_by')
 
 
+class AnalyticsBatchRunAdmin(admin.ModelAdmin):
+    list_display = ('run_id', 'status_badge', 'started_at', 'processed_at', 'views_collected', 'views_deduplicated', 'views_inserted', 'processing_time_ms')
+    list_filter = ('status', 'started_at', 'processed_at')
+    search_fields = ('run_id', 'error_message')
+    readonly_fields = ('run_id', 'started_at', 'processed_at', 'status', 'views_collected', 'views_deduplicated', 
+                      'views_inserted', 'invite_views_count', 'rsvp_views_count', 'processing_time_ms', 
+                      'error_message', 'metadata', 'created_at', 'updated_at')
+    ordering = ('-started_at',)
+    
+    def status_badge(self, obj):
+        """Display status with color coding"""
+        colors = {
+            'completed': 'green',
+            'failed': 'red',
+            'processing': 'orange',
+            'pending': 'gray',
+        }
+        color = colors.get(obj.status, 'gray')
+        return f'<span style="color: {color}; font-weight: bold;">{obj.get_status_display()}</span>'
+    status_badge.short_description = 'Status'
+    status_badge.allow_tags = True
+    
+    fieldsets = (
+        ('Run Information', {
+            'fields': ('run_id', 'status', 'started_at', 'processed_at')
+        }),
+        ('Statistics', {
+            'fields': ('views_collected', 'views_deduplicated', 'views_inserted', 
+                      'invite_views_count', 'rsvp_views_count', 'processing_time_ms')
+        }),
+        ('Error Information', {
+            'fields': ('error_message',),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('metadata',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+
 # Register with custom admin site
 admin_site.register(Event, EventAdmin)
 admin_site.register(Guest, GuestAdmin)
@@ -61,4 +105,5 @@ admin_site.register(InvitePage, InvitePageAdmin)
 admin_site.register(SubEvent, SubEventAdmin)
 admin_site.register(GuestSubEventInvite, GuestSubEventInviteAdmin)
 admin_site.register(MessageTemplate, MessageTemplateAdmin)
+admin_site.register(AnalyticsBatchRun, AnalyticsBatchRunAdmin)
 

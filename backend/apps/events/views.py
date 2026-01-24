@@ -13,7 +13,7 @@ import csv
 import re
 import os
 from urllib.parse import quote
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -544,6 +544,154 @@ class EventViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_200_OK
             )
 
+    @action(detail=True, methods=['get'], url_path='guests/analytics')
+    def guests_analytics(self, request, id=None):
+        """Get analytics for all guests in an event (invite and RSVP view tracking)"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        try:
+            from .analytics_serializers import GuestAnalyticsSerializer
+            from .models import InvitePageView, RSVPPageView
+            
+            # Get all guests with their analytics
+            # Use Prefetch to ensure proper ordering for related views
+            from django.db.models import Prefetch
+            guests = Guest.objects.filter(
+                event=event,
+                is_removed=False
+            ).prefetch_related(
+                Prefetch('invite_views', queryset=InvitePageView.objects.order_by('-viewed_at')),
+                Prefetch('rsvp_views', queryset=RSVPPageView.objects.order_by('-viewed_at'))
+            ).order_by('name')
+            
+            serializer = GuestAnalyticsSerializer(guests, many=True)
+            return Response({
+                'event_id': event.id,
+                'event_title': event.title,
+                'total_guests': guests.count(),
+                'guests': serializer.data
+            })
+        except Exception as e:
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in guests_analytics: {str(e)}\n{traceback.format_exc()}")
+            return Response(
+                {'error': f'Analytics not available. Please run migrations: python manage.py migrate. Error: {str(e)}'},
+                status=500
+            )
+    
+    @action(detail=True, methods=['get'], url_path='analytics/batch-status')
+    def analytics_batch_status(self, request, id=None):
+        """Get the latest batch processing status for this event"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        try:
+            from .models import AnalyticsBatchRun
+            from django.utils import timezone
+            from datetime import timedelta
+            
+            # Get the most recent completed batch run
+            latest_batch = AnalyticsBatchRun.objects.filter(
+                status='completed',
+                processed_at__isnull=False
+            ).order_by('-processed_at').first()
+            
+            if latest_batch:
+                return Response({
+                    'run_id': latest_batch.run_id,
+                    'status': latest_batch.status,
+                    'processed_at': latest_batch.processed_at.isoformat() if latest_batch.processed_at else None,
+                    'views_inserted': latest_batch.views_inserted,
+                    'processing_time_ms': latest_batch.processing_time_ms,
+                })
+            else:
+                return Response({
+                    'run_id': None,
+                    'status': 'no_batches',
+                    'processed_at': None,
+                    'views_inserted': 0,
+                    'processing_time_ms': None,
+                })
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in analytics_batch_status: {str(e)}")
+            return Response(
+                {'error': f'Failed to get batch status: {str(e)}'},
+                status=500
+            )
+    
+    @action(detail=True, methods=['get'], url_path='analytics/summary')
+    def analytics_summary(self, request, id=None):
+        """Get event-level analytics summary"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+        
+        try:
+            from .analytics_serializers import EventAnalyticsSummarySerializer
+            from django.db.models import Count, Q
+            from .models import InvitePageView, RSVPPageView
+            
+            # Get guest counts
+            total_guests = Guest.objects.filter(event=event, is_removed=False).count()
+            
+            # Get guests who viewed invite
+            guests_with_invite_views = Guest.objects.filter(
+                event=event,
+                is_removed=False,
+                invite_views__isnull=False
+            ).distinct().count()
+            
+            # Get guests who viewed RSVP
+            guests_with_rsvp_views = Guest.objects.filter(
+                event=event,
+                is_removed=False,
+                rsvp_views__isnull=False
+            ).distinct().count()
+            
+            # Get total view counts
+            total_invite_views = InvitePageView.objects.filter(event=event).count()
+            total_rsvp_views = RSVPPageView.objects.filter(event=event).count()
+            
+            # Calculate rates
+            invite_view_rate = (guests_with_invite_views / total_guests * 100) if total_guests > 0 else 0
+            rsvp_view_rate = (guests_with_rsvp_views / total_guests * 100) if total_guests > 0 else 0
+            
+            # Engagement rate: guests who viewed both invite and RSVP
+            guests_with_both = Guest.objects.filter(
+                event=event,
+                is_removed=False,
+                invite_views__isnull=False,
+                rsvp_views__isnull=False
+            ).distinct().count()
+            engagement_rate = (guests_with_both / total_guests * 100) if total_guests > 0 else 0
+            
+            data = {
+                'total_guests': total_guests,
+                'guests_with_invite_views': guests_with_invite_views,
+                'guests_with_rsvp_views': guests_with_rsvp_views,
+                'total_invite_views': total_invite_views,
+                'total_rsvp_views': total_rsvp_views,
+                'invite_view_rate': round(invite_view_rate, 2),
+                'rsvp_view_rate': round(rsvp_view_rate, 2),
+                'engagement_rate': round(engagement_rate, 2),
+            }
+            
+            serializer = EventAnalyticsSummarySerializer(data)
+            return Response(serializer.data)
+        except Exception as e:
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in analytics_summary: {str(e)}\n{traceback.format_exc()}")
+            return Response(
+                {'error': f'Analytics not available. Please run migrations: python manage.py migrate. Error: {str(e)}'},
+                status=500
+            )
+    
     @action(detail=True, methods=['post'], url_path='guests/import')
     def import_guests(self, request, id=None):
         """Import guests from CSV, TXT, or Excel file"""
@@ -1710,6 +1858,24 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 }
             )
 
+        # Collect invite page view for batch processing (synchronous, fast cache write)
+        # Only track if guest token is present and not a preview
+        if guest_token and event and not is_preview:
+            try:
+                from .tasks import collect_page_view
+                result = collect_page_view(guest_token, event.id, view_type='invite')
+                if result:
+                    logger.info(f"[Batch Analytics] Successfully collected invite view: guest_token={guest_token[:8]}..., event_id={event.id}")
+                else:
+                    logger.warning(f"[Batch Analytics] Failed to collect invite view (returned False): guest_token={guest_token[:8]}..., event_id={event.id}")
+            except Exception as e:
+                # Log error but don't break the response
+                # This handles cases where migrations haven't been run yet or cache isn't available
+                logger.error(
+                    f"[Batch Analytics] Failed to collect invite view: {str(e)}",
+                    exc_info=True
+                )
+
         return response
 
     @action(detail=True, methods=['get'], url_path='guests.csv')
@@ -2194,6 +2360,28 @@ def get_guest_by_token(request, event_id):
         # Return guest data in same format as check_phone_for_rsvp response
         from .utils import parse_phone_number
         country_code, local_number = parse_phone_number(guest.phone)
+        
+        # Collect RSVP page view for batch processing (synchronous, fast cache write)
+        try:
+            from .tasks import collect_page_view
+            result = collect_page_view(guest_token, event_id, view_type='rsvp')
+            if result:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[Batch Analytics] Successfully collected RSVP view: guest_token={guest_token[:8]}..., event_id={event_id}")
+            else:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"[Batch Analytics] Failed to collect RSVP view (returned False): guest_token={guest_token[:8]}..., event_id={event_id}")
+        except Exception as e:
+            # Log error but don't break the response
+            # This handles cases where migrations haven't been run yet or cache isn't available
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"[Batch Analytics] Failed to collect RSVP view: {str(e)}",
+                exc_info=True
+            )
         
         guest_data = {
             'name': guest.name,

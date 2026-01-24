@@ -46,11 +46,20 @@ const nextConfig = {
       },
     ]
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     // Ensure proper module resolution
     config.resolve.alias = {
       ...config.resolve.alias,
     }
+    
+    // Fix axios bundling issue - externalize axios for server-side
+    if (isServer) {
+      config.externals = config.externals || []
+      config.externals.push({
+        'axios': 'commonjs axios',
+      })
+    }
+    
     return config
   },
 }
