@@ -545,10 +545,10 @@ class MessageTemplate(models.Model):
         ordering = ['-last_used_at', '-created_at']
         unique_together = [['event', 'name']]
         indexes = [
-            models.Index(fields=['event', 'message_type']),
-            models.Index(fields=['event', 'is_active']),
-            models.Index(fields=['event', 'is_default']),
-            models.Index(fields=['is_system_default']),
+            models.Index(fields=['event', 'message_type'], name='whatsapp_te_event_i_idx'),
+            models.Index(fields=['event', 'is_active'], name='whatsapp_te_event_i_idx2'),
+            models.Index(fields=['event', 'is_default'], name='whatsapp_te_event_i_idx3'),
+            models.Index(fields=['is_system_default'], name='whatsapp_te_is_syst_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
