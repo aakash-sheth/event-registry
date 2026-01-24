@@ -203,6 +203,7 @@ def process_analytics_batch():
             tracked_keys = cache.get(tracking_key, [])
             if tracked_keys:
                 logger.info(f"[Batch Analytics] Using tracked keys: {len(tracked_keys)} keys found")
+                stale_keys = []
                 for key in tracked_keys:
                     try:
                         value = cache.get(key)
@@ -210,9 +211,27 @@ def process_analytics_batch():
                             view_data = json.loads(value)
                             pending_views.append(view_data)
                             processed_keys.append(key)  # Track which keys we successfully processed
+                        else:
+                            stale_keys.append(key)
                     except Exception as e:
                         logger.warning(f"[Batch Analytics] Failed to get cache value for {key}: {str(e)}")
+                        stale_keys.append(key)
                         continue
+                
+                # Clean up stale keys immediately so cache monitor reflects reality
+                if stale_keys:
+                    remaining_keys = [k for k in tracked_keys if k not in stale_keys]
+                    batch_interval = getattr(settings, 'ANALYTICS_BATCH_INTERVAL_MINUTES', 30)
+                    ttl_seconds = (batch_interval + 5) * 60
+                    if remaining_keys:
+                        cache.set(tracking_key, remaining_keys, ttl_seconds)
+                        logger.info(
+                            f"[Batch Analytics] Cleaned {len(stale_keys)} stale keys from tracking list, "
+                            f"{len(remaining_keys)} keys remaining"
+                        )
+                    else:
+                        cache.delete(tracking_key)
+                        logger.info("[Batch Analytics] Cleaned all stale keys, tracking list cleared")
         
         views_collected = len(pending_views)
         logger.info(f"[Batch Analytics] Collected {views_collected} pending views from cache")

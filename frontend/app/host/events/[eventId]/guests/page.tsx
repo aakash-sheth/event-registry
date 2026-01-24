@@ -139,11 +139,15 @@ export default function GuestsPage() {
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
   const [rsvpFilter, setRsvpFilter] = useState<'all' | 'unconfirmed' | 'confirmed' | 'no'>('all')
+  const [rsvpFilterMode, setRsvpFilterMode] = useState<'include' | 'exclude'>('include')
   type CategorySource = 'relationship' | `cf:${string}`
   const [categorySource, setCategorySource] = useState<CategorySource>('relationship')
   const [categoryValue, setCategoryValue] = useState<string>('all')
+  const [categoryFilterMode, setCategoryFilterMode] = useState<'include' | 'exclude'>('include')
   const [inviteSentFilter, setInviteSentFilter] = useState<'all' | 'sent' | 'not_sent'>('all')
+  const [inviteSentFilterMode, setInviteSentFilterMode] = useState<'include' | 'exclude'>('include')
   const [selectedSubEventFilterIds, setSelectedSubEventFilterIds] = useState<Set<number>>(new Set())
+  const [subEventFilterMode, setSubEventFilterMode] = useState<'include' | 'exclude'>('include')
   const [showSubEventFilterMenu, setShowSubEventFilterMenu] = useState(false)
   const subEventFilterRef = useRef<HTMLDivElement>(null)
 
@@ -325,29 +329,43 @@ export default function GuestsPage() {
   // Initialize filter/sort state from URL query params (one-time)
   useEffect(() => {
     if (hasInitializedFiltersRef.current) return
+    const rsvp = searchParams.get('rsvp')
+    const rsvpMode = searchParams.get('rsvpMode')
     const catSrc = searchParams.get('catSrc')
     const catVal = searchParams.get('catVal')
+    const catMode = searchParams.get('catMode')
     const cat = searchParams.get('cat') // backward compat: relationship value
     const sent = searchParams.get('sent')
+    const sentMode = searchParams.get('sentMode')
     const sub = searchParams.get('sub')
+    const subMode = searchParams.get('subMode')
     const sort = searchParams.get('sort')
     const dir = searchParams.get('dir')
 
+    if (rsvp === 'unconfirmed' || rsvp === 'confirmed' || rsvp === 'no') {
+      setRsvpFilter(rsvp)
+      if (rsvpMode === 'exclude') setRsvpFilterMode('exclude')
+    }
     if (catSrc && (catSrc === 'relationship' || catSrc.startsWith('cf:'))) {
       setCategorySource(catSrc as CategorySource)
       setCategoryValue(catVal || 'all')
+      if (catMode === 'exclude') setCategoryFilterMode('exclude')
     } else if (cat) {
       // Backward compat: old `cat` meant relationship filter value
       setCategorySource('relationship')
       setCategoryValue(cat)
     }
-    if (sent === 'sent' || sent === 'not_sent' || sent === 'all') setInviteSentFilter(sent)
+    if (sent === 'sent' || sent === 'not_sent' || sent === 'all') {
+      setInviteSentFilter(sent)
+      if (sentMode === 'exclude') setInviteSentFilterMode('exclude')
+    }
     if (sub) {
       const ids = sub
         .split(',')
         .map(s => parseInt(s.trim(), 10))
         .filter(n => Number.isFinite(n))
       setSelectedSubEventFilterIds(new Set(ids))
+      if (subMode === 'exclude') setSubEventFilterMode('exclude')
     }
     if (
       sort === 'name' ||
@@ -402,12 +420,17 @@ export default function GuestsPage() {
     const basePath = `/host/events/${eventId}/guests`
 
     const isDefault =
+      rsvpFilter === 'all' &&
       categorySource === 'relationship' &&
       categoryValue === 'all' &&
       inviteSentFilter === 'all' &&
       selectedSubEventFilterIds.size === 0 &&
       sortKey === 'name' &&
-      sortDir === 'asc'
+      sortDir === 'asc' &&
+      rsvpFilterMode === 'include' &&
+      categoryFilterMode === 'include' &&
+      inviteSentFilterMode === 'include' &&
+      subEventFilterMode === 'include'
 
     if (isDefault) {
       params.delete('cat')
@@ -417,24 +440,58 @@ export default function GuestsPage() {
       params.delete('sub')
       params.delete('sort')
       params.delete('dir')
+      params.delete('rsvp')
+      params.delete('rsvpMode')
+      params.delete('catMode')
+      params.delete('sentMode')
+      params.delete('subMode')
     } else {
       // Remove legacy param always
       params.delete('cat')
 
+      // RSVP filter
+      if (rsvpFilter === 'all') {
+        params.delete('rsvp')
+        params.delete('rsvpMode')
+      } else {
+        params.set('rsvp', rsvpFilter)
+        if (rsvpFilterMode === 'include') params.delete('rsvpMode')
+        else params.set('rsvpMode', rsvpFilterMode)
+      }
+
       if (categorySource === 'relationship' && categoryValue === 'all') {
         params.delete('catSrc')
         params.delete('catVal')
+        params.delete('catMode')
       } else {
         params.set('catSrc', categorySource)
-        if (categoryValue === 'all') params.delete('catVal')
-        else params.set('catVal', categoryValue)
+        if (categoryValue === 'all') {
+          params.delete('catVal')
+          params.delete('catMode')
+        } else {
+          params.set('catVal', categoryValue)
+          if (categoryFilterMode === 'include') params.delete('catMode')
+          else params.set('catMode', categoryFilterMode)
+        }
       }
 
-      if (inviteSentFilter === 'all') params.delete('sent')
-      else params.set('sent', inviteSentFilter)
+      if (inviteSentFilter === 'all') {
+        params.delete('sent')
+        params.delete('sentMode')
+      } else {
+        params.set('sent', inviteSentFilter)
+        if (inviteSentFilterMode === 'include') params.delete('sentMode')
+        else params.set('sentMode', inviteSentFilterMode)
+      }
 
-      if (selectedSubEventFilterIds.size === 0) params.delete('sub')
-      else params.set('sub', Array.from(selectedSubEventFilterIds).sort((a, b) => a - b).join(','))
+      if (selectedSubEventFilterIds.size === 0) {
+        params.delete('sub')
+        params.delete('subMode')
+      } else {
+        params.set('sub', Array.from(selectedSubEventFilterIds).sort((a, b) => a - b).join(','))
+        if (subEventFilterMode === 'include') params.delete('subMode')
+        else params.set('subMode', subEventFilterMode)
+      }
 
       if (sortKey === 'name') params.delete('sort')
       else params.set('sort', sortKey)
@@ -446,7 +503,21 @@ export default function GuestsPage() {
     const qs = params.toString()
     router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categorySource, categoryValue, inviteSentFilter, selectedSubEventFilterIds, sortKey, sortDir, eventId])
+  }, [
+    rsvpFilter,
+    rsvpFilterMode,
+    categorySource,
+    categoryValue,
+    categoryFilterMode,
+    inviteSentFilter,
+    inviteSentFilterMode,
+    // Convert Set to sorted array string for stable comparison
+    Array.from(selectedSubEventFilterIds).sort((a, b) => a - b).join(','),
+    subEventFilterMode,
+    sortKey,
+    sortDir,
+    eventId,
+  ])
 
   const getAssignedSubEventIds = (guest: Guest): number[] => {
     const ids = guestSubEventAssignments[guest.id] ?? guest.sub_event_invites ?? []
@@ -473,38 +544,73 @@ export default function GuestsPage() {
     let list = guests.filter(g => !g.is_removed)
 
     // RSVP status filter
-    if (rsvpFilter === 'unconfirmed') {
-      list = list.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
-    } else if (rsvpFilter === 'confirmed') {
-      list = list.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
-    } else if (rsvpFilter === 'no') {
-      list = list.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
+    if (rsvpFilter !== 'all') {
+      const matchesRsvp = (g: Guest) => {
+        if (rsvpFilter === 'unconfirmed') {
+          return !g.rsvp_status && !g.rsvp_will_attend
+        } else if (rsvpFilter === 'confirmed') {
+          return g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes'
+        } else if (rsvpFilter === 'no') {
+          return g.rsvp_status === 'no' || g.rsvp_will_attend === 'no'
+        }
+        return false
+      }
+      
+      if (rsvpFilterMode === 'include') {
+        list = list.filter(matchesRsvp)
+      } else {
+        list = list.filter(g => !matchesRsvp(g))
+      }
     }
 
     // Category filter (relationship OR selected custom field)
     if (categoryValue !== 'all') {
-      if (categorySource === 'relationship') {
-        list = list.filter(g => (g.relationship || '').trim() === categoryValue)
+      const matchesCategory = (g: Guest) => {
+        if (categorySource === 'relationship') {
+          return (g.relationship || '').trim() === categoryValue
+        } else {
+          const key = categorySource.slice(3)
+          return (g.custom_fields?.[key] || '').trim() === categoryValue
+        }
+      }
+      
+      if (categoryFilterMode === 'include') {
+        list = list.filter(matchesCategory)
       } else {
-        const key = categorySource.slice(3)
-        list = list.filter(g => (g.custom_fields?.[key] || '').trim() === categoryValue)
+        list = list.filter(g => !matchesCategory(g))
       }
     }
 
     // Invite sent filter
-    if (inviteSentFilter === 'sent') {
-      list = list.filter(g => !!g.invitation_sent)
-    } else if (inviteSentFilter === 'not_sent') {
-      list = list.filter(g => !g.invitation_sent)
+    if (inviteSentFilter !== 'all') {
+      const matchesInviteSent = (g: Guest) => {
+        if (inviteSentFilter === 'sent') {
+          return !!g.invitation_sent
+        } else if (inviteSentFilter === 'not_sent') {
+          return !g.invitation_sent
+        }
+        return false
+      }
+      
+      if (inviteSentFilterMode === 'include') {
+        list = list.filter(matchesInviteSent)
+      } else {
+        list = list.filter(g => !matchesInviteSent(g))
+      }
     }
 
     // Sub-event assignment filter (any match)
     if (selectedSubEventFilterIds.size > 0) {
-      const selected = selectedSubEventFilterIds
-      list = list.filter(g => {
+      const matchesSubEvent = (g: Guest) => {
         const assigned = getAssignedSubEventIds(g)
-        return assigned.some(id => selected.has(id))
-      })
+        return assigned.some(id => selectedSubEventFilterIds.has(id))
+      }
+      
+      if (subEventFilterMode === 'include') {
+        list = list.filter(matchesSubEvent)
+      } else {
+        list = list.filter(g => !matchesSubEvent(g))
+      }
     }
 
     // Sorting
@@ -544,10 +650,14 @@ export default function GuestsPage() {
   }, [
     guests,
     rsvpFilter,
+    rsvpFilterMode,
     categorySource,
     categoryValue,
+    categoryFilterMode,
     inviteSentFilter,
+    inviteSentFilterMode,
     selectedSubEventFilterIds,
+    subEventFilterMode,
     sortKey,
     sortDir,
     guestSubEventAssignments,
@@ -867,10 +977,6 @@ export default function GuestsPage() {
       const timestamp = Date.now()
       const response = await api.get(`/api/events/${eventId}/guests/`, {
         params: { _t: timestamp },
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-        },
       })
       // Handle both old format (array) and new format (object with guests and other_guests)
       let allGuests: Guest[] = []
@@ -1950,47 +2056,75 @@ export default function GuestsPage() {
             </div>
             
             {/* RSVP Status Filters */}
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                onClick={() => setRsvpFilter('all')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  rsvpFilter === 'all'
-                    ? 'bg-eco-green text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                All ({guests.filter(g => !g.is_removed).length})
-              </button>
-              <button
-                onClick={() => setRsvpFilter('unconfirmed')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  rsvpFilter === 'unconfirmed'
-                    ? 'bg-eco-green text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Unconfirmed ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
-              </button>
-              <button
-                onClick={() => setRsvpFilter('confirmed')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  rsvpFilter === 'confirmed'
-                    ? 'bg-eco-green text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Confirmed ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
-              </button>
-              <button
-                onClick={() => setRsvpFilter('no')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  rsvpFilter === 'no'
-                    ? 'bg-eco-green text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
-              </button>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setRsvpFilter('all')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    rsvpFilter === 'all'
+                      ? 'bg-eco-green text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  All ({guests.filter(g => !g.is_removed).length})
+                </button>
+                <button
+                  onClick={() => setRsvpFilter('unconfirmed')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    rsvpFilter === 'unconfirmed'
+                      ? 'bg-eco-green text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Unconfirmed ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
+                </button>
+                <button
+                  onClick={() => setRsvpFilter('confirmed')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    rsvpFilter === 'confirmed'
+                      ? 'bg-eco-green text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Confirmed ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
+                </button>
+                <button
+                  onClick={() => setRsvpFilter('no')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    rsvpFilter === 'no'
+                      ? 'bg-eco-green text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
+                </button>
+              </div>
+              {rsvpFilter !== 'all' && (
+                <div className="flex items-center gap-1 border-l pl-2 ml-2">
+                  <button
+                    onClick={() => setRsvpFilterMode('include')}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      rsvpFilterMode === 'include'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title="Include guests matching this filter"
+                  >
+                    Include
+                  </button>
+                  <button
+                    onClick={() => setRsvpFilterMode('exclude')}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      rsvpFilterMode === 'exclude'
+                        ? 'bg-red-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title="Exclude guests matching this filter"
+                  >
+                    Exclude
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Filter + Sort */}
@@ -2023,10 +2157,36 @@ export default function GuestsPage() {
                     </option>
                   ))}
                 </select>
+                {categoryValue !== 'all' && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCategoryFilterMode('include')}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                        categoryFilterMode === 'include'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title="Include guests matching this category"
+                    >
+                      Include
+                    </button>
+                    <button
+                      onClick={() => setCategoryFilterMode('exclude')}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                        categoryFilterMode === 'exclude'
+                          ? 'bg-red-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title="Exclude guests matching this category"
+                    >
+                      Exclude
+                    </button>
+                  </div>
+                )}
               </div>
 
               {event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
-                <div className="relative" ref={subEventFilterRef}>
+                <div className="relative flex items-center gap-2" ref={subEventFilterRef}>
                   <Button
                     type="button"
                     variant="outline"
@@ -2036,6 +2196,32 @@ export default function GuestsPage() {
                   >
                     Sub-Events{selectedSubEventFilterIds.size > 0 ? ` (${selectedSubEventFilterIds.size})` : ''}
                   </Button>
+                  {selectedSubEventFilterIds.size > 0 && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setSubEventFilterMode('include')}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          subEventFilterMode === 'include'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title="Include guests assigned to selected sub-events"
+                      >
+                        Include
+                      </button>
+                      <button
+                        onClick={() => setSubEventFilterMode('exclude')}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          subEventFilterMode === 'exclude'
+                            ? 'bg-red-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title="Exclude guests assigned to selected sub-events"
+                      >
+                        Exclude
+                      </button>
+                    </div>
+                  )}
                   {showSubEventFilterMenu && (
                     <div className="absolute left-0 mt-2 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 p-3">
                       <div className="flex items-center justify-between mb-2">
@@ -2095,6 +2281,32 @@ export default function GuestsPage() {
                   <option value="sent">Sent</option>
                   <option value="not_sent">Not sent</option>
                 </select>
+                {inviteSentFilter !== 'all' && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setInviteSentFilterMode('include')}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                        inviteSentFilterMode === 'include'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title="Include guests matching this invite status"
+                    >
+                      Include
+                    </button>
+                    <button
+                      onClick={() => setInviteSentFilterMode('exclude')}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                        inviteSentFilterMode === 'exclude'
+                          ? 'bg-red-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title="Exclude guests matching this invite status"
+                    >
+                      Exclude
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Columns picker (middle columns only, max 5) */}
