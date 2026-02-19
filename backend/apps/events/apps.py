@@ -20,9 +20,8 @@ class EventsConfig(AppConfig):
         
         if auto_schedule:
             try:
-                from background_task import background
                 from background_task.models import Task
-                from apps.events.tasks import process_analytics_batch
+                from apps.events.tasks import scheduled_batch_processing
                 
                 # Check if already scheduled
                 existing = Task.objects.filter(
@@ -31,18 +30,14 @@ class EventsConfig(AppConfig):
                 
                 if not existing:
                     batch_interval = getattr(settings, 'ANALYTICS_BATCH_INTERVAL_MINUTES', 30)
-                    schedule_seconds = batch_interval * 60
+                    initial_delay_seconds = getattr(settings, 'ANALYTICS_BATCH_INITIAL_DELAY_SECONDS', 10)
                     
-                    @background(schedule=schedule_seconds)
-                    def scheduled_batch_processing():
-                        """Scheduled wrapper that processes batch and reschedules itself"""
-                        process_analytics_batch()
-                        # Reschedule for next interval
-                        scheduled_batch_processing(schedule=schedule_seconds)
-                    
-                    # Schedule the first run
-                    scheduled_batch_processing(schedule=schedule_seconds)
-                    logger.info(f"Scheduled analytics batch processing every {batch_interval} minutes")
+                    # Schedule first run quickly so scheduler liveness is easy to verify.
+                    scheduled_batch_processing(schedule=initial_delay_seconds)
+                    logger.info(
+                        f"Scheduled analytics batch processing every {batch_interval} minutes "
+                        f"(first run in {initial_delay_seconds}s)"
+                    )
                 else:
                     logger.debug("Analytics batch processing already scheduled")
                     

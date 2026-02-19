@@ -5,7 +5,7 @@ This should be run once on startup to schedule recurring batch processing
 """
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from apps.events.tasks import process_analytics_batch
+from apps.events.tasks import scheduled_batch_processing
 
 
 class Command(BaseCommand):
@@ -20,7 +20,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            from background_task import background
             from background_task.models import Task
         except ImportError:
             self.stdout.write(
@@ -33,9 +32,9 @@ class Command(BaseCommand):
             Task.objects.filter(task_name__contains='scheduled_batch_processing').delete()
             self.stdout.write(self.style.SUCCESS('✅ Cleared existing scheduled tasks'))
         
-        # Get batch interval from settings
+        # Get scheduling settings
         batch_interval = getattr(settings, 'ANALYTICS_BATCH_INTERVAL_MINUTES', 30)
-        schedule_seconds = batch_interval * 60
+        initial_delay_seconds = getattr(settings, 'ANALYTICS_BATCH_INITIAL_DELAY_SECONDS', 10)
         
         # Check if task is already scheduled
         existing_tasks = Task.objects.filter(
@@ -50,16 +49,8 @@ class Command(BaseCommand):
             )
             return
         
-        # Schedule the batch processing task
-        @background(schedule=schedule_seconds)
-        def scheduled_batch_processing():
-            """Scheduled wrapper that processes batch and reschedules itself"""
-            process_analytics_batch()
-            # Reschedule for next interval
-            scheduled_batch_processing(schedule=schedule_seconds)
-        
-        # Schedule the first run
-        scheduled_batch_processing(schedule=schedule_seconds)
+        # Schedule the first run shortly after startup so scheduler health is visible quickly.
+        scheduled_batch_processing(schedule=initial_delay_seconds)
         
         self.stdout.write(
             self.style.SUCCESS(
@@ -67,7 +58,7 @@ class Command(BaseCommand):
             )
         )
         self.stdout.write(
-            f'   First run will be in {batch_interval} minutes'
+            f'   First run will be in {initial_delay_seconds} seconds'
         )
         self.stdout.write(
             '   Make sure backend-worker service is running: docker-compose up backend-worker'

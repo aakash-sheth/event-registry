@@ -431,3 +431,19 @@ def track_rsvp_page_view(guest_token: str, event_id: int):
     This function is kept for backward compatibility.
     """
     collect_page_view(guest_token, event_id, view_type='rsvp')
+
+
+@background(schedule=0)
+def scheduled_batch_processing(*args, **kwargs):
+    """
+    Top-level scheduled task for recurring analytics processing.
+
+    Must be module-level so django-background-tasks workers can import it.
+    """
+    batch_interval = getattr(settings, 'ANALYTICS_BATCH_INTERVAL_MINUTES', 30)
+    schedule_seconds = batch_interval * 60
+
+    process_analytics_batch()
+
+    # Queue next run.
+    scheduled_batch_processing(schedule=schedule_seconds)

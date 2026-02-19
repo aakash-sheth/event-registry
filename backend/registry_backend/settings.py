@@ -221,6 +221,9 @@ WHATSAPP_ENABLED = os.environ.get('WHATSAPP_ENABLED', 'False') == 'True'
 # For local testing, you can set ANALYTICS_BATCH_INTERVAL_MINUTES=1 for 1-minute intervals
 default_interval = 2 if DEBUG else 30
 ANALYTICS_BATCH_INTERVAL_MINUTES = int(os.environ.get('ANALYTICS_BATCH_INTERVAL_MINUTES', default_interval))
+# Initial delay before first scheduled batch run (seconds).
+# Keep this short so scheduler health is visible quickly after startup.
+ANALYTICS_BATCH_INITIAL_DELAY_SECONDS = int(os.environ.get('ANALYTICS_BATCH_INITIAL_DELAY_SECONDS', 10))
 # Cache key prefix for pending analytics views
 ANALYTICS_BATCH_CACHE_PREFIX = os.environ.get('ANALYTICS_BATCH_CACHE_PREFIX', 'analytics_pending')
 # Note: For production, Redis is recommended for cache backend to handle high volume
