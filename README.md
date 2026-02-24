@@ -128,8 +128,8 @@ python manage.py test
 
 1. **Create Host Account:**
    - Go to `/host/login`
-   - Enter email, receive OTP
-   - Verify and login
+   - Demo (after seeding): `demo@example.com` / `demo1234`
+   - Or enter email, receive OTP, verify and login
 
 2. **Create Event:**
    - Dashboard → Create New Event

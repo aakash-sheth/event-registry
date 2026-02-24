@@ -48,13 +48,12 @@ npm run dev
 ### 3. Test the Flow
 
 1. **Visit:** http://localhost:3000/host/login
-2. **Enter email:** demo@example.com (if you ran seed script)
-3. **Check email** for OTP code
-4. **Login** with code
-5. **Create event** or view existing
-6. **Add items** to registry
-7. **Visit public registry:** http://localhost:3000/registry/demo-wedding
-8. **Test checkout** with Razorpay test cards
+2. **Demo account** (if you ran seed script): email `demo@example.com`, password `demo1234`
+3. Or use **OTP**: enter your email → check email for code → login with code
+4. **Create event** or view existing
+5. **Add items** to registry
+6. **Visit public registry:** http://localhost:3000/registry/demo-wedding
+7. **Test checkout** with Razorpay test cards
 
 ## 🔧 Configuration Checklist
 

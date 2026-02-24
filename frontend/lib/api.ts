@@ -146,10 +146,9 @@ api.interceptors.request.use((config) => {
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     } else {
-      // Token still not available - this might be a public request
-      // Don't fail, let the backend handle it
-      // Log warning for debugging but don't block the request
-      if (process.env.NODE_ENV === 'development') {
+      // Token not required for auth endpoints (login, signup, OTP, etc.)
+      const isAuthEndpoint = config.url && /\/api\/auth\/(check-password-enabled|password-login|otp\/start|otp\/verify|signup|forgot-password|reset-password)/.test(config.url)
+      if (process.env.NODE_ENV === 'development' && !isAuthEndpoint) {
         console.warn('[API] No access token available for request:', config.url)
       }
     }

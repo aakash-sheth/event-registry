@@ -15,12 +15,15 @@ from apps.items.models import RegistryItem
 from django.utils import timezone
 from datetime import timedelta
 
-# Create demo host
+# Create demo host with a known password for testing
+DEMO_PASSWORD = 'demo1234'
 host, created = User.objects.get_or_create(
     email='demo@example.com',
     defaults={'name': 'Demo Host', 'is_active': True}
 )
-print(f"Host: {host.email} ({'created' if created else 'exists'})")
+host.set_password(DEMO_PASSWORD)
+host.save(update_fields=['password'])
+print(f"Host: {host.email} ({'created' if created else 'exists'}), password: {DEMO_PASSWORD}")
 
 # Create demo event
 event, created = Event.objects.get_or_create(
@@ -86,4 +89,5 @@ print("\n✅ Seed data created successfully!")
 print(f"\nPublic registry URL: http://localhost:3000/registry/{event.slug}")
 print(f"Host login: http://localhost:3000/host/login")
 print(f"Demo email: {host.email}")
+print(f"Demo password: {DEMO_PASSWORD}")
 

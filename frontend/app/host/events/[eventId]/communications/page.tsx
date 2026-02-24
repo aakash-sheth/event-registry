@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
 import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,7 +9,6 @@ import { useToast } from '@/components/ui/toast'
 import { logError } from '@/lib/error-handler'
 import TemplateList from '@/components/communications/TemplateList'
 import TemplateEditor from '@/components/communications/TemplateEditor'
-import Logo from '@/components/Logo'
 
 export default function CommunicationsPage() {
   const params = useParams()
@@ -251,25 +249,6 @@ export default function CommunicationsPage() {
 
   return (
     <div className="min-h-screen bg-eco-beige">
-      {/* Header */}
-      <nav className="bg-white border-b border-eco-green-light shadow-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Logo href="/" />
-          <div className="flex items-center gap-4">
-            <Link href={`/host/events/${eventId}/guests`}>
-              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
-                Manage Guests
-              </Button>
-            </Link>
-            <Link href={`/host/events/${eventId}`}>
-              <Button variant="ghost" className="text-eco-green">
-                ← Back to Event
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </nav>
-
       <div className="container mx-auto px-4 py-8">
         {/* Page Header */}
         <div className="mb-6">

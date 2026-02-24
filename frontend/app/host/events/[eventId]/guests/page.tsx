@@ -194,6 +194,8 @@ export default function GuestsPage() {
   const [bulkSelectedSubEventIds, setBulkSelectedSubEventIds] = useState<Set<number>>(new Set())
   const [showCustomFieldsManager, setShowCustomFieldsManager] = useState(false)
   const [customFieldsDraft, setCustomFieldsDraft] = useState<CustomFieldMeta[]>([])
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [showAnalyticsSummary, setShowAnalyticsSummary] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const hasInitializedFiltersRef = useRef(false)
@@ -226,6 +228,30 @@ export default function GuestsPage() {
     }
     loadData()
   }, [eventId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+    const applyViewportState = (mobile: boolean) => {
+      setIsMobileViewport(mobile)
+      setShowAnalyticsSummary(!mobile)
+    }
+
+    applyViewportState(mediaQuery.matches)
+
+    const onMediaChange = (event: MediaQueryListEvent) => {
+      applyViewportState(event.matches)
+    }
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', onMediaChange)
+      return () => mediaQuery.removeEventListener('change', onMediaChange)
+    }
+
+    mediaQuery.addListener(onMediaChange)
+    return () => mediaQuery.removeListener(onMediaChange)
+  }, [])
 
   // Poll analytics directly to detect changes (more reliable than batch status)
   // Uses guest IDs to compare view counts and detect when batch processing adds new views
@@ -1637,28 +1663,28 @@ export default function GuestsPage() {
 
   return (
     <div className="min-h-screen bg-eco-beige">
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <div className="flex gap-2 mb-4">
+      <div className="container mx-auto px-4 py-6 md:py-8">
+        <div className="mb-6 md:mb-8">
+          <div className="flex flex-wrap gap-2 mb-4">
           <Link href={`/host/events/${eventId}`}>
-              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+              <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
               ← Back to Event
             </Button>
           </Link>
             <Link href={`/host/events/${eventId}/communications`}>
-              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+              <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
                 Communications
               </Button>
             </Link>
           </div>
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-4xl font-bold mb-2 text-eco-green">Guest List</h1>
-              <p className="text-gray-700">
+          <div className="space-y-4">
+            <div className="min-w-0">
+              <h1 className="text-3xl md:text-4xl font-bold mb-2 text-eco-green leading-tight">Guest List</h1>
+              <p className="text-gray-700 text-sm md:text-base">
                 Manage your invited guests. Track who RSVP'd and gave gifts.
               </p>
             </div>
-            <div className="flex gap-2 relative">
+            <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap relative w-full">
               {/* Add Guest Button */}
               <Button
                 onClick={() => {
@@ -1668,7 +1694,7 @@ export default function GuestsPage() {
                     setShowForm(true)
                   }
                 }}
-                className="bg-eco-green hover:bg-green-600 text-white"
+                className="bg-eco-green hover:bg-green-600 text-white text-sm w-full sm:w-auto whitespace-nowrap"
               >
                 {showForm ? 'Cancel' : '+ Add Guest'}
               </Button>
@@ -1677,7 +1703,7 @@ export default function GuestsPage() {
               <Button
                 variant="outline"
                 onClick={() => setShowCustomFieldsManager((v) => !v)}
-                className="border-eco-green text-eco-green hover:bg-eco-green-light"
+                className="border-eco-green text-eco-green hover:bg-eco-green-light text-sm w-full sm:w-auto whitespace-nowrap"
               >
                 Custom Fields
               </Button>
@@ -1687,7 +1713,7 @@ export default function GuestsPage() {
                 <Button
                   variant="outline"
                   onClick={() => setShowImportExportMenu(!showImportExportMenu)}
-                  className="border-eco-green text-eco-green hover:bg-eco-green-light flex items-center gap-2"
+                  className="border-eco-green text-eco-green hover:bg-eco-green-light flex items-center justify-between gap-2 text-sm w-full sm:w-auto whitespace-nowrap"
                 >
                   <span>Bulk Actions</span>
                   <svg 
@@ -1701,7 +1727,7 @@ export default function GuestsPage() {
                 </Button>
                 
                 {showImportExportMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border-2 border-eco-green-light rounded-md shadow-lg z-50">
+                  <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-full sm:w-48 bg-white border-2 border-eco-green-light rounded-md shadow-lg z-50">
                     <button
                       onClick={() => {
                         setShowImportInstructions(true)
@@ -1743,30 +1769,43 @@ export default function GuestsPage() {
         {analyticsSummary && (
           <Card className="mb-6 bg-white border-2 border-eco-green-light">
             <CardHeader>
-              <CardTitle className="text-eco-green">Guest Engagement Analytics</CardTitle>
-              <CardDescription>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-eco-green">Guest Engagement Analytics</CardTitle>
+                {isMobileViewport && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAnalyticsSummary((previous) => !previous)}
+                    className="border-eco-green text-eco-green hover:bg-eco-green-light"
+                  >
+                    {showAnalyticsSummary ? 'Hide' : 'Show'}
+                  </Button>
+                )}
+              </div>
+              <CardDescription className={isMobileViewport && !showAnalyticsSummary ? 'hidden' : ''}>
                 Track how guests are engaging with your invites and RSVP pages
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-eco-green-light rounded-lg">
-                  <div className="text-2xl font-bold text-eco-green">{analyticsSummary.total_guests}</div>
-                  <div className="text-sm text-gray-600 mt-1">Total Guests</div>
+            <CardContent className={isMobileViewport && !showAnalyticsSummary ? 'hidden' : ''}>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <div className="text-center p-3 md:p-4 bg-eco-green-light rounded-lg">
+                  <div className="text-xl md:text-2xl font-bold text-eco-green">{analyticsSummary.total_guests}</div>
+                  <div className="text-xs md:text-sm text-gray-600 mt-1">Total Guests</div>
                 </div>
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{analyticsSummary.guests_with_invite_views}</div>
-                  <div className="text-sm text-gray-600 mt-1">Viewed Invite</div>
+                <div className="text-center p-3 md:p-4 bg-blue-50 rounded-lg">
+                  <div className="text-xl md:text-2xl font-bold text-blue-600">{analyticsSummary.guests_with_invite_views}</div>
+                  <div className="text-xs md:text-sm text-gray-600 mt-1">Viewed Invite</div>
                   <div className="text-xs text-gray-500 mt-1">{analyticsSummary.invite_view_rate.toFixed(1)}%</div>
                 </div>
-                <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">{analyticsSummary.guests_with_rsvp_views}</div>
-                  <div className="text-sm text-gray-600 mt-1">Viewed RSVP</div>
+                <div className="text-center p-3 md:p-4 bg-purple-50 rounded-lg">
+                  <div className="text-xl md:text-2xl font-bold text-purple-600">{analyticsSummary.guests_with_rsvp_views}</div>
+                  <div className="text-xs md:text-sm text-gray-600 mt-1">Viewed RSVP</div>
                   <div className="text-xs text-gray-500 mt-1">{analyticsSummary.rsvp_view_rate.toFixed(1)}%</div>
                 </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{analyticsSummary.total_invite_views}</div>
-                  <div className="text-sm text-gray-600 mt-1">Total Invite Views</div>
+                <div className="text-center p-3 md:p-4 bg-green-50 rounded-lg">
+                  <div className="text-xl md:text-2xl font-bold text-green-600">{analyticsSummary.total_invite_views}</div>
+                  <div className="text-xs md:text-sm text-gray-600 mt-1">Total Invite Views</div>
                   <div className="text-xs text-gray-500 mt-1">{analyticsSummary.total_rsvp_views} RSVP views</div>
                 </div>
               </div>

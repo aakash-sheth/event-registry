@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { logError } from '@/lib/error-handler'
-import Logo from '@/components/Logo'
 
 interface Event {
   id: number
@@ -243,42 +242,32 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-eco-beige">
-      {/* Header */}
-      <nav className="bg-white border-b border-eco-green-light shadow-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Logo href="/" />
-          <div className="flex items-center gap-4">
+      <div className="container mx-auto px-4 py-8 md:py-10">
+        {/* Welcome Section */}
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2 text-eco-green md:text-4xl">Welcome Back</h1>
+            <p className="text-lg text-gray-700">
+              Keep the important things in view and jump into event tasks quickly.
+            </p>
+          </div>
+          <div className="flex gap-2">
             <Link href="/host/events/new">
               <Button className="bg-eco-green hover:bg-green-600 text-white">
                 + Create Event
               </Button>
             </Link>
             <Link href="/host/profile">
-              <Button variant="ghost" className="text-eco-green">
+              <Button variant="outline" className="border-eco-green text-eco-green hover:bg-eco-green-light">
                 Profile
               </Button>
             </Link>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                localStorage.removeItem('access_token')
-                localStorage.removeItem('refresh_token')
-                router.push('/host/login')
-              }}
-              className="text-eco-green"
-            >
-              Logout
-            </Button>
           </div>
         </div>
-      </nav>
 
-      <div className="container mx-auto px-4 py-12">
-        {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 text-eco-green">Welcome Back 🌿</h1>
           <p className="text-lg text-gray-700">
-            Manage your events and track your sustainable celebrations
+            Manage your events and track sustainable outcomes without dashboard noise.
           </p>
         </div>
 
@@ -322,95 +311,106 @@ export default function DashboardPage() {
         {/* Impact Section */}
         {impact && impact.expired_events_count > 0 && (
           <Card className="bg-white border-2 border-eco-green-light mb-8">
-            <CardHeader>
-              <CardTitle className="text-eco-green">🌱 Sustainability Impact</CardTitle>
-              <CardDescription>
-                Track your positive environmental impact from expired events
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Event Filters */}
-              {impact.events.length > 0 && (
-                <div className="border-b border-gray-200 pb-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-sm font-medium text-gray-700">
-                      Select events to view impact:
-                    </label>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={selectAllEvents}
-                        className="text-xs"
-                      >
-                        Select All
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={deselectAllEvents}
-                        className="text-xs"
-                      >
-                        Deselect All
-                      </Button>
+            <CardContent className="pt-6">
+              <details>
+                <summary className="cursor-pointer list-none">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-xl font-semibold text-eco-green">Sustainability Impact</h3>
+                      <p className="text-sm text-gray-600">
+                        Expand to filter expired events and view environmental metrics.
+                      </p>
+                    </div>
+                    <span className="text-xs font-medium rounded-full bg-eco-green-light text-eco-green px-3 py-1 w-fit">
+                      {impact.expired_events_count} expired event{impact.expired_events_count > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </summary>
+                <div className="mt-4 space-y-4">
+                  {/* Event Filters */}
+                  {impact.events.length > 0 && (
+                    <div className="border-b border-gray-200 pb-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="text-sm font-medium text-gray-700">
+                          Select events to view impact:
+                        </label>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={selectAllEvents}
+                            className="text-xs"
+                          >
+                            Select All
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={deselectAllEvents}
+                            className="text-xs"
+                          >
+                            Deselect All
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="max-h-32 overflow-y-auto space-y-2">
+                        {impact.events.map((eventImpact) => (
+                          <label
+                            key={eventImpact.event_id}
+                            className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-2 rounded"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedEventIds.has(eventImpact.event_id)}
+                              onChange={() => toggleEventSelection(eventImpact.event_id)}
+                              className="form-checkbox text-eco-green"
+                            />
+                            <span className="flex-1">{eventImpact.event_title}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Impact Metrics */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">🍽️</div>
+                      <p className="text-2xl font-bold text-eco-green">{filteredImpact.plates_saved}</p>
+                      <p className="text-xs text-gray-600">Plates Saved</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">📄</div>
+                      <p className="text-2xl font-bold text-eco-green">{filteredImpact.paper_saved}</p>
+                      <p className="text-xs text-gray-600">Paper Saved</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">🎁</div>
+                      <p className="text-2xl font-bold text-eco-green">{filteredImpact.gifts_received}</p>
+                      <p className="text-xs text-gray-600">Gifts Received</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">💰</div>
+                      <p className="text-2xl font-bold text-eco-green">
+                        ₹{filteredImpact.gift_value_rupees.toLocaleString('en-IN')}
+                      </p>
+                      <p className="text-xs text-gray-600">Gift Value</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">💳</div>
+                      <p className="text-2xl font-bold text-eco-green">{filteredImpact.paper_saved_on_gifts}</p>
+                      <p className="text-xs text-gray-600">Cash Gifts</p>
                     </div>
                   </div>
-                  <div className="max-h-32 overflow-y-auto space-y-2">
-                    {impact.events.map((eventImpact) => (
-                      <label
-                        key={eventImpact.event_id}
-                        className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-2 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedEventIds.has(eventImpact.event_id)}
-                          onChange={() => toggleEventSelection(eventImpact.event_id)}
-                          className="form-checkbox text-eco-green"
-                        />
-                        <span className="flex-1">{eventImpact.event_title}</span>
-                      </label>
-                    ))}
-                  </div>
                 </div>
-              )}
-
-              {/* Impact Metrics */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl mb-1">🍽️</div>
-                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.plates_saved}</p>
-                  <p className="text-xs text-gray-600">Plates Saved</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl mb-1">📄</div>
-                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.paper_saved}</p>
-                  <p className="text-xs text-gray-600">Paper Saved</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl mb-1">🎁</div>
-                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.gifts_received}</p>
-                  <p className="text-xs text-gray-600">Gifts Received</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl mb-1">💰</div>
-                  <p className="text-2xl font-bold text-eco-green">
-                    ₹{filteredImpact.gift_value_rupees.toLocaleString('en-IN')}
-                  </p>
-                  <p className="text-xs text-gray-600">Gift Value</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl mb-1">💳</div>
-                  <p className="text-2xl font-bold text-eco-green">{filteredImpact.paper_saved_on_gifts}</p>
-                  <p className="text-xs text-gray-600">Cash Gifts</p>
-                </div>
-              </div>
+              </details>
             </CardContent>
           </Card>
         )}
 
         {/* Events Section */}
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-eco-green">Your Events</h2>
+          <h2 className="text-2xl font-bold text-eco-green">Active Events</h2>
           <Link href="/host/events/new">
             <Button className="bg-eco-green hover:bg-green-600 text-white">
               + New Event
@@ -418,7 +418,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {events.length === 0 ? (
+        {activeEvents.length === 0 ? (
           <Card className="bg-white border-2 border-eco-green-light">
             <CardContent className="text-center py-16">
               <div className="text-6xl mb-4">🎉</div>
@@ -435,40 +435,24 @@ export default function DashboardPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((event) => {
-              const isExpired = event.is_expired || false
+            {activeEvents.map((event) => {
               return (
                 <Card
                   key={event.id}
-                  className={`bg-white border-2 transition-shadow ${
-                    isExpired
-                      ? 'border-gray-300 opacity-60'
-                      : 'border-eco-green-light hover:shadow-lg'
-                  }`}
+                  className="bg-white border-2 border-eco-green-light hover:shadow-lg transition-shadow"
                 >
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle
-                        className={`text-xl ${
-                          isExpired ? 'text-gray-500' : 'text-eco-green'
-                        }`}
-                      >
+                      <CardTitle className="text-xl text-eco-green">
                         {event.title}
                       </CardTitle>
-                      {isExpired && (
-                        <span className="px-2 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded">
-                          Expired
-                        </span>
-                      )}
                     </div>
                     <CardDescription className="capitalize">{event.event_type}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2 mb-4">
                       {event.date && (
-                        <p className={`text-sm flex items-center gap-2 ${
-                          isExpired ? 'text-gray-500' : 'text-gray-700'
-                        }`}>
+                        <p className="text-sm flex items-center gap-2 text-gray-700">
                           <span>📅</span>
                           {new Date(event.date).toLocaleDateString('en-IN', {
                             year: 'numeric',
@@ -478,9 +462,7 @@ export default function DashboardPage() {
                         </p>
                       )}
                       {event.expiry_date && event.expiry_date !== event.date && (
-                        <p className={`text-xs flex items-center gap-2 ${
-                          isExpired ? 'text-gray-400' : 'text-gray-600'
-                        }`}>
+                        <p className="text-xs flex items-center gap-2 text-gray-600">
                           <span>⏰</span>
                           Expires: {new Date(event.expiry_date).toLocaleDateString('en-IN', {
                             year: 'numeric',
@@ -490,57 +472,86 @@ export default function DashboardPage() {
                         </p>
                       )}
                       {event.city && (
-                        <p className={`text-sm flex items-center gap-2 ${
-                          isExpired ? 'text-gray-500' : 'text-gray-700'
-                        }`}>
+                        <p className="text-sm flex items-center gap-2 text-gray-700">
                           <span>📍</span>
                           {event.city}
                         </p>
                       )}
-                      <p className={`text-sm flex items-center gap-2 ${
-                        isExpired ? 'text-gray-500' : 'text-gray-700'
-                      }`}>
+                      <p className="text-sm flex items-center gap-2 text-gray-700">
                         <span>{event.is_public ? '🌐' : '🔒'}</span>
                         {event.is_public ? 'Public Registry' : 'Private Registry'}
                       </p>
                     </div>
                     <div className="flex gap-2">
-                        <Button
-                          variant="outline"
+                      <Button
+                        variant="outline"
                         onClick={() => handleManageEvent(event.id)}
-                        className={`w-full flex-1 ${
-                            isExpired
-                              ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                              : 'border-eco-green text-eco-green hover:bg-eco-green-light'
-                          }`}
-                        >
-                          Manage
+                        className="w-full flex-1 border-eco-green text-eco-green hover:bg-eco-green-light"
+                      >
+                        Manage
+                      </Button>
+                      <Link
+                        href={`/invite/${event.slug}`}
+                        target="_blank"
+                        className="flex-1"
+                      >
+                        <Button className="w-full bg-eco-green hover:bg-green-600 text-white">
+                          View Invitation
                         </Button>
-                      {isExpired && (
-                        <Button
-                          onClick={() => handleExtendExpiry(event.id)}
-                          className="flex-1 bg-eco-green hover:bg-green-600 text-white"
-                        >
-                          Extend Expiry
-                        </Button>
-                      )}
-                      {!isExpired && (
-                        <Link
-                          href={`/invite/${event.slug}`}
-                          target="_blank"
-                          className="flex-1"
-                        >
-                          <Button className="w-full bg-eco-green hover:bg-green-600 text-white">
-                            View Invitation
-                          </Button>
-                        </Link>
-                      )}
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>
               )
             })}
           </div>
+        )}
+
+        {expiredEvents.length > 0 && (
+          <Card className="mt-8 bg-white border-2 border-gray-300">
+            <CardContent className="pt-6">
+              <details>
+                <summary className="cursor-pointer list-none">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-gray-700">Expired Events</h3>
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                      {expiredEvents.length}
+                    </span>
+                  </div>
+                </summary>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {expiredEvents.map((event) => (
+                    <Card key={event.id} className="bg-white border border-gray-300">
+                      <CardContent className="pt-5">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-gray-700">{event.title}</p>
+                          <span className="text-xs font-medium rounded bg-gray-200 px-2 py-1 text-gray-700">
+                            Expired
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500 capitalize">{event.event_type}</p>
+                        <div className="mt-4 flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => handleManageEvent(event.id)}
+                            className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50"
+                          >
+                            Open
+                          </Button>
+                          <Button
+                            onClick={() => handleExtendExpiry(event.id)}
+                            className="flex-1 bg-eco-green hover:bg-green-600 text-white"
+                          >
+                            Extend
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </details>
+            </CardContent>
+          </Card>
         )}
 
         {/* Sustainability Message */}

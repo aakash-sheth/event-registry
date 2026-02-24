@@ -154,20 +154,6 @@ export default function DesignInvitationPage(): JSX.Element {
   const [isPublishing, setIsPublishing] = useState(false)
   const [showPublishModal, setShowPublishModal] = useState(false)
 
-  // Fix 2: Fetch InvitePage status on mount
-  useEffect(() => {
-    const loadInvitePage = async () => {
-      try {
-        const invite = await getInvitePage(eventId)
-        setInvitePage(invite)
-      } catch (error) {
-        // 404 is expected if InvitePage doesn't exist yet
-        setInvitePage(null)
-      }
-    }
-    loadInvitePage()
-  }, [eventId])
-
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -1266,7 +1252,7 @@ export default function DesignInvitationPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-eco-beige w-full overflow-x-hidden">
         {/* Header */}
-      <div ref={headerRef} className="bg-white border-b fixed top-0 left-0 right-0 z-50 w-full overflow-x-hidden">
+      <div ref={headerRef} className="sticky top-0 z-30 bg-white border-b w-full overflow-x-hidden">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 w-full overflow-x-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 w-full">
           <div className="flex-1 min-w-0 w-full">
@@ -1378,7 +1364,7 @@ export default function DesignInvitationPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 w-full overflow-x-hidden" style={{ paddingTop: `${headerHeight}px`, paddingBottom: '1.5rem' }}>
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 w-full overflow-x-hidden pt-4 sm:pt-6 pb-6">
         {/* Fix 5: State-based info banners */}
         {(() => {
           const state = getInvitePageState(invitePage)
