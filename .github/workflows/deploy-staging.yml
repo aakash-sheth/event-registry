@@ -31,8 +31,8 @@ jobs:
           source /tmp/venv/bin/activate
           
           echo "Installing dependencies for migration check..."
-          # Install setuptools first (required by djangorestframework-simplejwt)
-          pip install -q setuptools 2>&1 | tee /tmp/pip_install.log || {
+          # Install setuptools<82 for pkg_resources (required by djangorestframework-simplejwt; removed in setuptools 82)
+          pip install -q 'setuptools<82' 2>&1 | tee /tmp/pip_install.log || {
             echo "❌ ERROR: Failed to install setuptools"
             exit 1
           }
