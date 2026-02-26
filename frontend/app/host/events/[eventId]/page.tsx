@@ -2,28 +2,14 @@
 
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
-import api from '@/lib/api'
+import api, { createAttributionLink, listAttributionLinks, getEventAnalyticsSummary, enableEventAnalyticsInsights, type AttributionLink, type EventAnalyticsSummary } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
-import { generateWhatsAppShareLink, generateEventMessage, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
-import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
 import { getInvitePage } from '@/lib/invite/api'
-
-const QRCode = dynamic(() => import('react-qr-code'), {
-  ssr: false,
-  loading: () => <div className="w-[200px] h-[200px] bg-gray-100 animate-pulse rounded" />
-})
-
-const TemplateSelector = dynamic(
-  () => import('@/components/communications/TemplateSelector'),
-  {
-    ssr: false
-  }
-)
+import QRCode from 'react-qr-code'
+import { ChevronDown } from 'lucide-react'
 
 interface Event {
   id: number
@@ -35,6 +21,7 @@ interface Event {
   is_expired?: boolean
   city: string
   is_public: boolean
+  page_config?: Record<string, any>
   has_rsvp: boolean
   has_registry: boolean
   whatsapp_message_template?: string
@@ -56,27 +43,44 @@ interface Order {
   } | null
 }
 
+type InvitePublishStatus = 'Published' | 'Draft' | 'Not created' | 'Unknown'
+type LinkKey = 'invite' | 'rsvp' | 'registry'
+
+const qrDestinationLabel: Record<LinkKey, string> = {
+  invite: 'Invite Page',
+  rsvp: 'RSVP Page',
+  registry: 'Registry Page',
+}
+
 export default function EventDetailPage() {
   const params = useParams()
   const router = useRouter()
   const eventId = params.eventId as string
   const { showToast } = useToast()
   const [event, setEvent] = useState<Event | null>(null)
-  const [invitePage, setInvitePage] = useState<any>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [guests, setGuests] = useState<any[]>([])
   const [rsvps, setRsvps] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
-  const [showQRCode, setShowQRCode] = useState(false)
+  const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null)
   const [showPrivacyModal, setShowPrivacyModal] = useState(false)
   const [pendingPrivacyChange, setPendingPrivacyChange] = useState<boolean | null>(null)
-  const [sharingWhatsApp, setSharingWhatsApp] = useState(false)
   const [showExpiryEditor, setShowExpiryEditor] = useState(false)
   const [expiryDate, setExpiryDate] = useState('')
   const [savingExpiry, setSavingExpiry] = useState(false)
   const [impact, setImpact] = useState<any>(null)
-  const [showTemplateSelector, setShowTemplateSelector] = useState(false)
+  const [invitePublishStatus, setInvitePublishStatus] = useState<InvitePublishStatus>('Unknown')
+  const [trackedLinks, setTrackedLinks] = useState<Record<LinkKey, AttributionLink | null>>({
+    invite: null,
+    rsvp: null,
+    registry: null,
+  })
+  const [openQrKey, setOpenQrKey] = useState<LinkKey | null>(null)
+  const [openActionsKey, setOpenActionsKey] = useState<LinkKey | null>(null)
+  const [downloadPickerKey, setDownloadPickerKey] = useState<LinkKey | null>(null)
+  const [downloadFormat, setDownloadFormat] = useState<'professional' | 'raw'>('professional')
+  const [analyticsSummary, setAnalyticsSummary] = useState<EventAnalyticsSummary | null>(null)
+  const [enablingInsights, setEnablingInsights] = useState(false)
 
   useEffect(() => {
     if (!eventId || eventId === 'undefined') {
@@ -86,11 +90,24 @@ export default function EventDetailPage() {
       return
     }
     fetchEvent()
-    fetchInvitePage()
     fetchOrders()
     fetchGuests()
     fetchRsvps()
   }, [eventId, router])
+
+  useEffect(() => {
+    if (!eventId || eventId === 'undefined') return
+    loadTrackedLinks()
+  }, [eventId, event?.has_rsvp, event?.has_registry])
+
+  useEffect(() => {
+    if (!eventId || eventId === 'undefined') return
+    let cancelled = false
+    getEventAnalyticsSummary(parseInt(eventId))
+      .then((data) => { if (!cancelled) setAnalyticsSummary(data) })
+      .catch(() => { if (!cancelled) setAnalyticsSummary(null) })
+    return () => { cancelled = true }
+  }, [eventId])
 
   useEffect(() => {
     if (event && showExpiryEditor) {
@@ -104,6 +121,37 @@ export default function EventDetailPage() {
       fetchImpact()
     }
   }, [event])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadInvitePublishStatus = async () => {
+      if (!event || !eventId || eventId === 'undefined') return
+
+      const hasConfig = !!(event.page_config && Object.keys(event.page_config).length > 0)
+      if (!hasConfig) {
+        if (!cancelled) setInvitePublishStatus('Not created')
+        return
+      }
+
+      try {
+        const invite = await getInvitePage(parseInt(eventId))
+        if (cancelled) return
+        if (!invite) {
+          setInvitePublishStatus('Not created')
+          return
+        }
+        setInvitePublishStatus(invite.is_published ? 'Published' : 'Draft')
+      } catch {
+        if (!cancelled) setInvitePublishStatus('Unknown')
+      }
+    }
+
+    loadInvitePublishStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [event, eventId])
 
   const fetchEvent = async () => {
     if (!eventId || eventId === 'undefined') {
@@ -125,22 +173,6 @@ export default function EventDetailPage() {
       }
     } finally {
       setLoading(false)
-    }
-  }
-
-  const fetchInvitePage = async () => {
-    if (!eventId || eventId === 'undefined') {
-      return
-    }
-    try {
-      const invite = await getInvitePage(parseInt(eventId))
-      setInvitePage(invite)
-    } catch (error: any) {
-      // 404 is expected if invite page doesn't exist yet - that's okay
-      if (error.response?.status !== 404) {
-        logError('Failed to fetch invite page:', error)
-      }
-      setInvitePage(null)
     }
   }
 
@@ -247,7 +279,7 @@ export default function EventDetailPage() {
     }
   }
 
-  const getEventUrl = () => {
+  const getInviteUrl = () => {
     if (typeof window === 'undefined' || !event) return ''
     return `${window.location.origin}/invite/${event.slug}`
   }
@@ -257,126 +289,270 @@ export default function EventDetailPage() {
     return `${window.location.origin}/event/${event.slug}/rsvp`
   }
 
-  const getQRCodeUrl = () => {
-    // QR code should link to RSVP page with source=qr parameter
-    return `${getRSVPUrl()}?source=qr`
+  const getRegistryUrl = () => {
+    if (typeof window === 'undefined' || !event) return ''
+    return `${window.location.origin}/registry/${event.slug}`
   }
 
-  const handleShareWhatsApp = () => {
-    if (!event) return
-    setShowTemplateSelector(true)
+  const campaignPreset: Record<LinkKey, string> = {
+    invite: 'main_card',
+    rsvp: 'rsvp_card',
+    registry: 'registry_card',
   }
 
-  const handleTemplateSelected = async (template: WhatsAppTemplate | null) => {
-    if (!event) return
-    
-    setShowTemplateSelector(false)
-    setSharingWhatsApp(true)
-    
+  const placementPreset: Record<LinkKey, string> = {
+    invite: 'physical_invite',
+    rsvp: 'physical_invite',
+    registry: 'physical_invite',
+  }
+
+  const upsertTrackedLink = async (key: LinkKey, silent = false) => {
+    if (!eventId || eventId === 'undefined') return null
     try {
-      const eventUrl = getEventUrl()
-      let message: string
-      
-      if (template) {
-        // Use selected template
-        const result = replaceTemplateVariables(template.template_text, {
-          name: '', // No guest name for general message
-          event_title: event.title,
-          event_date: event.date,
-          event_location: event.city || '',
-          event_url: eventUrl,
-          host_name: event.host_name || undefined,
-        })
-        message = result
-        
-        // Increment usage count
-        try {
-          await incrementWhatsAppTemplateUsage(template.id)
-        } catch (error) {
-          // Silently fail - usage tracking is not critical
-          logError('Failed to increment template usage:', error)
-        }
-      } else {
-        // Use event default template
-        message = generateEventMessage(
-          event.title,
-          event.date,
-          eventUrl,
-          event.host_name,
-          (event as any).whatsapp_message_template
-        )
+      const created = await createAttributionLink(parseInt(eventId), {
+        target_type: key,
+        channel: 'qr',
+        campaign: campaignPreset[key],
+        placement: placementPreset[key],
+      })
+      if (!silent) {
+        setTrackedLinks((prev) => ({ ...prev, [key]: created }))
       }
-      
-      const whatsappUrl = generateWhatsAppShareLink(message)
-      openWhatsApp(whatsappUrl)
-      showToast('Opening WhatsApp...', 'success')
+      return created
     } catch (error: any) {
-      logError('Failed to share on WhatsApp:', error)
-      showToast('Failed to open WhatsApp', 'error')
-    } finally {
-      setSharingWhatsApp(false)
+      if (!silent) {
+        showToast(getErrorMessage(error) || 'Unable to initialize tracked link', 'error')
+      }
+      return null
     }
   }
 
-  const handleCopyUrl = async () => {
+  const loadTrackedLinks = async () => {
     try {
-      const url = getEventUrl()
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      showToast('URL copied to clipboard!', 'success')
-      setTimeout(() => setCopied(false), 2000)
-    } catch (error) {
-      showToast('Failed to copy URL', 'error')
-    }
-  }
-
-  const handleDownloadQRCode = () => {
-    try {
-      const container = document.getElementById('qr-code-container')
-      if (!container) {
-        showToast('QR code not found', 'error')
-        return
-      }
-
-      const svg = container.querySelector('svg')
-      if (!svg) {
-        showToast('QR code SVG not found', 'error')
-        return
-      }
-
-      const svgData = new XMLSerializer().serializeToString(svg)
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      const img = new Image()
-
-      img.onload = () => {
-        canvas.width = img.width + 40 // Add padding
-        canvas.height = img.height + 40
-        if (ctx) {
-          ctx.fillStyle = 'white'
-          ctx.fillRect(0, 0, canvas.width, canvas.height)
-          ctx.drawImage(img, 20, 20)
+      const links = await listAttributionLinks(parseInt(eventId))
+      const latest: Record<LinkKey, AttributionLink | null> = { invite: null, rsvp: null, registry: null }
+      links.forEach((link) => {
+        const key = link.target_type as LinkKey
+        if (!latest[key]) {
+          latest[key] = link
         }
-        const pngFile = canvas.toDataURL('image/png')
-        const downloadLink = document.createElement('a')
-        downloadLink.download = `qr-code-${event?.slug || eventId}.png`
-        downloadLink.href = pngFile
-        document.body.appendChild(downloadLink)
-        downloadLink.click()
-        document.body.removeChild(downloadLink)
-        showToast('QR code downloaded!', 'success')
+      })
+
+      // Always-on tracking: silently provision canonical tracked links for enabled destinations.
+      if (event) {
+        const requiredKeys: LinkKey[] = ['invite']
+        if (event.has_rsvp) requiredKeys.push('rsvp')
+        if (event.has_registry) requiredKeys.push('registry')
+
+        for (const key of requiredKeys) {
+          if (!latest[key]) {
+            const created = await upsertTrackedLink(key, true)
+            if (created) latest[key] = created
+          }
+        }
       }
 
-      img.onerror = () => {
-        showToast('Failed to generate QR code image', 'error')
-      }
-
-      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-      const url = URL.createObjectURL(svgBlob)
-      img.src = url
+      setTrackedLinks(latest)
     } catch (error) {
-      logError('Error downloading QR code:', error)
-      showToast('Failed to download QR code', 'error')
+      logDebug('Tracked links not available yet')
+    }
+  }
+
+  const getTrackedUrl = (key: LinkKey) => trackedLinks[key]?.short_url || ''
+  const getEffectiveUrl = (key: LinkKey, fallbackUrl: string) => getTrackedUrl(key) || fallbackUrl
+
+  const escapeSvgText = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+
+  const truncateText = (value: string, maxLength: number) =>
+    value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value
+
+  const buildProfessionalQrSvg = (key: LinkKey, qrSvgElement: SVGSVGElement) => {
+    const viewBox = qrSvgElement.getAttribute('viewBox') || ''
+    const viewBoxParts = viewBox.split(/\s+/).map(Number)
+    const qrViewBoxSize =
+      viewBoxParts.length === 4 && Number.isFinite(viewBoxParts[2]) && viewBoxParts[2] > 0
+        ? viewBoxParts[2]
+        : 29
+    const qrPathMarkup = qrSvgElement.innerHTML
+
+    // A5 portrait print-friendly canvas (148mm x 210mm), 10 units per mm
+    const canvasWidth = 1480
+    const canvasHeight = 2100
+    const cardX = 70
+    const cardY = 70
+    const cardWidth = canvasWidth - cardX * 2
+    const cardHeight = canvasHeight - cardY * 2
+    const qrFrameSize = 820
+    const qrScale = qrFrameSize / qrViewBoxSize
+    const qrTranslateX = (canvasWidth - qrFrameSize) / 2
+    const qrTranslateY = 690
+
+    const safeEventTitle = escapeSvgText(truncateText(event?.title?.trim() || 'Event Invitation', 58))
+    const safeDestinationLabel = escapeSvgText(qrDestinationLabel[key])
+
+    const badgeWidth = qrViewBoxSize * 0.42
+    const badgeHeight = qrViewBoxSize * 0.11
+    const badgeX = (qrViewBoxSize - badgeWidth) / 2
+    const badgeY = (qrViewBoxSize - badgeHeight) / 2
+    const badgeRadius = badgeHeight * 0.5
+    const badgeInset = badgeHeight * 0.14
+    const badgeInnerWidth = badgeWidth - badgeInset * 2
+    const badgeInnerHeight = badgeHeight - badgeInset * 2
+    const badgeInnerRadius = badgeRadius * 0.9
+    const badgeFontSize = badgeInnerHeight * 0.55
+    const brandBadgeMarkup = `
+      <rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="${badgeRadius}" fill="#FFFFFF" stroke="#D7E6D2" stroke-width="${badgeHeight * 0.03}" />
+      <text x="${qrViewBoxSize / 2}" y="${qrViewBoxSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="${badgeFontSize}" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#2C6B3F">Ekfern</text>
+    `
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="148mm" height="210mm" viewBox="0 0 ${canvasWidth} ${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="qrCardGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F5F8F1" />
+    </linearGradient>
+  </defs>
+  <rect width="${canvasWidth}" height="${canvasHeight}" fill="#FFFFFF" />
+  <rect x="${cardX}" y="${cardY}" width="${cardWidth}" height="${cardHeight}" rx="36" fill="url(#qrCardGradient)" stroke="#CDE2C8" stroke-width="3" />
+  <text x="${canvasWidth / 2}" y="260" text-anchor="middle" font-size="64" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#2C6B3F">${safeEventTitle}</text>
+  <text x="${canvasWidth / 2}" y="340" text-anchor="middle" font-size="40" font-family="Inter, Arial, sans-serif" font-weight="600" fill="#3A8A4D">${safeDestinationLabel}</text>
+  <text x="${canvasWidth / 2}" y="410" text-anchor="middle" font-size="28" font-family="Inter, Arial, sans-serif" fill="#5E6E63">Scan this QR code to open instantly</text>
+  <rect x="${(canvasWidth - (qrFrameSize + 72)) / 2}" y="${qrTranslateY - 36}" width="${qrFrameSize + 72}" height="${qrFrameSize + 72}" rx="30" fill="#FFFFFF" stroke="#D7E6D2" stroke-width="2" />
+  <g transform="translate(${qrTranslateX}, ${qrTranslateY}) scale(${qrScale})">
+    ${qrPathMarkup}
+    ${brandBadgeMarkup}
+  </g>
+  <text x="${canvasWidth / 2}" y="${qrTranslateY + qrFrameSize + 130}" text-anchor="middle" font-size="26" font-family="Inter, Arial, sans-serif" fill="#5E6E63">Built with Ekfern</text>
+</svg>`
+  }
+
+  const buildRawBrandedQrSvg = (qrSvgElement: SVGSVGElement) => {
+    const width = qrSvgElement.getAttribute('width') || '148'
+    const height = qrSvgElement.getAttribute('height') || '148'
+    const viewBox = qrSvgElement.getAttribute('viewBox') || '0 0 29 29'
+    const viewBoxParts = viewBox.split(/\s+/).map(Number)
+    const qrViewBoxSize =
+      viewBoxParts.length === 4 && Number.isFinite(viewBoxParts[2]) && viewBoxParts[2] > 0
+        ? viewBoxParts[2]
+        : 29
+    const qrPathMarkup = qrSvgElement.innerHTML
+
+    const badgeWidth = qrViewBoxSize * 0.42
+    const badgeHeight = qrViewBoxSize * 0.11
+    const badgeX = (qrViewBoxSize - badgeWidth) / 2
+    const badgeY = (qrViewBoxSize - badgeHeight) / 2
+    const badgeRadius = badgeHeight * 0.5
+    const badgeInset = badgeHeight * 0.14
+    const badgeInnerWidth = badgeWidth - badgeInset * 2
+    const badgeInnerHeight = badgeHeight - badgeInset * 2
+    const badgeInnerRadius = badgeRadius * 0.9
+    const badgeFontSize = badgeInnerHeight * 0.55
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${width}" height="${height}" viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg">
+  ${qrPathMarkup}
+  <rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="${badgeRadius}" fill="#FFFFFF" stroke="#D7E6D2" stroke-width="${badgeHeight * 0.03}" />
+  <text x="${qrViewBoxSize / 2}" y="${qrViewBoxSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="${badgeFontSize}" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#2C6B3F">Ekfern</text>
+</svg>`
+  }
+
+  const downloadSvgBlob = (svgString: string, filename: string) => {
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
+    const blobUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(blobUrl)
+  }
+
+  const handleDownloadProfessionalQr = (key: LinkKey) => {
+    const wrapper = document.getElementById(`tracked-qr-${key}`)
+    const svg = wrapper?.querySelector('svg')
+    if (!svg) {
+      showToast('QR preview not available yet', 'error')
+      return
+    }
+
+    const svgString = buildProfessionalQrSvg(key, svg)
+    if (!svgString) {
+      showToast('Unable to generate QR download', 'error')
+      return
+    }
+    downloadSvgBlob(svgString, `${event?.slug || 'event'}-${key}-qr-professional.svg`)
+    showToast('Professional QR downloaded', 'success')
+  }
+
+  const handleDownloadRawQr = (key: LinkKey) => {
+    const wrapper = document.getElementById(`tracked-qr-${key}`)
+    const svg = wrapper?.querySelector('svg')
+    if (!svg) {
+      showToast('QR preview not available yet', 'error')
+      return
+    }
+    const rawSvgString = buildRawBrandedQrSvg(svg)
+    downloadSvgBlob(rawSvgString, `${event?.slug || 'event'}-${key}-qr-raw.svg`)
+    showToast('Raw QR downloaded', 'success')
+  }
+
+  const handleDownloadWithFormat = (key: LinkKey) => {
+    if (downloadFormat === 'professional') {
+      handleDownloadProfessionalQr(key)
+    } else {
+      handleDownloadRawQr(key)
+    }
+    setDownloadPickerKey(null)
+  }
+
+  const handleCopyLink = async (key: string, url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedLinkKey(key)
+      showToast('Link copied!', 'success')
+      setTimeout(() => setCopiedLinkKey(null), 2000)
+    } catch {
+      showToast('Failed to copy link', 'error')
+    }
+  }
+
+  const handleShareLink = async (label: string, url: string) => {
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${event?.title || 'Event'} - ${label}`,
+          text: `Sharing ${label} for ${event?.title || 'event'}`,
+          url,
+        })
+        return
+      }
+      await navigator.clipboard.writeText(url)
+      setCopiedLinkKey(label)
+      showToast('Share not supported on this browser. Link copied instead.', 'info')
+      setTimeout(() => setCopiedLinkKey(null), 2000)
+    } catch (error) {
+      showToast('Unable to share link', 'error')
+    }
+  }
+
+  const handleEnableInsights = async () => {
+    if (!eventId || eventId === 'undefined') return
+    try {
+      setEnablingInsights(true)
+      await enableEventAnalyticsInsights(parseInt(eventId))
+      const data = await getEventAnalyticsSummary(parseInt(eventId))
+      setAnalyticsSummary(data)
+      showToast('Tracking insights enabled. Click details are now visible.', 'success')
+    } catch (error: any) {
+      showToast(error?.response?.data?.error || 'Failed to enable tracking insights', 'error')
+    } finally {
+      setEnablingInsights(false)
     }
   }
 
@@ -517,6 +693,13 @@ export default function EventDetailPage() {
 
   // Response rate
   const responseRate = totalGuests > 0 ? Math.round((coreGuestsWithRSVP / totalGuests) * 100) : 0;
+  const inviteStatusLabel =
+    invitePublishStatus === 'Published'
+      ? 'Live'
+      : invitePublishStatus === 'Draft'
+        ? 'Configured - Waiting to Publish'
+        : 'Not Configured'
+  const inviteVisibilityLabel = event.is_public ? 'Public' : 'Private'
   
   // Gift stats (exclude removed guests)
   const paidOrders = orders.filter((o) => o.status === 'paid');
@@ -531,14 +714,9 @@ export default function EventDetailPage() {
 
   return (
     <div className="min-h-screen bg-eco-beige">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-6 md:py-8">
         {/* Header */}
         <div className="mb-6">
-          <Link href="/host/dashboard">
-            <Button variant="outline" className="mb-4 border-eco-green text-eco-green hover:bg-eco-green-light">
-              ← Back to Dashboard
-            </Button>
-          </Link>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-4xl font-bold mb-2 text-eco-green">{event.title}</h1>
@@ -549,11 +727,316 @@ export default function EventDetailPage() {
           </div>
         </div>
 
+        {/* Overview at a glance */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+          <Card className="bg-white border-2 border-eco-green-light">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-eco-green">Invitation Page Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold text-gray-800">{inviteStatusLabel}</p>
+              <p className="text-xs text-gray-500 mt-1">Visibility: {inviteVisibilityLabel}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white border-2 border-eco-green-light">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-eco-green">Guest Stats</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold text-gray-800">{totalGuests} invited</p>
+              <p className="text-xs text-gray-500 mt-1">{coreGuestsWithRSVP} responded ({responseRate}%)</p>
+            </CardContent>
+          </Card>
+
+          {event.has_rsvp && (
+            <Card className="bg-white border-2 border-eco-green-light">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-eco-green">RSVP Stats</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-lg font-semibold text-gray-800">
+                  Yes {rsvpsYesCount} • No {rsvpsNoCount} • Maybe {rsvpsMaybeCount}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">{totalRSVPs} total responses</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {event.has_registry && (
+            <Card className="bg-white border-2 border-eco-green-light">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-eco-green">Registry Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-lg font-semibold text-gray-800">Enabled</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {paidOrders.length} gifts • ₹{(totalAmount / 100).toLocaleString('en-IN')}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+        </div>
+
+        <Card className="bg-white border-2 border-eco-green-light mb-8">
+          <CardHeader>
+            <CardTitle className="text-eco-green">Important Links</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {[
+              { key: 'invite' as LinkKey, label: 'Invite Page', url: getInviteUrl(), show: true },
+              { key: 'rsvp' as LinkKey, label: 'RSVP Page', url: getRSVPUrl(), show: event.has_rsvp },
+              { key: 'registry' as LinkKey, label: 'Registry Page', url: getRegistryUrl(), show: event.has_registry },
+            ]
+              .filter((item) => item.show)
+              .map((item) => {
+                const effectiveUrl = getEffectiveUrl(item.key, item.url)
+                return (
+                <div key={item.key} className="space-y-2">
+                  <p className="text-sm font-medium text-gray-700">{item.label}</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={effectiveUrl}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
+                    />
+                    <div className="relative">
+                      <Button
+                        onClick={() => setOpenActionsKey((prev) => (prev === item.key ? null : item.key))}
+                        variant="outline"
+                        aria-haspopup="menu"
+                        aria-expanded={openActionsKey === item.key}
+                        className="border-eco-green text-eco-green hover:bg-eco-green-light inline-flex items-center gap-2"
+                      >
+                        Actions
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform ${openActionsKey === item.key ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+                      {openActionsKey === item.key && (
+                        <div className="absolute right-0 mt-2 w-44 rounded-md border border-gray-200 bg-white shadow-lg z-20">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleCopyLink(item.key, effectiveUrl)
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {copiedLinkKey === item.key ? 'Copied' : 'Copy'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleShareLink(item.label, effectiveUrl)
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            Share
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenQrKey((prev) => (prev === item.key ? null : item.key))
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {openQrKey === item.key ? 'Hide QR' : 'Show QR'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDownloadPickerKey(item.key)
+                              setDownloadFormat('professional')
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            Download QR
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {downloadPickerKey === item.key && (
+                    <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                      <p className="text-sm font-semibold text-eco-green">Download QR</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        Choose the export format before downloading.
+                      </p>
+
+                      <div className="mt-3 space-y-2">
+                        <label className="flex items-start gap-2 rounded-md border border-gray-200 p-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`download-format-${item.key}`}
+                            checked={downloadFormat === 'professional'}
+                            onChange={() => setDownloadFormat('professional')}
+                            className="mt-1"
+                          />
+                          <span className="text-sm text-gray-700">
+                            Professional SVG (styled card, centered layout)
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 rounded-md border border-gray-200 p-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`download-format-${item.key}`}
+                            checked={downloadFormat === 'raw'}
+                            onChange={() => setDownloadFormat('raw')}
+                            className="mt-1"
+                          />
+                          <span className="text-sm text-gray-700">Raw SVG (QR only)</span>
+                        </label>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setDownloadPickerKey(null)}
+                          className="h-8 px-3 text-xs border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => handleDownloadWithFormat(item.key)}
+                          className="h-8 px-3 text-xs bg-eco-green hover:bg-green-600 text-white"
+                        >
+                          Download
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    id={`tracked-qr-${item.key}`}
+                    className={
+                      openQrKey === item.key
+                        ? 'mt-1 w-full rounded-xl border border-eco-green-light bg-gradient-to-b from-white to-eco-green-light/20 p-4 shadow-sm flex flex-col items-center'
+                        : 'hidden'
+                    }
+                  >
+                    <div className="text-center mb-3">
+                      <p className="text-sm font-semibold text-eco-green">{item.label} QR</p>
+                      <p className="text-xs text-gray-600">Guests can scan this to open the page instantly.</p>
+                    </div>
+
+                    <div className="mx-auto inline-block rounded-lg bg-white p-3 border border-gray-200 shadow-sm">
+                      <div className="relative inline-block">
+                        <QRCode value={effectiveUrl} size={148} level="H" />
+                        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#D7E6D2] bg-white px-2 py-0.5">
+                          <span className="text-[9px] leading-none font-semibold text-eco-green">Ekfern</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex justify-center">
+                      <Button
+                        type="button"
+                        onClick={() => setOpenQrKey(null)}
+                        variant="outline"
+                        className="h-8 px-3 text-xs border-eco-green text-eco-green hover:bg-eco-green-light"
+                      >
+                        Hide QR
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )})}
+            {!event.has_rsvp && !event.has_registry && (
+              <div className="text-sm text-gray-600">
+                RSVP and Registry links will appear here when those features are enabled.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Click details (attribution & funnel) – only show destinations enabled for this event */}
+        {analyticsSummary && (
+          <Card className="bg-white border-2 border-eco-green-light mb-8">
+            <CardHeader>
+              <CardTitle className="text-eco-green">Click details</CardTitle>
+              <p className="text-sm text-gray-500 mt-1">
+                QR and link traffic by destination and channel. In the future this will move to a dedicated analytics or reports page.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {analyticsSummary.insights_locked ? (
+                <div className="rounded-lg border border-dashed border-eco-green-light p-4 bg-gray-50">
+                  <p className="text-sm font-semibold text-eco-green">Attribution insights locked</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Link and QR traffic is being collected. Enable insights to view click and funnel stats here.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={handleEnableInsights}
+                    disabled={enablingInsights}
+                    className="mt-3 bg-eco-green hover:bg-green-600 text-white h-8 px-3 text-xs"
+                  >
+                    {enablingInsights ? 'Enabling...' : (analyticsSummary.insights_cta_label || 'Enable tracking insights')}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Attribution clicks</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-1">{analyticsSummary.attribution_clicks_total ?? 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Tracked QR/link redirects</p>
+                    </div>
+                    <div className="rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Clicks by destination</p>
+                      <p className="text-sm text-gray-700 mt-2">
+                        {[
+                          `Invite: ${analyticsSummary.target_type_clicks?.invite ?? 0}`,
+                          event.has_rsvp && `RSVP: ${analyticsSummary.target_type_clicks?.rsvp ?? 0}`,
+                          event.has_registry && `Registry: ${analyticsSummary.target_type_clicks?.registry ?? 0}`,
+                        ].filter(Boolean).join(' • ')}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Clicks by channel</p>
+                      <p className="text-sm text-gray-700 mt-2">
+                        QR: {analyticsSummary.source_channel_breakdown?.qr ?? 0} • Link: {analyticsSummary.source_channel_breakdown?.link ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                  {analyticsSummary.funnel && (
+                    <div className="mt-3 rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Destination funnels</p>
+                      <div className="text-sm text-gray-700 mt-2 space-y-1">
+                        <p>
+                          Invite: {analyticsSummary.funnel.invite?.clicks ?? 0} clicks → {analyticsSummary.funnel.invite?.views ?? 0} views → {analyticsSummary.funnel.invite?.rsvp_submissions ?? 0} RSVPs
+                        </p>
+                        {event.has_rsvp && (
+                          <p>
+                            RSVP: {analyticsSummary.funnel.rsvp?.clicks ?? 0} clicks → {analyticsSummary.funnel.rsvp?.views ?? 0} views → {analyticsSummary.funnel.rsvp?.rsvp_submissions ?? 0} RSVPs
+                          </p>
+                        )}
+                        {event.has_registry && (
+                          <p>
+                            Registry: {analyticsSummary.funnel.registry?.clicks ?? 0} clicks → {analyticsSummary.funnel.registry?.paid_orders ?? 0} paid orders
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Stats Section */}
         <div className={
-          (totalGuests > 0 || totalRSVPs > 0) && (event?.has_registry && !event?.is_expired)
-            ? 'grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8'
-            : (totalGuests > 0 || totalRSVPs > 0) || (event?.has_registry && !event?.is_expired)
+          (totalGuests > 0 || totalRSVPs > 0) || (event?.has_registry && !event?.is_expired)
             ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8'
             : 'grid grid-cols-1 gap-6 mb-8'
         }>
@@ -677,505 +1160,403 @@ export default function EventDetailPage() {
             </Card>
           )}
 
-          {/* Quick Actions Card */}
-          <Card className="bg-white border-2 border-eco-green-light">
-            <CardHeader>
-              <CardTitle className="text-eco-green">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Link href={`/host/events/${eventId}/design`}>
-                  <Button className="w-full bg-eco-green hover:bg-green-600 text-white py-4 text-sm font-semibold">
-                    Design Invitation Page
-                  </Button>
-                </Link>
-                {event?.has_rsvp && (
-                  <Link href={`/host/events/${eventId}/rsvp`}>
-                    <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
-                      Configure RSVP Form
-                    </Button>
-                  </Link>
-                )}
-                {event?.has_registry && (
-                  <Link href={`/host/items/${eventId}`}>
-                    <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
-                      Manage Items
-                    </Button>
-                  </Link>
-                )}
-                <Link href={`/host/events/${eventId}/guests`}>
-                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
-                    Manage Guests
-                  </Button>
-                </Link>
-                {event?.event_structure === 'ENVELOPE' && (
-                  <Link href={`/host/events/${eventId}/sub-events`}>
-                    <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
-                      Manage Sub-Events
-                    </Button>
-                  </Link>
-                )}
-                <Link href={`/host/events/${eventId}/communications`}>
-                  <Button variant="outline" className="w-full border-eco-green text-eco-green hover:bg-eco-green-light py-4 text-sm">
-                    Communication Management
-                  </Button>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Recent Gifts Section */}
         {event?.has_registry && (
           <div className="mb-8">
             <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Recent Gifts</CardTitle>
-              </CardHeader>
-            <CardContent>
-              {orders.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No gifts received yet</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left p-2">Gift Giver</th>
-                        <th className="text-left p-2">Gift Item</th>
-                        <th className="text-left p-2">Amount</th>
-                        <th className="text-left p-2">Status</th>
-                        <th className="text-left p-2">Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orders.map((order) => (
-                        <tr key={order.id} className="border-b">
-                          <td className="p-2">
-                            <div>
-                              <div className="font-medium">{order.buyer_name}</div>
-                              <div className="text-sm text-gray-600">
-                                {order.buyer_email}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-2">
-                            {order.item?.name || 'Cash Gift'}
-                          </td>
-                          <td className="p-2">
-                            ₹{(order.amount_inr / 100).toLocaleString('en-IN')}
-                          </td>
-                          <td className="p-2">
-                            <span
-                              className={`px-2 py-1 rounded text-xs ${
-                                order.status === 'paid'
-                                  ? 'bg-green-100 text-green-800'
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}
-                            >
-                              {order.status === 'paid' ? 'Received' : order.status}
-                            </span>
-                          </td>
-                          <td className="p-2 text-sm text-gray-600">
-                            {new Date(order.created_at).toLocaleDateString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <CardContent className="pt-6">
+                <details>
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-eco-green">Recent Gifts</h3>
+                      <span className="rounded-full bg-eco-green-light px-3 py-1 text-xs font-medium text-eco-green">
+                        {orders.length}
+                      </span>
+                    </div>
+                  </summary>
+                  <div className="mt-4">
+                    {orders.length === 0 ? (
+                      <p className="text-gray-500 text-center py-8">No gifts received yet</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left p-2">Gift Giver</th>
+                              <th className="text-left p-2">Gift Item</th>
+                              <th className="text-left p-2">Amount</th>
+                              <th className="text-left p-2">Status</th>
+                              <th className="text-left p-2">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orders.map((order) => (
+                              <tr key={order.id} className="border-b">
+                                <td className="p-2">
+                                  <div>
+                                    <div className="font-medium">{order.buyer_name}</div>
+                                    <div className="text-sm text-gray-600">
+                                      {order.buyer_email}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-2">
+                                  {order.item?.name || 'Cash Gift'}
+                                </td>
+                                <td className="p-2">
+                                  ₹{(order.amount_inr / 100).toLocaleString('en-IN')}
+                                </td>
+                                <td className="p-2">
+                                  <span
+                                    className={`px-2 py-1 rounded text-xs ${
+                                      order.status === 'paid'
+                                        ? 'bg-green-100 text-green-800'
+                                        : 'bg-yellow-100 text-yellow-800'
+                                    }`}
+                                  >
+                                    {order.status === 'paid' ? 'Received' : order.status}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-sm text-gray-600">
+                                  {new Date(order.created_at).toLocaleDateString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </CardContent>
+            </Card>
           </div>
         )}
 
         {/* Settings & Configuration Section */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-eco-green mb-4">Settings & Configuration</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Event Features */}
-            <Card className="bg-white border-2 border-eco-green-light">
-              <CardHeader>
-                <CardTitle className="text-eco-green">Event Features</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Event Structure Toggle */}
-                <div className="pb-3 border-b">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Event Structure
-                  </label>
-                  <div className="space-y-2">
-                    <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="event_structure"
-                        value="SIMPLE"
-                        checked={event.event_structure === 'SIMPLE' || !event.event_structure}
-                        onChange={async (e) => {
-                          try {
-                            await api.patch(`/api/events/${eventId}/`, {
-                              event_structure: 'SIMPLE',
-                            })
-                            showToast('Event structure updated to Simple', 'success')
-                            fetchEvent()
-                          } catch (error: any) {
-                            showToast('Failed to update event structure', 'error')
-                          }
-                        }}
-                        className="mt-1"
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">Simple</div>
-                        <p className="text-xs text-gray-500">
-                          Single event without sub-events
-                        </p>
-                      </div>
-                    </label>
-                    <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="event_structure"
-                        value="ENVELOPE"
-                        checked={event.event_structure === 'ENVELOPE'}
-                        onChange={async (e) => {
-                          try {
-                            await api.patch(`/api/events/${eventId}/`, {
-                              event_structure: 'ENVELOPE',
-                            })
-                            showToast('Event structure updated to Envelope', 'success')
-                            fetchEvent()
-                          } catch (error: any) {
-                            showToast('Failed to update event structure', 'error')
-                          }
-                        }}
-                        className="mt-1"
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">Envelope</div>
-                        <p className="text-xs text-gray-500">
-                          Event with multiple sub-events (e.g., Haldi, Mehndi, Wedding)
-                        </p>
-                      </div>
-                    </label>
+          <Card className="bg-white border-2 border-eco-green-light">
+            <CardContent className="pt-6">
+              <details>
+                <summary className="cursor-pointer list-none">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-bold text-eco-green">Settings & Configuration</h2>
+                    <span className="text-xs rounded-full bg-eco-green-light px-3 py-1 font-medium text-eco-green">
+                      Expand
+                    </span>
                   </div>
-                </div>
-
-                <div>
-                  <label className="flex items-center justify-between">
-                    <div>
-                      <span className="font-medium">RSVP</span>
-                      <p className="text-xs text-gray-500">Allow guests to confirm attendance</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={event.has_rsvp}
-                      onChange={async (e) => {
-                        try {
-                          await api.patch(`/api/events/${eventId}/`, {
-                            has_rsvp: e.target.checked,
-                          })
-                          showToast('RSVP setting updated', 'success')
-                          fetchEvent()
-                        } catch (error: any) {
-                          showToast('Failed to update RSVP setting', 'error')
-                        }
-                      }}
-                      className="form-checkbox text-eco-green"
-                    />
-                  </label>
-                </div>
-
-                <div>
-                  <label className="flex items-center justify-between">
-                    <div>
-                      <span className="font-medium">Gift Registry</span>
-                      <p className="text-xs text-gray-500">Allow guests to purchase gifts</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={event.has_registry}
-                      onChange={async (e) => {
-                        try {
-                          await api.patch(`/api/events/${eventId}/`, {
-                            has_registry: e.target.checked,
-                          })
-                          showToast('Registry setting updated', 'success')
-                          fetchEvent()
-                        } catch (error: any) {
-                          showToast('Failed to update registry setting', 'error')
-                        }
-                      }}
-                      className="form-checkbox text-eco-green"
-                    />
-                  </label>
-                </div>
-
-                {/* Privacy Toggle */}
-                <div className="pt-3 border-t">
-                  <label className="flex items-center justify-between cursor-pointer">
-                    <div className="flex-1">
-                      <span className="font-medium text-sm text-gray-700 block mb-1">
-                        {event.is_public ? 'Public Event' : 'Private Event'}
-                      </span>
-                      <p className="text-xs text-gray-500">
-                        {event.is_public 
-                          ? 'Anyone with the link can RSVP and purchase gifts'
-                          : 'Only invited guests can RSVP and purchase gifts'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={event.is_public}
-                      onClick={() => handlePrivacyToggle(!event.is_public)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-eco-green focus:ring-offset-2 ${
-                        event.is_public ? 'bg-eco-green' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          event.is_public ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </label>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Right Column: Wrapper for conditional cards */}
-            <div className="space-y-6">
-              {/* ENVELOPE Mode Configuration */}
-              {event.event_structure === 'ENVELOPE' && (
-                <Card className="bg-white border-2 border-eco-green-light">
-                <CardHeader>
-                  <CardTitle className="text-eco-green">Event Envelope Settings</CardTitle>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Configure RSVP behavior for sub-events
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      RSVP Mode
-                    </label>
-                    <div className="space-y-2">
-                      <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="radio"
-                          name="rsvp_mode"
-                          value="ONE_TAP_ALL"
-                          checked={event.rsvp_mode === 'ONE_TAP_ALL'}
-                          onChange={async (e) => {
-                            try {
-                              await api.patch(`/api/events/${eventId}/`, {
-                                rsvp_mode: 'ONE_TAP_ALL',
-                              })
-                              showToast('RSVP mode updated to One Tap All', 'success')
-                              fetchEvent()
-                            } catch (error: any) {
-                              showToast('Failed to update RSVP mode', 'error')
-                            }
-                          }}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium">One Tap All</div>
-                          <p className="text-xs text-gray-500">
-                            Guests confirm attendance for all sub-events with a single Yes/No response
-                          </p>
+                </summary>
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Event Features */}
+                  <Card className="bg-white border-2 border-eco-green-light">
+                    <CardHeader>
+                      <CardTitle className="text-eco-green">Event Features</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Event Structure Toggle */}
+                      <div className="pb-3 border-b">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Event Structure
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="radio"
+                              name="event_structure"
+                              value="SIMPLE"
+                              checked={event.event_structure === 'SIMPLE' || !event.event_structure}
+                              onChange={async (e) => {
+                                try {
+                                  await api.patch(`/api/events/${eventId}/`, {
+                                    event_structure: 'SIMPLE',
+                                  })
+                                  showToast('Event structure updated to Simple', 'success')
+                                  fetchEvent()
+                                } catch (error: any) {
+                                  showToast('Failed to update event structure', 'error')
+                                }
+                              }}
+                              className="mt-1"
+                            />
+                            <div className="flex-1">
+                              <div className="font-medium">Simple</div>
+                              <p className="text-xs text-gray-500">
+                                Single event without sub-events
+                              </p>
+                            </div>
+                          </label>
+                          <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="radio"
+                              name="event_structure"
+                              value="ENVELOPE"
+                              checked={event.event_structure === 'ENVELOPE'}
+                              onChange={async (e) => {
+                                try {
+                                  await api.patch(`/api/events/${eventId}/`, {
+                                    event_structure: 'ENVELOPE',
+                                  })
+                                  showToast('Event structure updated to Envelope', 'success')
+                                  fetchEvent()
+                                } catch (error: any) {
+                                  showToast('Failed to update event structure', 'error')
+                                }
+                              }}
+                              className="mt-1"
+                            />
+                            <div className="flex-1">
+                              <div className="font-medium">Envelope</div>
+                              <p className="text-xs text-gray-500">
+                                Event with multiple sub-events (e.g., Haldi, Mehndi, Wedding)
+                              </p>
+                            </div>
+                          </label>
                         </div>
-                      </label>
-                      <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="radio"
-                          name="rsvp_mode"
-                          value="PER_SUBEVENT"
-                          checked={event.rsvp_mode === 'PER_SUBEVENT'}
-                          onChange={async (e) => {
-                            try {
-                              await api.patch(`/api/events/${eventId}/`, {
-                                rsvp_mode: 'PER_SUBEVENT',
-                              })
-                              showToast('RSVP mode updated to Per Sub-Event', 'success')
-                              fetchEvent()
-                            } catch (error: any) {
-                              showToast('Failed to update RSVP mode', 'error')
-                            }
-                          }}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium">Per Sub-Event</div>
-                          <p className="text-xs text-gray-500">
-                            Guests can select which specific sub-events they'll attend
-                          </p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Event Expiry Management */}
-            {event.is_expired && (
-              <Card className="bg-white border-2 border-gray-300">
-                <CardHeader>
-                  <CardTitle className="text-gray-600">Event Expired</CardTitle>
-                  <p className="text-sm text-gray-500 mt-1">
-                    This event has passed its expiry date. You can extend it to reactivate.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!showExpiryEditor ? (
-                    <>
-                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <p className="text-sm text-gray-700">
-                          <strong>Event Date:</strong> {event.date ? new Date(event.date).toLocaleDateString('en-IN', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          }) : 'Not set'}
-                        </p>
-                        <p className="text-sm text-gray-700 mt-2">
-                          <strong>Expiry Date:</strong> {event.expiry_date ? new Date(event.expiry_date).toLocaleDateString('en-IN', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          }) : (event.date ? new Date(event.date).toLocaleDateString('en-IN', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          }) : 'Not set')}
-                        </p>
                       </div>
-                      <Button
-                        onClick={() => setShowExpiryEditor(true)}
-                        className="bg-eco-green hover:bg-green-600 text-white"
-                      >
-                        Extend Expiry Date
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">New Expiry Date</label>
-                        <input
-                          type="date"
-                          value={expiryDate}
-                          onChange={(e) => setExpiryDate(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                        <p className="text-xs text-gray-500">
-                          Set a future date to reactivate this event. Leave empty to use event date.
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={handleSaveExpiry}
-                          disabled={savingExpiry}
-                          className="bg-eco-green hover:bg-green-600 text-white"
-                        >
-                          {savingExpiry ? 'Saving...' : 'Save Expiry Date'}
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            setExpiryDate(event.expiry_date || event.date || '')
-                            setShowExpiryEditor(false)
-                          }}
-                          variant="outline"
-                          className="border-gray-300 text-gray-700 hover:bg-gray-50"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            )}
 
-            {/* Event URL & Sharing */}
-            {/* Share link is always visible for hosts */}
-            <Card className="bg-white border-2 border-eco-green-light">
-                <CardHeader>
-                  <CardTitle className="text-eco-green">Event URL & Sharing</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">Public Event Link</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={getEventUrl()}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
-                      />
-                      <Button
-                        onClick={handleCopyUrl}
-                        variant="outline"
-                        className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                      >
-                        {copied ? '✓ Copied' : 'Copy'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Button
-                      onClick={handleShareWhatsApp}
-                      disabled={sharingWhatsApp}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white py-3 flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-                      </svg>
-                      {sharingWhatsApp ? 'Opening...' : 'Share on WhatsApp'}
-                    </Button>
-                    
-                    <Button
-                      onClick={() => setShowQRCode(!showQRCode)}
-                      variant="outline"
-                      className="w-full border-eco-green text-eco-green hover:bg-eco-green-light"
-                    >
-                      {showQRCode ? 'Hide' : 'Show'} QR Code
-                    </Button>
-
-                    {showQRCode && (
-                      <div className="flex flex-col items-center space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="bg-white p-4 rounded-lg" id="qr-code-container">
-                          <QRCode
-                            value={getQRCodeUrl()}
-                            size={200}
-                            level="H"
-                            bgColor="#FFFFFF"
-                            fgColor="#000000"
+                      <div>
+                        <label className="flex items-center justify-between">
+                          <div>
+                            <span className="font-medium">RSVP</span>
+                            <p className="text-xs text-gray-500">Allow guests to confirm attendance</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={event.has_rsvp}
+                            onChange={async (e) => {
+                              try {
+                                await api.patch(`/api/events/${eventId}/`, {
+                                  has_rsvp: e.target.checked,
+                                })
+                                showToast('RSVP setting updated', 'success')
+                                fetchEvent()
+                              } catch (error: any) {
+                                showToast('Failed to update RSVP setting', 'error')
+                              }
+                            }}
+                            className="form-checkbox text-eco-green"
                           />
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={handleDownloadQRCode}
-                            className="bg-eco-green hover:bg-green-600 text-white"
-                          >
-                            Download QR Code
-                          </Button>
-                          <Link href={getEventUrl()} target="_blank">
-                            <Button
-                              variant="outline"
-                              className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                            >
-                              Open Link
-                            </Button>
-                          </Link>
-                        </div>
+                        </label>
                       </div>
-                    )}
+
+                      <div>
+                        <label className="flex items-center justify-between">
+                          <div>
+                            <span className="font-medium">Gift Registry</span>
+                            <p className="text-xs text-gray-500">Allow guests to purchase gifts</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={event.has_registry}
+                            onChange={async (e) => {
+                              try {
+                                await api.patch(`/api/events/${eventId}/`, {
+                                  has_registry: e.target.checked,
+                                })
+                                showToast('Registry setting updated', 'success')
+                                fetchEvent()
+                              } catch (error: any) {
+                                showToast('Failed to update registry setting', 'error')
+                              }
+                            }}
+                            className="form-checkbox text-eco-green"
+                          />
+                        </label>
+                      </div>
+
+                      {/* Privacy Toggle */}
+                      <div className="pt-3 border-t">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <div className="flex-1">
+                            <span className="font-medium text-sm text-gray-700 block mb-1">
+                              {event.is_public ? 'Public Event' : 'Private Event'}
+                            </span>
+                            <p className="text-xs text-gray-500">
+                              {event.is_public
+                                ? 'Anyone with the link can RSVP and purchase gifts'
+                                : 'Only invited guests can RSVP and purchase gifts'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={event.is_public}
+                            onClick={() => handlePrivacyToggle(!event.is_public)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-eco-green focus:ring-offset-2 ${
+                              event.is_public ? 'bg-eco-green' : 'bg-gray-300'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                event.is_public ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </label>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Right Column: Wrapper for conditional cards */}
+                  <div className="space-y-6">
+                    {/* ENVELOPE Mode Configuration */}
+                    {event.event_structure === 'ENVELOPE' && (
+                      <Card className="bg-white border-2 border-eco-green-light">
+                      <CardHeader>
+                        <CardTitle className="text-eco-green">Event Envelope Settings</CardTitle>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Configure RSVP behavior for sub-events
+                        </p>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            RSVP Mode
+                          </label>
+                          <div className="space-y-2">
+                            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                              <input
+                                type="radio"
+                                name="rsvp_mode"
+                                value="ONE_TAP_ALL"
+                                checked={event.rsvp_mode === 'ONE_TAP_ALL'}
+                                onChange={async (e) => {
+                                  try {
+                                    await api.patch(`/api/events/${eventId}/`, {
+                                      rsvp_mode: 'ONE_TAP_ALL',
+                                    })
+                                    showToast('RSVP mode updated to One Tap All', 'success')
+                                    fetchEvent()
+                                  } catch (error: any) {
+                                    showToast('Failed to update RSVP mode', 'error')
+                                  }
+                                }}
+                                className="mt-1"
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium">One Tap All</div>
+                                <p className="text-xs text-gray-500">
+                                  Guests confirm attendance for all sub-events with a single Yes/No response
+                                </p>
+                              </div>
+                            </label>
+                            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                              <input
+                                type="radio"
+                                name="rsvp_mode"
+                                value="PER_SUBEVENT"
+                                checked={event.rsvp_mode === 'PER_SUBEVENT'}
+                                onChange={async (e) => {
+                                  try {
+                                    await api.patch(`/api/events/${eventId}/`, {
+                                      rsvp_mode: 'PER_SUBEVENT',
+                                    })
+                                    showToast('RSVP mode updated to Per Sub-Event', 'success')
+                                    fetchEvent()
+                                  } catch (error: any) {
+                                    showToast('Failed to update RSVP mode', 'error')
+                                  }
+                                }}
+                                className="mt-1"
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium">Per Sub-Event</div>
+                                <p className="text-xs text-gray-500">
+                                  Guests can select which specific sub-events they'll attend
+                                </p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Event Expiry Management */}
+                  {event.is_expired && (
+                    <Card className="bg-white border-2 border-gray-300">
+                      <CardHeader>
+                        <CardTitle className="text-gray-600">Event Expired</CardTitle>
+                        <p className="text-sm text-gray-500 mt-1">
+                          This event has passed its expiry date. You can extend it to reactivate.
+                        </p>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {!showExpiryEditor ? (
+                          <>
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                              <p className="text-sm text-gray-700">
+                                <strong>Event Date:</strong> {event.date ? new Date(event.date).toLocaleDateString('en-IN', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric',
+                                }) : 'Not set'}
+                              </p>
+                              <p className="text-sm text-gray-700 mt-2">
+                                <strong>Expiry Date:</strong> {event.expiry_date ? new Date(event.expiry_date).toLocaleDateString('en-IN', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric',
+                                }) : (event.date ? new Date(event.date).toLocaleDateString('en-IN', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric',
+                                }) : 'Not set')}
+                              </p>
+                            </div>
+                            <Button
+                              onClick={() => setShowExpiryEditor(true)}
+                              className="bg-eco-green hover:bg-green-600 text-white"
+                            >
+                              Extend Expiry Date
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-gray-700">New Expiry Date</label>
+                              <input
+                                type="date"
+                                value={expiryDate}
+                                onChange={(e) => setExpiryDate(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                              />
+                              <p className="text-xs text-gray-500">
+                                Set a future date to reactivate this event. Leave empty to use event date.
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                onClick={handleSaveExpiry}
+                                disabled={savingExpiry}
+                                className="bg-eco-green hover:bg-green-600 text-white"
+                              >
+                                {savingExpiry ? 'Saving...' : 'Save Expiry Date'}
+                              </Button>
+                              <Button
+                                onClick={() => {
+                                  setExpiryDate(event.expiry_date || event.date || '')
+                                  setShowExpiryEditor(false)
+                                }}
+                                variant="outline"
+                                className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                </div>
+              </details>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -1232,19 +1613,6 @@ export default function EventDetailPage() {
         </div>
       )}
 
-      {/* Template Selector Modal */}
-      {showTemplateSelector && event && (
-        <TemplateSelector
-          eventId={parseInt(eventId)}
-          eventTitle={event.title}
-          eventDate={event.date}
-          eventUrl={getEventUrl()}
-          hostName={event.host_name}
-          eventLocation={event.city}
-          onSelect={handleTemplateSelected}
-          onCancel={() => setShowTemplateSelector(false)}
-        />
-      )}
     </div>
   )
 }

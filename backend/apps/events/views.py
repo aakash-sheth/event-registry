@@ -5,15 +5,18 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied, NotFound
 from django.shortcuts import get_object_or_404
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse, Http404, HttpResponseRedirect
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import F
 import csv
 import re
 import os
+import hashlib
 from urllib.parse import quote
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun
+from urllib.parse import urlencode
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun, AttributionLink, AttributionClick
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -21,7 +24,8 @@ from .serializers import (
     InvitePageSerializer, InvitePageCreateSerializer, InvitePageUpdateSerializer,
     SubEventSerializer, SubEventCreateSerializer,
     GuestSubEventInviteSerializer,
-    MessageTemplateSerializer
+    MessageTemplateSerializer,
+    AttributionLinkSerializer
 )
 import re
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
@@ -47,6 +51,29 @@ def invalidate_invite_page_cache(slug):
     # Invalidate public cache
     cache.delete(f'invite_page:{slug}')
     # Note: Guest-specific caches will expire naturally (shorter TTL)
+
+
+def normalize_source_channel(raw_value):
+    value = (raw_value or '').strip().lower()
+    return value if value in {'qr', 'link', 'manual'} else 'link'
+
+
+def build_attribution_destination_path(link):
+    base_path = {
+        'invite': f"/invite/{link.event.slug}",
+        'rsvp': f"/event/{link.event.slug}/rsvp",
+        'registry': f"/registry/{link.event.slug}",
+    }.get(link.target_type, f"/invite/{link.event.slug}")
+
+    params = {'source': link.channel or 'link', 'al': link.token}
+    if link.guest and link.guest.guest_token:
+        params['g'] = link.guest.guest_token
+    if link.campaign:
+        params['campaign'] = link.campaign
+    if link.placement:
+        params['placement'] = link.placement
+
+    return f"{base_path}?{urlencode(params)}"
 
 
 # Global debounce state for CloudFront invalidations
@@ -215,6 +242,14 @@ class EventViewSet(viewsets.ModelViewSet):
         if event.host != self.request.user:
             raise PermissionDenied("You can only access your own events.")
         return True
+
+    def _attribution_insights_unlocked(self, event):
+        """
+        Visibility gate for attribution insights.
+        Collection is always-on; this only controls host-facing stats visibility.
+        """
+        # Future paywall hook: combine entitlement checks here.
+        return bool(getattr(event, 'analytics_insights_enabled', False))
 
     @action(detail=True, methods=['patch'], url_path='custom-fields')
     def custom_fields(self, request, id=None):
@@ -570,6 +605,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 'event_id': event.id,
                 'event_title': event.title,
                 'total_guests': guests.count(),
+                'insights_locked': not self._attribution_insights_unlocked(event),
                 'guests': serializer.data
             })
         except Exception as e:
@@ -632,8 +668,9 @@ class EventViewSet(viewsets.ModelViewSet):
         
         try:
             from .analytics_serializers import EventAnalyticsSummarySerializer
-            from django.db.models import Count, Q
-            from .models import InvitePageView, RSVPPageView
+            from django.db.models import Count
+            from .models import InvitePageView, RSVPPageView, AttributionClick
+            from apps.orders.models import Order
             
             # Get guest counts
             total_guests = Guest.objects.filter(event=event, is_removed=False).count()
@@ -678,7 +715,67 @@ class EventViewSet(viewsets.ModelViewSet):
                 'invite_view_rate': round(invite_view_rate, 2),
                 'rsvp_view_rate': round(rsvp_view_rate, 2),
                 'engagement_rate': round(engagement_rate, 2),
+                'attribution_clicks_total': 0,
+                'target_type_clicks': {'invite': 0, 'rsvp': 0, 'registry': 0},
+                'source_channel_breakdown': {'qr': 0, 'link': 0},
+                'funnel': {
+                    'invite': {'clicks': 0, 'views': total_invite_views, 'rsvp_submissions': 0},
+                    'rsvp': {'clicks': 0, 'views': total_rsvp_views, 'rsvp_submissions': 0},
+                    'registry': {'clicks': 0, 'paid_orders': 0},
+                },
+                'insights_locked': not self._attribution_insights_unlocked(event),
+                'insights_cta_label': 'Enable Tracking Insights',
+                'metric_definitions': {
+                    'attribution_clicks_total': 'Redirect hits on tracked short links (QR/link).',
+                    'invite_views': 'Invite page views collected from guest token sessions.',
+                    'rsvp_views': 'RSVP page views collected from guest token sessions.',
+                },
             }
+
+            if self._attribution_insights_unlocked(event):
+                # Attribution segmentation (collected regardless of visibility gate).
+                attribution_clicks = AttributionClick.objects.filter(event=event)
+                data['attribution_clicks_total'] = attribution_clicks.count()
+
+                target_clicks = attribution_clicks.values('target_type').annotate(count=Count('id'))
+                for row in target_clicks:
+                    data['target_type_clicks'][row['target_type']] = row['count']
+
+                channel_clicks = attribution_clicks.values('channel').annotate(count=Count('id'))
+                for row in channel_clicks:
+                    data['source_channel_breakdown'][row['channel']] = row['count']
+
+                invite_tracked_views = InvitePageView.objects.filter(
+                    event=event,
+                    attribution_link__target_type='invite',
+                ).count()
+                rsvp_tracked_views = RSVPPageView.objects.filter(
+                    event=event,
+                    attribution_link__target_type='rsvp',
+                ).count()
+                invite_rsvp_submissions = RSVP.objects.filter(
+                    event=event,
+                    is_removed=False,
+                    source_channel__in=['qr', 'link'],
+                ).count()
+                paid_orders = Order.objects.filter(event=event, status='paid').count()
+
+                data['funnel'] = {
+                    'invite': {
+                        'clicks': data['target_type_clicks'].get('invite', 0),
+                        'views': invite_tracked_views,
+                        'rsvp_submissions': invite_rsvp_submissions,
+                    },
+                    'rsvp': {
+                        'clicks': data['target_type_clicks'].get('rsvp', 0),
+                        'views': rsvp_tracked_views,
+                        'rsvp_submissions': invite_rsvp_submissions,
+                    },
+                    'registry': {
+                        'clicks': data['target_type_clicks'].get('registry', 0),
+                        'paid_orders': paid_orders,
+                    },
+                }
             
             serializer = EventAnalyticsSummarySerializer(data)
             return Response(serializer.data)
@@ -691,6 +788,52 @@ class EventViewSet(viewsets.ModelViewSet):
                 {'error': f'Analytics not available. Please run migrations: python manage.py migrate. Error: {str(e)}'},
                 status=500
             )
+
+    @action(detail=True, methods=['post'], url_path='analytics/enable-insights')
+    def enable_analytics_insights(self, request, id=None):
+        """Host-controlled visibility toggle for attribution insights."""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+
+        if event.analytics_insights_enabled:
+            return Response({
+                'analytics_insights_enabled': True,
+                'analytics_enabled_at': event.analytics_enabled_at.isoformat() if event.analytics_enabled_at else None,
+            })
+
+        event.analytics_insights_enabled = True
+        event.analytics_enabled_at = timezone.now()
+        event.analytics_enabled_by = request.user
+        event.save(update_fields=['analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'updated_at'])
+
+        return Response({
+            'analytics_insights_enabled': True,
+            'analytics_enabled_at': event.analytics_enabled_at.isoformat(),
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get', 'post'], url_path='attribution-links')
+    def attribution_links(self, request, id=None):
+        """Create/list tracked links for invite, RSVP, and registry destinations."""
+        if not getattr(settings, 'ENABLE_ATTRIBUTION_LINKS', True):
+            return Response({'error': 'Attribution links are disabled.'}, status=status.HTTP_403_FORBIDDEN)
+        event = self.get_object()
+        self._verify_event_ownership(event)
+
+        if request.method == 'GET':
+            queryset = AttributionLink.objects.filter(event=event, is_active=True).select_related('guest').order_by('-created_at')
+            target_type = request.query_params.get('target_type')
+            if target_type in {'invite', 'rsvp', 'registry'}:
+                queryset = queryset.filter(target_type=target_type)
+            serializer = AttributionLinkSerializer(queryset, many=True, context={'request': request, 'event': event})
+            return Response(serializer.data)
+
+        serializer = AttributionLinkSerializer(data=request.data, context={'request': request, 'event': event})
+        serializer.is_valid(raise_exception=True)
+        link = serializer.save()
+        return Response(
+            AttributionLinkSerializer(link, context={'request': request, 'event': event}).data,
+            status=status.HTTP_201_CREATED,
+        )
     
     @action(detail=True, methods=['post'], url_path='guests/import')
     def import_guests(self, request, id=None):
@@ -1863,7 +2006,15 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
         if guest_token and event and not is_preview:
             try:
                 from .tasks import collect_page_view
-                result = collect_page_view(guest_token, event.id, view_type='invite')
+                result = collect_page_view(
+                    guest_token,
+                    event.id,
+                    view_type='invite',
+                    source_channel=normalize_source_channel(request.query_params.get('source')),
+                    attribution_token=(request.query_params.get('al') or '').strip() or None,
+                    campaign=(request.query_params.get('campaign') or '').strip(),
+                    placement=(request.query_params.get('placement') or '').strip(),
+                )
                 if result:
                     logger.info(f"[Batch Analytics] Successfully collected invite view: guest_token={guest_token[:8]}..., event_id={event.id}")
                 else:
@@ -2364,7 +2515,15 @@ def get_guest_by_token(request, event_id):
         # Collect RSVP page view for batch processing (synchronous, fast cache write)
         try:
             from .tasks import collect_page_view
-            result = collect_page_view(guest_token, event_id, view_type='rsvp')
+            result = collect_page_view(
+                guest_token,
+                event_id,
+                view_type='rsvp',
+                source_channel=normalize_source_channel(request.query_params.get('source')),
+                attribution_token=(request.query_params.get('al') or '').strip() or None,
+                campaign=(request.query_params.get('campaign') or '').strip(),
+                placement=(request.query_params.get('placement') or '').strip(),
+            )
             if result:
                 import logging
                 logger = logging.getLogger(__name__)
@@ -2397,6 +2556,54 @@ def get_guest_by_token(request, event_id):
         return Response(guest_data, status=status.HTTP_200_OK)
     except Guest.DoesNotExist:
         return Response({'error': 'Invalid guest token'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def attribution_redirect(request, token):
+    """Resolve short attribution token and redirect to destination URL."""
+    if not getattr(settings, 'ENABLE_ATTRIBUTION_LINKS', True):
+        raise Http404("Attribution links are disabled.")
+    token = (token or '').strip()
+    link = get_object_or_404(
+        AttributionLink.objects.select_related('event', 'guest'),
+        token=token
+    )
+
+    legacy_redirect = bool((link.metadata or {}).get('legacy_redirect'))
+    if link.is_expired:
+        raise Http404("Attribution link is inactive or expired.")
+    if not link.is_active and not legacy_redirect:
+        raise Http404("Attribution link is inactive or expired.")
+
+    # Lightweight request-level throttling to limit token abuse.
+    forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    client_ip = (forwarded_for.split(',')[0].strip() if forwarded_for else request.META.get('REMOTE_ADDR', '')).strip()
+    if client_ip:
+        rl_key = f"attr_rl:{token}:{client_ip}"
+        current_hits = cache.get(rl_key, 0)
+        cache.set(rl_key, int(current_hits) + 1, timeout=60)
+        if int(current_hits) >= 120:
+            return HttpResponse("Too many requests", status=429)
+
+    hash_seed = settings.SECRET_KEY[:16]
+    ip_hash = hashlib.sha256(f"{hash_seed}:{client_ip}".encode('utf-8')).hexdigest() if client_ip else ''
+
+    AttributionClick.objects.create(
+        attribution_link=link,
+        event=link.event,
+        guest=link.guest,
+        target_type=link.target_type,
+        channel=link.channel,
+        campaign=link.campaign,
+        placement=link.placement,
+        ip_hash=ip_hash,
+        user_agent=(request.META.get('HTTP_USER_AGENT', '') or '')[:1000],
+        referer=(request.META.get('HTTP_REFERER', '') or '')[:1000],
+    )
+    AttributionLink.objects.filter(id=link.id).update(click_count=F('click_count') + 1)
+
+    return HttpResponseRedirect(build_attribution_destination_path(link))
 
 
 @api_view(['POST'])

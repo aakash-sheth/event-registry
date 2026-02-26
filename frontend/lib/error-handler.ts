@@ -72,7 +72,7 @@ export function getErrorMessage(error: any): string {
   }
 
   if (status === 404) {
-    return 'The requested item was not found.'
+    return errorData?.error || 'The requested item was not found.'
   }
 
   if (status === 409) {

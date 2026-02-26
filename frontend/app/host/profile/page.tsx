@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -12,7 +11,6 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
 import { getErrorMessage, logError } from '@/lib/error-handler'
-import Logo from '@/components/Logo'
 
 const setPasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
@@ -206,32 +204,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-eco-beige">
-      {/* Header */}
-      <nav className="bg-white border-b border-eco-green-light shadow-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Logo href="/" />
-          <div className="flex items-center gap-4">
-            <Link href="/host/dashboard">
-              <Button variant="ghost" className="text-eco-green">
-                Dashboard
-              </Button>
-            </Link>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                localStorage.removeItem('access_token')
-                localStorage.removeItem('refresh_token')
-                router.push('/host/login')
-              }}
-              className="text-eco-green"
-            >
-              Logout
-            </Button>
-          </div>
-        </div>
-      </nav>
-
-      <div className="container mx-auto px-4 py-12 max-w-2xl">
+      <div className="container mx-auto px-4 py-8 md:py-10 max-w-2xl">
         <h1 className="text-4xl font-bold mb-8 text-eco-green">Profile Settings</h1>
 
         {/* User Information */}

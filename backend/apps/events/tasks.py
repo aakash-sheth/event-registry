@@ -14,14 +14,22 @@ logger = logging.getLogger(__name__)
 
 # Import models conditionally
 try:
-    from .models import Guest, InvitePageView, RSVPPageView, Event, AnalyticsBatchRun
+    from .models import Guest, InvitePageView, RSVPPageView, Event, AnalyticsBatchRun, AttributionLink
     MODELS_AVAILABLE = True
 except Exception:
     MODELS_AVAILABLE = False
-    Guest = InvitePageView = RSVPPageView = Event = AnalyticsBatchRun = None
+    Guest = InvitePageView = RSVPPageView = Event = AnalyticsBatchRun = AttributionLink = None
 
 
-def collect_page_view(guest_token: str, event_id: int, view_type: str = 'invite'):
+def collect_page_view(
+    guest_token: str,
+    event_id: int,
+    view_type: str = 'invite',
+    source_channel: str = 'link',
+    attribution_token: str = None,
+    campaign: str = '',
+    placement: str = '',
+):
     """
     Collect a page view in cache for batch processing.
     This is synchronous and very fast (in-memory cache write).
@@ -59,6 +67,26 @@ def collect_page_view(guest_token: str, event_id: int, view_type: str = 'invite'
             )
             return False
         
+        normalized_source = (source_channel or '').strip().lower()
+        if normalized_source not in {'qr', 'link', 'manual'}:
+            normalized_source = 'link'
+
+        attribution_link_id = None
+        if attribution_token:
+            link = AttributionLink.objects.filter(
+                token=attribution_token,
+                event_id=event_id,
+                is_active=True,
+            ).only('id', 'channel', 'campaign', 'placement').first()
+            if link:
+                attribution_link_id = link.id
+                if not campaign:
+                    campaign = link.campaign or ''
+                if not placement:
+                    placement = link.placement or ''
+                if normalized_source == 'link' and link.channel:
+                    normalized_source = link.channel
+
         # Get batch collection settings
         batch_interval = getattr(settings, 'ANALYTICS_BATCH_INTERVAL_MINUTES', 30)
         cache_prefix = getattr(settings, 'ANALYTICS_BATCH_CACHE_PREFIX', 'analytics_pending')
@@ -74,6 +102,10 @@ def collect_page_view(guest_token: str, event_id: int, view_type: str = 'invite'
             'guest_id': guest.id,
             'event_id': event_id,
             'view_type': view_type,
+            'source_channel': normalized_source,
+            'attribution_link_id': attribution_link_id,
+            'campaign': (campaign or '')[:100],
+            'placement': (placement or '')[:100],
             'timestamp': timestamp_str,
         }
         
@@ -244,10 +276,18 @@ def process_analytics_batch():
             batch_run.save()
             return batch_run
         
-        # Deduplicate: Group by (guest_id, event_id, view_type) and keep only first timestamp
+        # Deduplicate: keep one event per attribution bucket in batch window.
         deduplicated_views = {}
         for view in pending_views:
-            key = (view['guest_id'], view['event_id'], view['view_type'])
+            key = (
+                view['guest_id'],
+                view['event_id'],
+                view['view_type'],
+                view.get('attribution_link_id'),
+                view.get('source_channel', 'link'),
+                view.get('campaign', ''),
+                view.get('placement', ''),
+            )
             if key not in deduplicated_views:
                 deduplicated_views[key] = view
             else:
@@ -287,6 +327,10 @@ def process_analytics_batch():
                 invite_objects.append(InvitePageView(
                     guest=guest,
                     event=event,
+                    attribution_link_id=view.get('attribution_link_id'),
+                    source_channel=view.get('source_channel') or 'link',
+                    campaign=(view.get('campaign') or '')[:100],
+                    placement=(view.get('placement') or '')[:100],
                     viewed_at=viewed_at
                 ))
             except (Guest.DoesNotExist, Event.DoesNotExist) as e:
@@ -310,6 +354,10 @@ def process_analytics_batch():
                 rsvp_objects.append(RSVPPageView(
                     guest=guest,
                     event=event,
+                    attribution_link_id=view.get('attribution_link_id'),
+                    source_channel=view.get('source_channel') or 'link',
+                    campaign=(view.get('campaign') or '')[:100],
+                    placement=(view.get('placement') or '')[:100],
                     viewed_at=viewed_at
                 ))
             except (Guest.DoesNotExist, Event.DoesNotExist) as e:

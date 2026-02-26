@@ -146,10 +146,9 @@ api.interceptors.request.use((config) => {
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     } else {
-      // Token still not available - this might be a public request
-      // Don't fail, let the backend handle it
-      // Log warning for debugging but don't block the request
-      if (process.env.NODE_ENV === 'development') {
+      // Token not required for auth endpoints (login, signup, OTP, etc.)
+      const isAuthEndpoint = config.url && /\/api\/auth\/(check-password-enabled|password-login|otp\/start|otp\/verify|signup|forgot-password|reset-password)/.test(config.url)
+      if (process.env.NODE_ENV === 'development' && !isAuthEndpoint) {
         console.warn('[API] No access token available for request:', config.url)
       }
     }
@@ -543,7 +542,9 @@ export interface GuestAnalytics {
   last_rsvp_view: string | null
   has_viewed_invite: boolean
   has_viewed_rsvp: boolean
-}export interface EventAnalyticsSummary {
+}
+
+export interface EventAnalyticsSummary {
   total_guests: number
   guests_with_invite_views: number
   guests_with_rsvp_views: number
@@ -552,6 +553,17 @@ export interface GuestAnalytics {
   invite_view_rate: number
   rsvp_view_rate: number
   engagement_rate: number
+  attribution_clicks_total?: number
+  target_type_clicks?: Record<string, number>
+  source_channel_breakdown?: Record<string, number>
+  funnel?: {
+    invite?: { clicks: number; views: number; rsvp_submissions: number }
+    rsvp?: { clicks: number; views: number; rsvp_submissions: number }
+    registry?: { clicks: number; paid_orders: number }
+  }
+  insights_locked?: boolean
+  insights_cta_label?: string
+  metric_definitions?: Record<string, string>
 }
 
 export interface GuestsAnalyticsResponse {
@@ -581,5 +593,45 @@ export interface BatchStatus {
 
 export async function getAnalyticsBatchStatus(eventId: number): Promise<BatchStatus> {
   const response = await api.get(`/api/events/${eventId}/analytics/batch-status/`)
+  return response.data
+}
+
+export async function enableEventAnalyticsInsights(eventId: number): Promise<{ analytics_insights_enabled: boolean; analytics_enabled_at?: string | null }> {
+  const response = await api.post(`/api/events/${eventId}/analytics/enable-insights/`)
+  return response.data
+}
+
+export interface AttributionLink {
+  id: number
+  token: string
+  target_type: 'invite' | 'rsvp' | 'registry'
+  channel: 'qr' | 'link'
+  campaign: string
+  placement: string
+  is_active: boolean
+  expires_at: string | null
+  click_count: number
+  short_url: string
+  destination_url: string
+  created_at: string
+}
+
+export interface CreateAttributionLinkPayload {
+  target_type: 'invite' | 'rsvp' | 'registry'
+  channel: 'qr' | 'link'
+  campaign?: string
+  placement?: string
+  guest_id?: number | null
+  expires_at?: string | null
+}
+
+export async function listAttributionLinks(eventId: number, targetType?: 'invite' | 'rsvp' | 'registry'): Promise<AttributionLink[]> {
+  const params = targetType ? { target_type: targetType } : undefined
+  const response = await api.get(`/api/events/${eventId}/attribution-links/`, { params })
+  return response.data
+}
+
+export async function createAttributionLink(eventId: number, payload: CreateAttributionLinkPayload): Promise<AttributionLink> {
+  const response = await api.post(`/api/events/${eventId}/attribution-links/`, payload)
   return response.data
 }

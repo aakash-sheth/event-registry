@@ -1,8 +1,12 @@
 from rest_framework import serializers
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate
+from django.conf import settings
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header
 import re
+import secrets
+import string
+from urllib.parse import urlencode
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -13,8 +17,8 @@ class EventSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'timezone', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'is_expired', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'host_name', 'country_code', 'is_expired', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'timezone', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'is_expired', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'host_name', 'country_code', 'analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'is_expired', 'created_at', 'updated_at')
     
     def validate_slug(self, value):
         """Ensure slug is unique (excluding current instance on update)"""
@@ -136,6 +140,127 @@ class EventCreateSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Return full event data including id after creation"""
         return EventSerializer(instance).data
+
+
+class AttributionLinkSerializer(serializers.ModelSerializer):
+    guest_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    short_url = serializers.SerializerMethodField()
+    destination_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AttributionLink
+        fields = (
+            'id', 'token', 'event', 'guest', 'guest_id',
+            'target_type', 'channel', 'campaign', 'placement',
+            'is_active', 'expires_at', 'click_count', 'metadata',
+            'short_url', 'destination_url', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'token', 'event', 'guest', 'click_count', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        event = self.context.get('event')
+        if not event:
+            raise serializers.ValidationError("Event context is required.")
+        if not getattr(settings, 'ENABLE_ATTRIBUTION_LINKS', True):
+            raise serializers.ValidationError('Attribution links are currently disabled.')
+
+        target_type = attrs.get('target_type') or getattr(self.instance, 'target_type', None)
+        if target_type == 'registry' and not getattr(settings, 'ENABLE_REGISTRY_ATTRIBUTION_LINKS', True):
+            raise serializers.ValidationError({'target_type': 'Registry attribution links are not enabled yet.'})
+        if target_type == 'registry' and not event.has_registry:
+            raise serializers.ValidationError({'target_type': 'Registry link is not allowed because registry is disabled for this event.'})
+        if target_type == 'rsvp' and not event.has_rsvp:
+            raise serializers.ValidationError({'target_type': 'RSVP link is not allowed because RSVP is disabled for this event.'})
+
+        guest_id = attrs.pop('guest_id', None)
+        if guest_id:
+            try:
+                guest = Guest.objects.get(id=guest_id, event=event, is_removed=False)
+            except Guest.DoesNotExist:
+                raise serializers.ValidationError({'guest_id': 'Guest not found for this event.'})
+            attrs['guest'] = guest
+        elif self.instance and self.instance.guest_id:
+            attrs['guest'] = self.instance.guest
+        else:
+            attrs['guest'] = None
+
+        return attrs
+
+    def create(self, validated_data):
+        event = self.context['event']
+        request = self.context.get('request')
+        user = request.user if request and request.user.is_authenticated else None
+
+        target_type = validated_data['target_type']
+        existing = AttributionLink.objects.filter(
+            event=event,
+            target_type=target_type,
+            is_active=True,
+        ).order_by('-created_at').first()
+        if existing:
+            # Keep a canonical single active link per destination.
+            fields_to_update = []
+            for field in ('channel', 'campaign', 'placement', 'metadata', 'expires_at'):
+                incoming = validated_data.get(field, getattr(existing, field))
+                if getattr(existing, field) != incoming:
+                    setattr(existing, field, incoming)
+                    fields_to_update.append(field)
+            if existing.created_by_id is None and user:
+                existing.created_by = user
+                fields_to_update.append('created_by')
+            if fields_to_update:
+                existing.save(update_fields=fields_to_update + ['updated_at'])
+            return existing
+
+        # Generate collision-resistant base62 token.
+        alphabet = string.ascii_letters + string.digits
+        token = ''
+        for _ in range(8):
+            candidate = ''.join(secrets.choice(alphabet) for _ in range(8))
+            if not AttributionLink.objects.filter(token=candidate).exists():
+                token = candidate
+                break
+        if not token:
+            raise serializers.ValidationError('Unable to generate a unique token. Please retry.')
+
+        return AttributionLink.objects.create(
+            event=event,
+            created_by=user,
+            token=token,
+            **validated_data,
+        )
+
+    def _build_destination_path(self, obj):
+        base_path = {
+            'invite': f"/invite/{obj.event.slug}",
+            'rsvp': f"/event/{obj.event.slug}/rsvp",
+            'registry': f"/registry/{obj.event.slug}",
+        }.get(obj.target_type, f"/invite/{obj.event.slug}")
+
+        params = {'source': obj.channel or 'link', 'al': obj.token}
+        if obj.guest_id and obj.guest and obj.guest.guest_token:
+            params['g'] = obj.guest.guest_token
+        if obj.campaign:
+            params['campaign'] = obj.campaign
+        if obj.placement:
+            params['placement'] = obj.placement
+
+        return f"{base_path}?{urlencode(params)}"
+
+    def get_short_url(self, obj):
+        short_path = f"/q/{obj.token}/"
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(short_path)
+        origin = getattr(settings, 'FRONTEND_ORIGIN', '').rstrip('/')
+        return f"{origin}{short_path}" if origin else short_path
+
+    def get_destination_url(self, obj):
+        request = self.context.get('request')
+        destination_path = self._build_destination_path(obj)
+        if not request:
+            return destination_path
+        return request.build_absolute_uri(destination_path)
 
 
 class RSVPSerializer(serializers.ModelSerializer):

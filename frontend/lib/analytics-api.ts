@@ -25,6 +25,17 @@ export interface EventAnalyticsSummary {
   invite_view_rate: number
   rsvp_view_rate: number
   engagement_rate: number
+  attribution_clicks_total?: number
+  target_type_clicks?: Record<string, number>
+  source_channel_breakdown?: Record<string, number>
+  funnel?: {
+    invite?: { clicks: number; views: number; rsvp_submissions: number }
+    rsvp?: { clicks: number; views: number; rsvp_submissions: number }
+    registry?: { clicks: number; paid_orders: number }
+  }
+  insights_locked?: boolean
+  insights_cta_label?: string
+  metric_definitions?: Record<string, string>
 }
 
 export interface GuestsAnalyticsResponse {

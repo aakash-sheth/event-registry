@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import HostShell from '@/components/host/HostShell'
 
 export const metadata: Metadata = {
   robots: {
@@ -16,6 +17,6 @@ export const metadata: Metadata = {
 }
 
 export default function HostLayout({ children }: { children: React.ReactNode }) {
-  return children
+  return <HostShell>{children}</HostShell>
 }
 

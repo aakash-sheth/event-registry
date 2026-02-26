@@ -473,6 +473,10 @@ export default function RSVPPage() {
       const response = await api.get(`/api/events/${event.id}/rsvp/guest-by-token/`, {
         params: {
           token: guestToken, // Backend accepts both 'token' and 'g'
+          source: sourceChannel,
+          al: searchParams.get('al') || undefined,
+          campaign: searchParams.get('campaign') || undefined,
+          placement: searchParams.get('placement') || undefined,
         }
       })
       
