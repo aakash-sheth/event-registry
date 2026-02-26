@@ -8,7 +8,7 @@ from .views import (
     whatsapp_template_archive, whatsapp_template_activate,
     whatsapp_template_increment_usage, whatsapp_template_set_default,
     get_event_impact, get_overall_impact,
-    invite_page_by_event
+    invite_page_by_event, attribution_redirect
 )
 
 router = DefaultRouter()
@@ -18,6 +18,7 @@ router.register(r'guest-invites', GuestInviteViewSet, basename='guest-invite')
 
 urlpatterns = [
     # Put custom paths BEFORE router.urls so they take precedence
+    path('q/<str:token>/', attribution_redirect, name='attribution-redirect'),
     # Impact endpoints - must be before routes with <int:id> to avoid conflicts
     path('impact/overall/', get_overall_impact, name='overall-impact'),
     # Invite page routes - must be before other <int:id> routes to avoid conflicts

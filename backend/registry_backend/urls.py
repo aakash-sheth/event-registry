@@ -7,8 +7,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from apps.common.views import health_check, log_to_cloudwatch_endpoint, custom_404_handler
 from apps.users.admin import admin_site
+from apps.events.views import attribution_redirect
 
 urlpatterns = [
+    path('q/<str:token>/', attribution_redirect, name='public-attribution-redirect'),
     path('api/admin/', admin_site.urls),  # Use custom admin site with better error messages (moved to /api/admin/ for ALB routing)
     # Analytics is now handled by admin_site.urls at /api/admin/analytics/
     path('health', health_check, name='health'),

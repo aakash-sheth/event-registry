@@ -1256,11 +1256,26 @@ export default function DesignInvitationPage(): JSX.Element {
         <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 w-full overflow-x-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 w-full">
           <div className="flex-1 min-w-0 w-full">
-            <Link href={`/host/events/${eventId}`}>
-                <Button variant="outline" className="mb-2 text-xs sm:text-sm w-full sm:w-auto">
-                ← Back to Event
-              </Button>
-            </Link>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Link href={`/host/events/${eventId}`}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-eco-green text-eco-green hover:bg-eco-green-light"
+                >
+                  Back to Event
+                </Button>
+              </Link>
+              <Link href={`/host/events/${eventId}/guests`}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-eco-green text-eco-green hover:bg-eco-green-light"
+                >
+                  Guests
+                </Button>
+              </Link>
+            </div>
             <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-eco-green break-words">Design Invitation Page</h1>
               <p className="text-gray-600 mt-1 text-xs sm:text-sm break-words">Customize your invitation page by arranging and configuring tiles. Drag tiles in the mobile preview to reorder them.</p>
           </div>

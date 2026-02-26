@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -252,10 +253,43 @@ export default function CommunicationsPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Page Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2 text-eco-green">WhatsApp Templates</h1>
-          <p className="text-gray-600">
-            {event && `Manage message templates for ${event.title}`}
-          </p>
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={`/host/events/${eventId}`}>
+                <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  Back to Event
+                </Button>
+              </Link>
+              <Link href={`/host/events/${eventId}/guests`}>
+                <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  Manage Guests
+                </Button>
+              </Link>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <Button
+                onClick={() => setShowVariablesPanel(!showVariablesPanel)}
+                variant="outline"
+                size="sm"
+                className="border-eco-green text-eco-green hover:bg-eco-green-light"
+              >
+                {showVariablesPanel ? 'Hide' : 'Show'} Variables
+              </Button>
+              <Button
+                onClick={handleCreateTemplate}
+                size="sm"
+                className="bg-eco-green hover:bg-green-600 text-white whitespace-nowrap"
+              >
+                + Create Template
+              </Button>
+            </div>
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold mb-2 text-eco-green">WhatsApp Templates</h1>
+            <p className="text-gray-600">
+              {event && `Manage message templates for ${event.title}`}
+            </p>
+          </div>
         </div>
 
         {/* Filters and Actions */}
@@ -287,21 +321,6 @@ export default function CommunicationsPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="flex-1 md:w-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
                 />
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => setShowVariablesPanel(!showVariablesPanel)}
-                    variant="outline"
-                    className="border-eco-green text-eco-green hover:bg-eco-green-light flex-1 sm:flex-none"
-                  >
-                    {showVariablesPanel ? 'Hide' : 'Show'} Variables
-                  </Button>
-                  <Button
-                    onClick={handleCreateTemplate}
-                    className="bg-eco-green hover:bg-green-600 text-white flex-1 sm:flex-none whitespace-nowrap"
-                  >
-                    + Create Template
-                  </Button>
-                </div>
               </div>
             </div>
           </CardContent>

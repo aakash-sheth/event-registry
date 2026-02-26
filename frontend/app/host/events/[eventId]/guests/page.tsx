@@ -96,6 +96,8 @@ interface Event {
   rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
   host_name?: string
   custom_fields_metadata?: Record<string, any>
+  has_rsvp?: boolean
+  has_registry?: boolean
 }
 
 type CustomFieldMeta = {
@@ -196,6 +198,7 @@ export default function GuestsPage() {
   const [customFieldsDraft, setCustomFieldsDraft] = useState<CustomFieldMeta[]>([])
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [showAnalyticsSummary, setShowAnalyticsSummary] = useState(true)
+  const [nameSearch, setNameSearch] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const hasInitializedFiltersRef = useRef(false)
@@ -569,6 +572,13 @@ export default function GuestsPage() {
   const visibleGuests = useMemo(() => {
     let list = guests.filter(g => !g.is_removed)
 
+    // Name search
+    const searchTrim = nameSearch.trim()
+    if (searchTrim) {
+      const q = searchTrim.toLowerCase()
+      list = list.filter(g => (g.name || '').toLowerCase().includes(q))
+    }
+
     // RSVP status filter
     if (rsvpFilter !== 'all') {
       const matchesRsvp = (g: Guest) => {
@@ -675,6 +685,7 @@ export default function GuestsPage() {
     return sorted
   }, [
     guests,
+    nameSearch,
     rsvpFilter,
     rsvpFilterMode,
     categorySource,
@@ -1668,7 +1679,7 @@ export default function GuestsPage() {
           <div className="flex flex-wrap gap-2 mb-4">
           <Link href={`/host/events/${eventId}`}>
               <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
-              ← Back to Event
+              Back to Event
             </Button>
           </Link>
             <Link href={`/host/events/${eventId}/communications`}>
@@ -1677,14 +1688,14 @@ export default function GuestsPage() {
               </Button>
             </Link>
           </div>
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <h1 className="text-3xl md:text-4xl font-bold mb-2 text-eco-green leading-tight">Guest List</h1>
               <p className="text-gray-700 text-sm md:text-base">
                 Manage your invited guests. Track who RSVP'd and gave gifts.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap relative w-full">
+            <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap relative w-full md:w-auto md:justify-end">
               {/* Add Guest Button */}
               <Button
                 onClick={() => {
@@ -1765,12 +1776,12 @@ export default function GuestsPage() {
           </div>
         </div>
 
-        {/* Analytics Summary Card */}
+        {/* Compact guest engagement summary (click details live on Overview) */}
         {analyticsSummary && (
           <Card className="mb-6 bg-white border-2 border-eco-green-light">
-            <CardHeader>
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-eco-green">Guest Engagement Analytics</CardTitle>
+                <CardTitle className="text-eco-green text-base">Guest engagement</CardTitle>
                 {isMobileViewport && (
                   <Button
                     type="button"
@@ -1783,31 +1794,38 @@ export default function GuestsPage() {
                   </Button>
                 )}
               </div>
-              <CardDescription className={isMobileViewport && !showAnalyticsSummary ? 'hidden' : ''}>
-                Track how guests are engaging with your invites and RSVP pages
-              </CardDescription>
             </CardHeader>
             <CardContent className={isMobileViewport && !showAnalyticsSummary ? 'hidden' : ''}>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                <div className="text-center p-3 md:p-4 bg-eco-green-light rounded-lg">
-                  <div className="text-xl md:text-2xl font-bold text-eco-green">{analyticsSummary.total_guests}</div>
-                  <div className="text-xs md:text-sm text-gray-600 mt-1">Total Guests</div>
+              <div className="flex flex-wrap gap-3">
+                <div className="text-center p-3 bg-eco-green-light rounded-lg min-w-[80px]">
+                  <div className="text-lg font-bold text-eco-green">{analyticsSummary.total_guests}</div>
+                  <div className="text-xs text-gray-600">Guests</div>
                 </div>
-                <div className="text-center p-3 md:p-4 bg-blue-50 rounded-lg">
-                  <div className="text-xl md:text-2xl font-bold text-blue-600">{analyticsSummary.guests_with_invite_views}</div>
-                  <div className="text-xs md:text-sm text-gray-600 mt-1">Viewed Invite</div>
-                  <div className="text-xs text-gray-500 mt-1">{analyticsSummary.invite_view_rate.toFixed(1)}%</div>
+                <div className="text-center p-3 bg-blue-50 rounded-lg min-w-[80px]">
+                  <div className="text-lg font-bold text-blue-600">{analyticsSummary.guests_with_invite_views}</div>
+                  <div className="text-xs text-gray-600">Viewed invite</div>
+                  <div className="text-xs text-gray-500">{analyticsSummary.invite_view_rate.toFixed(0)}%</div>
                 </div>
-                <div className="text-center p-3 md:p-4 bg-purple-50 rounded-lg">
-                  <div className="text-xl md:text-2xl font-bold text-purple-600">{analyticsSummary.guests_with_rsvp_views}</div>
-                  <div className="text-xs md:text-sm text-gray-600 mt-1">Viewed RSVP</div>
-                  <div className="text-xs text-gray-500 mt-1">{analyticsSummary.rsvp_view_rate.toFixed(1)}%</div>
-                </div>
-                <div className="text-center p-3 md:p-4 bg-green-50 rounded-lg">
-                  <div className="text-xl md:text-2xl font-bold text-green-600">{analyticsSummary.total_invite_views}</div>
-                  <div className="text-xs md:text-sm text-gray-600 mt-1">Total Invite Views</div>
-                  <div className="text-xs text-gray-500 mt-1">{analyticsSummary.total_rsvp_views} RSVP views</div>
-                </div>
+                {event?.has_rsvp && (
+                  <>
+                    <div className="text-center p-3 bg-purple-50 rounded-lg min-w-[80px]">
+                      <div className="text-lg font-bold text-purple-600">{analyticsSummary.guests_with_rsvp_views}</div>
+                      <div className="text-xs text-gray-600">Viewed RSVP</div>
+                      <div className="text-xs text-gray-500">{analyticsSummary.rsvp_view_rate.toFixed(0)}%</div>
+                    </div>
+                    <div className="text-center p-3 bg-green-50 rounded-lg min-w-[80px]">
+                      <div className="text-lg font-bold text-green-600">{analyticsSummary.total_invite_views}</div>
+                      <div className="text-xs text-gray-600">Invite views</div>
+                      <div className="text-xs text-gray-500">{analyticsSummary.total_rsvp_views} RSVP views</div>
+                    </div>
+                  </>
+                )}
+                {!event?.has_rsvp && (
+                  <div className="text-center p-3 bg-green-50 rounded-lg min-w-[80px]">
+                    <div className="text-lg font-bold text-green-600">{analyticsSummary.total_invite_views}</div>
+                    <div className="text-xs text-gray-600">Invite views</div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -2093,81 +2111,93 @@ export default function GuestsPage() {
                 Guests from this list who RSVP or give gifts will be marked as "Core Guests"
               </CardDescription>
             </div>
-            
-            {/* RSVP Status Filters */}
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setRsvpFilter('all')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    rsvpFilter === 'all'
-                      ? 'bg-eco-green text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  All ({guests.filter(g => !g.is_removed).length})
-                </button>
-                <button
-                  onClick={() => setRsvpFilter('unconfirmed')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    rsvpFilter === 'unconfirmed'
-                      ? 'bg-eco-green text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Unconfirmed ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
-                </button>
-                <button
-                  onClick={() => setRsvpFilter('confirmed')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    rsvpFilter === 'confirmed'
-                      ? 'bg-eco-green text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Confirmed ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
-                </button>
-                <button
-                  onClick={() => setRsvpFilter('no')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    rsvpFilter === 'no'
-                      ? 'bg-eco-green text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
-                </button>
-              </div>
-              {rsvpFilter !== 'all' && (
-                <div className="flex items-center gap-1 border-l pl-2 ml-2">
+          </CardHeader>
+          <CardContent>
+            {/* Toolbar: search + RSVP tabs + filters */}
+            <div className="space-y-4">
+              {/* Search + RSVP status row */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <Input
+                  type="search"
+                  placeholder="Search by guest name..."
+                  value={nameSearch}
+                  onChange={(e) => setNameSearch(e.target.value)}
+                  className="w-full sm:max-w-sm border-eco-green-light focus:ring-eco-green focus:border-eco-green"
+                  aria-label="Search guests by name"
+                />
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => setRsvpFilterMode('include')}
-                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                      rsvpFilterMode === 'include'
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    onClick={() => setRsvpFilter('all')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      rsvpFilter === 'all'
+                        ? 'bg-eco-green text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
-                    title="Include guests matching this filter"
                   >
-                    Include
+                    All ({guests.filter(g => !g.is_removed).length})
                   </button>
                   <button
-                    onClick={() => setRsvpFilterMode('exclude')}
-                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                      rsvpFilterMode === 'exclude'
-                        ? 'bg-red-500 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    onClick={() => setRsvpFilter('unconfirmed')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      rsvpFilter === 'unconfirmed'
+                        ? 'bg-eco-green text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
-                    title="Exclude guests matching this filter"
                   >
-                    Exclude
+                    Unconfirmed ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
                   </button>
+                  <button
+                    onClick={() => setRsvpFilter('confirmed')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      rsvpFilter === 'confirmed'
+                        ? 'bg-eco-green text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Confirmed ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
+                  </button>
+                  <button
+                    onClick={() => setRsvpFilter('no')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      rsvpFilter === 'no'
+                        ? 'bg-eco-green text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
+                  </button>
+                  {rsvpFilter !== 'all' && (
+                    <div className="flex items-center gap-1 border-l border-gray-200 pl-2 ml-2">
+                      <button
+                        onClick={() => setRsvpFilterMode('include')}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          rsvpFilterMode === 'include'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title="Include guests matching this filter"
+                      >
+                        Include
+                      </button>
+                      <button
+                        onClick={() => setRsvpFilterMode('exclude')}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          rsvpFilterMode === 'exclude'
+                            ? 'bg-red-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title="Exclude guests matching this filter"
+                      >
+                        Exclude
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Filter + Sort */}
-            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {/* Filter row: left group (controls) + right group (Showing, Reset) */}
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600">Category</span>
                 <select
@@ -2442,31 +2472,33 @@ export default function GuestsPage() {
                   {sortDir === 'asc' ? '↑' : '↓'}
                 </Button>
               </div>
+                </div>
 
-              <div className="flex-1" />
-
-              <div className="text-xs text-gray-500">
-                Showing {visibleGuests.length} of {guests.filter(g => !g.is_removed).length}
+                <div className="flex items-center gap-2 ml-auto">
+                  <div className="text-xs text-gray-500">
+                    Showing {visibleGuests.length} of {guests.filter(g => !g.is_removed).length}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setNameSearch('')
+                      setCategorySource('relationship')
+                      setCategoryValue('all')
+                      setInviteSentFilter('all')
+                      setSelectedSubEventFilterIds(new Set())
+                      setSortKey('name')
+                      setSortDir('asc')
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </div>
               </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setCategorySource('relationship')
-                  setCategoryValue('all')
-                  setInviteSentFilter('all')
-                  setSelectedSubEventFilterIds(new Set())
-                  setSortKey('name')
-                  setSortDir('asc')
-                }}
-              >
-                Reset
-              </Button>
             </div>
-          </CardHeader>
-          <CardContent>
+
+            <div className="border-t border-gray-200 pt-4 mt-4">
             {guests.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-5xl mb-4">👥</div>
@@ -3079,6 +3111,7 @@ export default function GuestsPage() {
                 </table>
               </div>
             )}
+            </div>
           </CardContent>
         </Card>
 

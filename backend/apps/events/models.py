@@ -1,6 +1,8 @@
 from django.db import models, IntegrityError
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from django.utils import timezone
+from django.db.models import Q
 from apps.users.models import User
 
 
@@ -115,6 +117,25 @@ class Event(models.Model):
     # Event expiry and messaging
     expiry_date = models.DateField(null=True, blank=True, help_text="Date when event expires (for impact calculation)")
     whatsapp_message_template = models.TextField(blank=True, help_text="Custom WhatsApp message template for sharing")
+
+    # Attribution insights visibility gate (collection remains always-on)
+    analytics_insights_enabled = models.BooleanField(
+        default=False,
+        help_text="Controls host visibility of attribution insights; tracking collection remains active."
+    )
+    analytics_enabled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when host enabled attribution insights visibility."
+    )
+    analytics_enabled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='analytics_enabled_events',
+        help_text="Host user who enabled attribution insights visibility."
+    )
     
     # Custom fields from CSV imports
     custom_fields_metadata = models.JSONField(default=dict, blank=True, help_text="Metadata for custom CSV columns: normalized key -> display label mapping")
@@ -339,10 +360,101 @@ class SubEvent(models.Model):
         return f"{self.title} - {self.event.title}"
 
 
+class AttributionLink(models.Model):
+    """Short redirect links for destination-specific attribution tracking."""
+    TARGET_TYPE_CHOICES = [
+        ('invite', 'Invite'),
+        ('rsvp', 'RSVP'),
+        ('registry', 'Registry'),
+    ]
+    CHANNEL_CHOICES = [
+        ('qr', 'QR Code'),
+        ('link', 'Web Link'),
+    ]
+
+    token = models.CharField(max_length=16, unique=True, db_index=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='attribution_links')
+    guest = models.ForeignKey(Guest, on_delete=models.SET_NULL, null=True, blank=True, related_name='attribution_links')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_attribution_links')
+
+    target_type = models.CharField(max_length=20, choices=TARGET_TYPE_CHOICES)
+    channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES, default='qr')
+    campaign = models.CharField(max_length=100, blank=True, default='')
+    placement = models.CharField(max_length=100, blank=True, default='')
+    metadata = models.JSONField(default=dict, blank=True)
+
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    click_count = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'attribution_links'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['event', 'target_type', 'channel'], name='attr_links_event_target_idx'),
+            models.Index(fields=['event', 'guest'], name='attr_links_event_guest_idx'),
+            models.Index(fields=['is_active', 'expires_at'], name='attr_links_active_exp_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['event', 'target_type'],
+                condition=Q(is_active=True),
+                name='attr_links_event_target_active_unique',
+            ),
+        ]
+
+    @property
+    def is_expired(self):
+        return bool(self.expires_at and self.expires_at <= timezone.now())
+
+    def __str__(self):
+        return f"{self.event_id}:{self.target_type}:{self.token}"
+
+
+class AttributionClick(models.Model):
+    """Immutable click events for attribution links."""
+    attribution_link = models.ForeignKey(AttributionLink, on_delete=models.CASCADE, related_name='clicks')
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='attribution_clicks')
+    guest = models.ForeignKey(Guest, on_delete=models.SET_NULL, null=True, blank=True, related_name='attribution_clicks')
+
+    target_type = models.CharField(max_length=20, choices=AttributionLink.TARGET_TYPE_CHOICES)
+    channel = models.CharField(max_length=20, choices=AttributionLink.CHANNEL_CHOICES, default='qr')
+    campaign = models.CharField(max_length=100, blank=True, default='')
+    placement = models.CharField(max_length=100, blank=True, default='')
+
+    ip_hash = models.CharField(max_length=64, blank=True, default='')
+    user_agent = models.TextField(blank=True, default='')
+    referer = models.TextField(blank=True, default='')
+    clicked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'attribution_clicks'
+        ordering = ['-clicked_at']
+        indexes = [
+            models.Index(fields=['event', 'target_type', '-clicked_at'], name='attr_clicks_event_target_idx'),
+            models.Index(fields=['attribution_link', '-clicked_at'], name='attr_clicks_link_time_idx'),
+            models.Index(fields=['channel', '-clicked_at'], name='attr_clicks_channel_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.attribution_link.token} @ {self.clicked_at}"
+
+
 class InvitePageView(models.Model):
     """Track when personalized invite links are opened"""
     guest = models.ForeignKey(Guest, on_delete=models.CASCADE, related_name='invite_views')
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='invite_views')
+    attribution_link = models.ForeignKey(AttributionLink, on_delete=models.SET_NULL, null=True, blank=True, related_name='invite_page_views')
+    source_channel = models.CharField(
+        max_length=20,
+        choices=[('qr', 'QR Code'), ('link', 'Web Link'), ('manual', 'Manual')],
+        default='link'
+    )
+    campaign = models.CharField(max_length=100, blank=True, default='')
+    placement = models.CharField(max_length=100, blank=True, default='')
     viewed_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -350,6 +462,7 @@ class InvitePageView(models.Model):
         indexes = [
             models.Index(fields=['guest', '-viewed_at'], name='invite_views_guest_idx'),
             models.Index(fields=['event', '-viewed_at'], name='invite_views_event_idx'),
+            models.Index(fields=['event', 'source_channel', '-viewed_at'], name='invite_views_event_src_idx'),
         ]
         ordering = ['-viewed_at']
     
@@ -361,6 +474,14 @@ class RSVPPageView(models.Model):
     """Track when guests open RSVP pages"""
     guest = models.ForeignKey(Guest, on_delete=models.CASCADE, related_name='rsvp_views')
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='rsvp_views')
+    attribution_link = models.ForeignKey(AttributionLink, on_delete=models.SET_NULL, null=True, blank=True, related_name='rsvp_page_views')
+    source_channel = models.CharField(
+        max_length=20,
+        choices=[('qr', 'QR Code'), ('link', 'Web Link'), ('manual', 'Manual')],
+        default='link'
+    )
+    campaign = models.CharField(max_length=100, blank=True, default='')
+    placement = models.CharField(max_length=100, blank=True, default='')
     viewed_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -368,6 +489,7 @@ class RSVPPageView(models.Model):
         indexes = [
             models.Index(fields=['guest', '-viewed_at'], name='rsvp_views_guest_idx'),
             models.Index(fields=['event', '-viewed_at'], name='rsvp_views_event_idx'),
+            models.Index(fields=['event', 'source_channel', '-viewed_at'], name='rsvp_views_event_src_idx'),
         ]
         ordering = ['-viewed_at']
     

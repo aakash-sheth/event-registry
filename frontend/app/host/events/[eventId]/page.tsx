@@ -2,17 +2,14 @@
 
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import dynamic from 'next/dynamic'
-import api from '@/lib/api'
+import api, { createAttributionLink, listAttributionLinks, getEventAnalyticsSummary, enableEventAnalyticsInsights, type AttributionLink, type EventAnalyticsSummary } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
-
-const QRCode = dynamic(() => import('react-qr-code'), {
-  ssr: false,
-  loading: () => <div className="w-[180px] h-[180px] bg-gray-100 animate-pulse rounded" />
-})
+import { getInvitePage } from '@/lib/invite/api'
+import QRCode from 'react-qr-code'
+import { ChevronDown } from 'lucide-react'
 
 interface Event {
   id: number
@@ -24,6 +21,7 @@ interface Event {
   is_expired?: boolean
   city: string
   is_public: boolean
+  page_config?: Record<string, any>
   has_rsvp: boolean
   has_registry: boolean
   whatsapp_message_template?: string
@@ -45,6 +43,15 @@ interface Order {
   } | null
 }
 
+type InvitePublishStatus = 'Published' | 'Draft' | 'Not created' | 'Unknown'
+type LinkKey = 'invite' | 'rsvp' | 'registry'
+
+const qrDestinationLabel: Record<LinkKey, string> = {
+  invite: 'Invite Page',
+  rsvp: 'RSVP Page',
+  registry: 'Registry Page',
+}
+
 export default function EventDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -55,14 +62,25 @@ export default function EventDetailPage() {
   const [guests, setGuests] = useState<any[]>([])
   const [rsvps, setRsvps] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [copiedQrLink, setCopiedQrLink] = useState(false)
-  const [showQRCode, setShowQRCode] = useState(false)
+  const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null)
   const [showPrivacyModal, setShowPrivacyModal] = useState(false)
   const [pendingPrivacyChange, setPendingPrivacyChange] = useState<boolean | null>(null)
   const [showExpiryEditor, setShowExpiryEditor] = useState(false)
   const [expiryDate, setExpiryDate] = useState('')
   const [savingExpiry, setSavingExpiry] = useState(false)
   const [impact, setImpact] = useState<any>(null)
+  const [invitePublishStatus, setInvitePublishStatus] = useState<InvitePublishStatus>('Unknown')
+  const [trackedLinks, setTrackedLinks] = useState<Record<LinkKey, AttributionLink | null>>({
+    invite: null,
+    rsvp: null,
+    registry: null,
+  })
+  const [openQrKey, setOpenQrKey] = useState<LinkKey | null>(null)
+  const [openActionsKey, setOpenActionsKey] = useState<LinkKey | null>(null)
+  const [downloadPickerKey, setDownloadPickerKey] = useState<LinkKey | null>(null)
+  const [downloadFormat, setDownloadFormat] = useState<'professional' | 'raw'>('professional')
+  const [analyticsSummary, setAnalyticsSummary] = useState<EventAnalyticsSummary | null>(null)
+  const [enablingInsights, setEnablingInsights] = useState(false)
 
   useEffect(() => {
     if (!eventId || eventId === 'undefined') {
@@ -78,6 +96,20 @@ export default function EventDetailPage() {
   }, [eventId, router])
 
   useEffect(() => {
+    if (!eventId || eventId === 'undefined') return
+    loadTrackedLinks()
+  }, [eventId, event?.has_rsvp, event?.has_registry])
+
+  useEffect(() => {
+    if (!eventId || eventId === 'undefined') return
+    let cancelled = false
+    getEventAnalyticsSummary(parseInt(eventId))
+      .then((data) => { if (!cancelled) setAnalyticsSummary(data) })
+      .catch(() => { if (!cancelled) setAnalyticsSummary(null) })
+    return () => { cancelled = true }
+  }, [eventId])
+
+  useEffect(() => {
     if (event && showExpiryEditor) {
       setExpiryDate(event.expiry_date || event.date || '')
     }
@@ -89,6 +121,37 @@ export default function EventDetailPage() {
       fetchImpact()
     }
   }, [event])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadInvitePublishStatus = async () => {
+      if (!event || !eventId || eventId === 'undefined') return
+
+      const hasConfig = !!(event.page_config && Object.keys(event.page_config).length > 0)
+      if (!hasConfig) {
+        if (!cancelled) setInvitePublishStatus('Not created')
+        return
+      }
+
+      try {
+        const invite = await getInvitePage(parseInt(eventId))
+        if (cancelled) return
+        if (!invite) {
+          setInvitePublishStatus('Not created')
+          return
+        }
+        setInvitePublishStatus(invite.is_published ? 'Published' : 'Draft')
+      } catch {
+        if (!cancelled) setInvitePublishStatus('Unknown')
+      }
+    }
+
+    loadInvitePublishStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [event, eventId])
 
   const fetchEvent = async () => {
     if (!eventId || eventId === 'undefined') {
@@ -216,74 +279,280 @@ export default function EventDetailPage() {
     }
   }
 
+  const getInviteUrl = () => {
+    if (typeof window === 'undefined' || !event) return ''
+    return `${window.location.origin}/invite/${event.slug}`
+  }
+
   const getRSVPUrl = () => {
     if (typeof window === 'undefined' || !event) return ''
     return `${window.location.origin}/event/${event.slug}/rsvp`
   }
 
-  const getQRCodeUrl = () => {
-    return `${getRSVPUrl()}?source=qr`
+  const getRegistryUrl = () => {
+    if (typeof window === 'undefined' || !event) return ''
+    return `${window.location.origin}/registry/${event.slug}`
   }
 
-  const handleCopyQrLink = async () => {
+  const campaignPreset: Record<LinkKey, string> = {
+    invite: 'main_card',
+    rsvp: 'rsvp_card',
+    registry: 'registry_card',
+  }
+
+  const placementPreset: Record<LinkKey, string> = {
+    invite: 'physical_invite',
+    rsvp: 'physical_invite',
+    registry: 'physical_invite',
+  }
+
+  const upsertTrackedLink = async (key: LinkKey, silent = false) => {
+    if (!eventId || eventId === 'undefined') return null
     try {
-      const url = getQRCodeUrl()
-      await navigator.clipboard.writeText(url)
-      setCopiedQrLink(true)
-      showToast('QR RSVP link copied!', 'success')
-      setTimeout(() => setCopiedQrLink(false), 2000)
-    } catch {
-      showToast('Failed to copy QR RSVP link', 'error')
+      const created = await createAttributionLink(parseInt(eventId), {
+        target_type: key,
+        channel: 'qr',
+        campaign: campaignPreset[key],
+        placement: placementPreset[key],
+      })
+      if (!silent) {
+        setTrackedLinks((prev) => ({ ...prev, [key]: created }))
+      }
+      return created
+    } catch (error: any) {
+      if (!silent) {
+        showToast(getErrorMessage(error) || 'Unable to initialize tracked link', 'error')
+      }
+      return null
     }
   }
 
-  const handleDownloadQRCode = () => {
+  const loadTrackedLinks = async () => {
     try {
-      const container = document.getElementById('overview-qr-code-container')
-      if (!container) {
-        showToast('QR code not found', 'error')
-        return
-      }
-
-      const svg = container.querySelector('svg')
-      if (!svg) {
-        showToast('QR code SVG not found', 'error')
-        return
-      }
-
-      const svgData = new XMLSerializer().serializeToString(svg)
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      const img = new Image()
-
-      img.onload = () => {
-        canvas.width = img.width + 40
-        canvas.height = img.height + 40
-        if (ctx) {
-          ctx.fillStyle = 'white'
-          ctx.fillRect(0, 0, canvas.width, canvas.height)
-          ctx.drawImage(img, 20, 20)
+      const links = await listAttributionLinks(parseInt(eventId))
+      const latest: Record<LinkKey, AttributionLink | null> = { invite: null, rsvp: null, registry: null }
+      links.forEach((link) => {
+        const key = link.target_type as LinkKey
+        if (!latest[key]) {
+          latest[key] = link
         }
-        const pngFile = canvas.toDataURL('image/png')
-        const downloadLink = document.createElement('a')
-        downloadLink.download = `qr-code-${event?.slug || eventId}.png`
-        downloadLink.href = pngFile
-        document.body.appendChild(downloadLink)
-        downloadLink.click()
-        document.body.removeChild(downloadLink)
-        showToast('QR code downloaded!', 'success')
+      })
+
+      // Always-on tracking: silently provision canonical tracked links for enabled destinations.
+      if (event) {
+        const requiredKeys: LinkKey[] = ['invite']
+        if (event.has_rsvp) requiredKeys.push('rsvp')
+        if (event.has_registry) requiredKeys.push('registry')
+
+        for (const key of requiredKeys) {
+          if (!latest[key]) {
+            const created = await upsertTrackedLink(key, true)
+            if (created) latest[key] = created
+          }
+        }
       }
 
-      img.onerror = () => {
-        showToast('Failed to generate QR code image', 'error')
-      }
-
-      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-      const url = URL.createObjectURL(svgBlob)
-      img.src = url
+      setTrackedLinks(latest)
     } catch (error) {
-      logError('Error downloading QR code:', error)
-      showToast('Failed to download QR code', 'error')
+      logDebug('Tracked links not available yet')
+    }
+  }
+
+  const getTrackedUrl = (key: LinkKey) => trackedLinks[key]?.short_url || ''
+  const getEffectiveUrl = (key: LinkKey, fallbackUrl: string) => getTrackedUrl(key) || fallbackUrl
+
+  const escapeSvgText = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+
+  const truncateText = (value: string, maxLength: number) =>
+    value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value
+
+  const buildProfessionalQrSvg = (key: LinkKey, qrSvgElement: SVGSVGElement) => {
+    const viewBox = qrSvgElement.getAttribute('viewBox') || ''
+    const viewBoxParts = viewBox.split(/\s+/).map(Number)
+    const qrViewBoxSize =
+      viewBoxParts.length === 4 && Number.isFinite(viewBoxParts[2]) && viewBoxParts[2] > 0
+        ? viewBoxParts[2]
+        : 29
+    const qrPathMarkup = qrSvgElement.innerHTML
+
+    // A5 portrait print-friendly canvas (148mm x 210mm), 10 units per mm
+    const canvasWidth = 1480
+    const canvasHeight = 2100
+    const cardX = 70
+    const cardY = 70
+    const cardWidth = canvasWidth - cardX * 2
+    const cardHeight = canvasHeight - cardY * 2
+    const qrFrameSize = 820
+    const qrScale = qrFrameSize / qrViewBoxSize
+    const qrTranslateX = (canvasWidth - qrFrameSize) / 2
+    const qrTranslateY = 690
+
+    const safeEventTitle = escapeSvgText(truncateText(event?.title?.trim() || 'Event Invitation', 58))
+    const safeDestinationLabel = escapeSvgText(qrDestinationLabel[key])
+
+    const badgeWidth = qrViewBoxSize * 0.42
+    const badgeHeight = qrViewBoxSize * 0.11
+    const badgeX = (qrViewBoxSize - badgeWidth) / 2
+    const badgeY = (qrViewBoxSize - badgeHeight) / 2
+    const badgeRadius = badgeHeight * 0.5
+    const badgeInset = badgeHeight * 0.14
+    const badgeInnerWidth = badgeWidth - badgeInset * 2
+    const badgeInnerHeight = badgeHeight - badgeInset * 2
+    const badgeInnerRadius = badgeRadius * 0.9
+    const badgeFontSize = badgeInnerHeight * 0.55
+    const brandBadgeMarkup = `
+      <rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="${badgeRadius}" fill="#FFFFFF" stroke="#D7E6D2" stroke-width="${badgeHeight * 0.03}" />
+      <text x="${qrViewBoxSize / 2}" y="${qrViewBoxSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="${badgeFontSize}" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#2C6B3F">Ekfern</text>
+    `
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="148mm" height="210mm" viewBox="0 0 ${canvasWidth} ${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="qrCardGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F5F8F1" />
+    </linearGradient>
+  </defs>
+  <rect width="${canvasWidth}" height="${canvasHeight}" fill="#FFFFFF" />
+  <rect x="${cardX}" y="${cardY}" width="${cardWidth}" height="${cardHeight}" rx="36" fill="url(#qrCardGradient)" stroke="#CDE2C8" stroke-width="3" />
+  <text x="${canvasWidth / 2}" y="260" text-anchor="middle" font-size="64" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#2C6B3F">${safeEventTitle}</text>
+  <text x="${canvasWidth / 2}" y="340" text-anchor="middle" font-size="40" font-family="Inter, Arial, sans-serif" font-weight="600" fill="#3A8A4D">${safeDestinationLabel}</text>
+  <text x="${canvasWidth / 2}" y="410" text-anchor="middle" font-size="28" font-family="Inter, Arial, sans-serif" fill="#5E6E63">Scan this QR code to open instantly</text>
+  <rect x="${(canvasWidth - (qrFrameSize + 72)) / 2}" y="${qrTranslateY - 36}" width="${qrFrameSize + 72}" height="${qrFrameSize + 72}" rx="30" fill="#FFFFFF" stroke="#D7E6D2" stroke-width="2" />
+  <g transform="translate(${qrTranslateX}, ${qrTranslateY}) scale(${qrScale})">
+    ${qrPathMarkup}
+    ${brandBadgeMarkup}
+  </g>
+  <text x="${canvasWidth / 2}" y="${qrTranslateY + qrFrameSize + 130}" text-anchor="middle" font-size="26" font-family="Inter, Arial, sans-serif" fill="#5E6E63">Built with Ekfern</text>
+</svg>`
+  }
+
+  const buildRawBrandedQrSvg = (qrSvgElement: SVGSVGElement) => {
+    const width = qrSvgElement.getAttribute('width') || '148'
+    const height = qrSvgElement.getAttribute('height') || '148'
+    const viewBox = qrSvgElement.getAttribute('viewBox') || '0 0 29 29'
+    const viewBoxParts = viewBox.split(/\s+/).map(Number)
+    const qrViewBoxSize =
+      viewBoxParts.length === 4 && Number.isFinite(viewBoxParts[2]) && viewBoxParts[2] > 0
+        ? viewBoxParts[2]
+        : 29
+    const qrPathMarkup = qrSvgElement.innerHTML
+
+    const badgeWidth = qrViewBoxSize * 0.42
+    const badgeHeight = qrViewBoxSize * 0.11
+    const badgeX = (qrViewBoxSize - badgeWidth) / 2
+    const badgeY = (qrViewBoxSize - badgeHeight) / 2
+    const badgeRadius = badgeHeight * 0.5
+    const badgeInset = badgeHeight * 0.14
+    const badgeInnerWidth = badgeWidth - badgeInset * 2
+    const badgeInnerHeight = badgeHeight - badgeInset * 2
+    const badgeInnerRadius = badgeRadius * 0.9
+    const badgeFontSize = badgeInnerHeight * 0.55
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${width}" height="${height}" viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg">
+  ${qrPathMarkup}
+  <rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="${badgeRadius}" fill="#FFFFFF" stroke="#D7E6D2" stroke-width="${badgeHeight * 0.03}" />
+  <text x="${qrViewBoxSize / 2}" y="${qrViewBoxSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="${badgeFontSize}" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#2C6B3F">Ekfern</text>
+</svg>`
+  }
+
+  const downloadSvgBlob = (svgString: string, filename: string) => {
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
+    const blobUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(blobUrl)
+  }
+
+  const handleDownloadProfessionalQr = (key: LinkKey) => {
+    const wrapper = document.getElementById(`tracked-qr-${key}`)
+    const svg = wrapper?.querySelector('svg')
+    if (!svg) {
+      showToast('QR preview not available yet', 'error')
+      return
+    }
+
+    const svgString = buildProfessionalQrSvg(key, svg)
+    if (!svgString) {
+      showToast('Unable to generate QR download', 'error')
+      return
+    }
+    downloadSvgBlob(svgString, `${event?.slug || 'event'}-${key}-qr-professional.svg`)
+    showToast('Professional QR downloaded', 'success')
+  }
+
+  const handleDownloadRawQr = (key: LinkKey) => {
+    const wrapper = document.getElementById(`tracked-qr-${key}`)
+    const svg = wrapper?.querySelector('svg')
+    if (!svg) {
+      showToast('QR preview not available yet', 'error')
+      return
+    }
+    const rawSvgString = buildRawBrandedQrSvg(svg)
+    downloadSvgBlob(rawSvgString, `${event?.slug || 'event'}-${key}-qr-raw.svg`)
+    showToast('Raw QR downloaded', 'success')
+  }
+
+  const handleDownloadWithFormat = (key: LinkKey) => {
+    if (downloadFormat === 'professional') {
+      handleDownloadProfessionalQr(key)
+    } else {
+      handleDownloadRawQr(key)
+    }
+    setDownloadPickerKey(null)
+  }
+
+  const handleCopyLink = async (key: string, url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedLinkKey(key)
+      showToast('Link copied!', 'success')
+      setTimeout(() => setCopiedLinkKey(null), 2000)
+    } catch {
+      showToast('Failed to copy link', 'error')
+    }
+  }
+
+  const handleShareLink = async (label: string, url: string) => {
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${event?.title || 'Event'} - ${label}`,
+          text: `Sharing ${label} for ${event?.title || 'event'}`,
+          url,
+        })
+        return
+      }
+      await navigator.clipboard.writeText(url)
+      setCopiedLinkKey(label)
+      showToast('Share not supported on this browser. Link copied instead.', 'info')
+      setTimeout(() => setCopiedLinkKey(null), 2000)
+    } catch (error) {
+      showToast('Unable to share link', 'error')
+    }
+  }
+
+  const handleEnableInsights = async () => {
+    if (!eventId || eventId === 'undefined') return
+    try {
+      setEnablingInsights(true)
+      await enableEventAnalyticsInsights(parseInt(eventId))
+      const data = await getEventAnalyticsSummary(parseInt(eventId))
+      setAnalyticsSummary(data)
+      showToast('Tracking insights enabled. Click details are now visible.', 'success')
+    } catch (error: any) {
+      showToast(error?.response?.data?.error || 'Failed to enable tracking insights', 'error')
+    } finally {
+      setEnablingInsights(false)
     }
   }
 
@@ -424,8 +693,12 @@ export default function EventDetailPage() {
 
   // Response rate
   const responseRate = totalGuests > 0 ? Math.round((coreGuestsWithRSVP / totalGuests) * 100) : 0;
-  const isInviteConfigured = !!(event.page_config && Object.keys(event.page_config).length > 0)
-  const inviteStatusLabel = isInviteConfigured ? 'Configured' : 'Not configured'
+  const inviteStatusLabel =
+    invitePublishStatus === 'Published'
+      ? 'Live'
+      : invitePublishStatus === 'Draft'
+        ? 'Configured - Waiting to Publish'
+        : 'Not Configured'
   const inviteVisibilityLabel = event.is_public ? 'Public' : 'Private'
   
   // Gift stats (exclude removed guests)
@@ -508,54 +781,258 @@ export default function EventDetailPage() {
 
         <Card className="bg-white border-2 border-eco-green-light mb-8">
           <CardHeader>
-            <CardTitle className="text-eco-green">QR Code & RSVP Link</CardTitle>
+            <CardTitle className="text-eco-green">Important Links</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {!event.has_rsvp ? (
-              <p className="text-sm text-gray-600">Enable RSVP in Event Features to generate a QR code.</p>
-            ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={getQRCodeUrl()}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
-                  />
-                  <Button
-                    onClick={handleCopyQrLink}
-                    variant="outline"
-                    className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                  >
-                    {copiedQrLink ? '✓ Copied' : 'Copy'}
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => setShowQRCode((previous) => !previous)}
-                    variant="outline"
-                    className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                  >
-                    {showQRCode ? 'Hide' : 'Show'} QR Code
-                  </Button>
-                  {showQRCode && (
-                    <Button
-                      onClick={handleDownloadQRCode}
-                      className="bg-eco-green hover:bg-green-600 text-white"
-                    >
-                      Download QR Code
-                    </Button>
-                  )}
-                </div>
-                {showQRCode && (
-                  <div className="inline-block rounded-lg border border-gray-200 bg-white p-4" id="overview-qr-code-container">
-                    <QRCode value={getQRCodeUrl()} size={180} level="H" bgColor="#FFFFFF" fgColor="#000000" />
+            {[
+              { key: 'invite' as LinkKey, label: 'Invite Page', url: getInviteUrl(), show: true },
+              { key: 'rsvp' as LinkKey, label: 'RSVP Page', url: getRSVPUrl(), show: event.has_rsvp },
+              { key: 'registry' as LinkKey, label: 'Registry Page', url: getRegistryUrl(), show: event.has_registry },
+            ]
+              .filter((item) => item.show)
+              .map((item) => {
+                const effectiveUrl = getEffectiveUrl(item.key, item.url)
+                return (
+                <div key={item.key} className="space-y-2">
+                  <p className="text-sm font-medium text-gray-700">{item.label}</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={effectiveUrl}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
+                    />
+                    <div className="relative">
+                      <Button
+                        onClick={() => setOpenActionsKey((prev) => (prev === item.key ? null : item.key))}
+                        variant="outline"
+                        aria-haspopup="menu"
+                        aria-expanded={openActionsKey === item.key}
+                        className="border-eco-green text-eco-green hover:bg-eco-green-light inline-flex items-center gap-2"
+                      >
+                        Actions
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform ${openActionsKey === item.key ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+                      {openActionsKey === item.key && (
+                        <div className="absolute right-0 mt-2 w-44 rounded-md border border-gray-200 bg-white shadow-lg z-20">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleCopyLink(item.key, effectiveUrl)
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {copiedLinkKey === item.key ? 'Copied' : 'Copy'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleShareLink(item.label, effectiveUrl)
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            Share
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenQrKey((prev) => (prev === item.key ? null : item.key))
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {openQrKey === item.key ? 'Hide QR' : 'Show QR'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDownloadPickerKey(item.key)
+                              setDownloadFormat('professional')
+                              setOpenActionsKey(null)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            Download QR
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </>
+
+                  {downloadPickerKey === item.key && (
+                    <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                      <p className="text-sm font-semibold text-eco-green">Download QR</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        Choose the export format before downloading.
+                      </p>
+
+                      <div className="mt-3 space-y-2">
+                        <label className="flex items-start gap-2 rounded-md border border-gray-200 p-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`download-format-${item.key}`}
+                            checked={downloadFormat === 'professional'}
+                            onChange={() => setDownloadFormat('professional')}
+                            className="mt-1"
+                          />
+                          <span className="text-sm text-gray-700">
+                            Professional SVG (styled card, centered layout)
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 rounded-md border border-gray-200 p-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`download-format-${item.key}`}
+                            checked={downloadFormat === 'raw'}
+                            onChange={() => setDownloadFormat('raw')}
+                            className="mt-1"
+                          />
+                          <span className="text-sm text-gray-700">Raw SVG (QR only)</span>
+                        </label>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setDownloadPickerKey(null)}
+                          className="h-8 px-3 text-xs border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => handleDownloadWithFormat(item.key)}
+                          className="h-8 px-3 text-xs bg-eco-green hover:bg-green-600 text-white"
+                        >
+                          Download
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    id={`tracked-qr-${item.key}`}
+                    className={
+                      openQrKey === item.key
+                        ? 'mt-1 w-full rounded-xl border border-eco-green-light bg-gradient-to-b from-white to-eco-green-light/20 p-4 shadow-sm flex flex-col items-center'
+                        : 'hidden'
+                    }
+                  >
+                    <div className="text-center mb-3">
+                      <p className="text-sm font-semibold text-eco-green">{item.label} QR</p>
+                      <p className="text-xs text-gray-600">Guests can scan this to open the page instantly.</p>
+                    </div>
+
+                    <div className="mx-auto inline-block rounded-lg bg-white p-3 border border-gray-200 shadow-sm">
+                      <div className="relative inline-block">
+                        <QRCode value={effectiveUrl} size={148} level="H" />
+                        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#D7E6D2] bg-white px-2 py-0.5">
+                          <span className="text-[9px] leading-none font-semibold text-eco-green">Ekfern</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex justify-center">
+                      <Button
+                        type="button"
+                        onClick={() => setOpenQrKey(null)}
+                        variant="outline"
+                        className="h-8 px-3 text-xs border-eco-green text-eco-green hover:bg-eco-green-light"
+                      >
+                        Hide QR
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )})}
+            {!event.has_rsvp && !event.has_registry && (
+              <div className="text-sm text-gray-600">
+                RSVP and Registry links will appear here when those features are enabled.
+              </div>
             )}
           </CardContent>
         </Card>
+
+        {/* Click details (attribution & funnel) – only show destinations enabled for this event */}
+        {analyticsSummary && (
+          <Card className="bg-white border-2 border-eco-green-light mb-8">
+            <CardHeader>
+              <CardTitle className="text-eco-green">Click details</CardTitle>
+              <p className="text-sm text-gray-500 mt-1">
+                QR and link traffic by destination and channel. In the future this will move to a dedicated analytics or reports page.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {analyticsSummary.insights_locked ? (
+                <div className="rounded-lg border border-dashed border-eco-green-light p-4 bg-gray-50">
+                  <p className="text-sm font-semibold text-eco-green">Attribution insights locked</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Link and QR traffic is being collected. Enable insights to view click and funnel stats here.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={handleEnableInsights}
+                    disabled={enablingInsights}
+                    className="mt-3 bg-eco-green hover:bg-green-600 text-white h-8 px-3 text-xs"
+                  >
+                    {enablingInsights ? 'Enabling...' : (analyticsSummary.insights_cta_label || 'Enable tracking insights')}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Attribution clicks</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-1">{analyticsSummary.attribution_clicks_total ?? 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Tracked QR/link redirects</p>
+                    </div>
+                    <div className="rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Clicks by destination</p>
+                      <p className="text-sm text-gray-700 mt-2">
+                        {[
+                          `Invite: ${analyticsSummary.target_type_clicks?.invite ?? 0}`,
+                          event.has_rsvp && `RSVP: ${analyticsSummary.target_type_clicks?.rsvp ?? 0}`,
+                          event.has_registry && `Registry: ${analyticsSummary.target_type_clicks?.registry ?? 0}`,
+                        ].filter(Boolean).join(' • ')}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Clicks by channel</p>
+                      <p className="text-sm text-gray-700 mt-2">
+                        QR: {analyticsSummary.source_channel_breakdown?.qr ?? 0} • Link: {analyticsSummary.source_channel_breakdown?.link ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                  {analyticsSummary.funnel && (
+                    <div className="mt-3 rounded-lg border border-eco-green-light p-3 bg-white">
+                      <p className="text-xs font-semibold text-eco-green">Destination funnels</p>
+                      <div className="text-sm text-gray-700 mt-2 space-y-1">
+                        <p>
+                          Invite: {analyticsSummary.funnel.invite?.clicks ?? 0} clicks → {analyticsSummary.funnel.invite?.views ?? 0} views → {analyticsSummary.funnel.invite?.rsvp_submissions ?? 0} RSVPs
+                        </p>
+                        {event.has_rsvp && (
+                          <p>
+                            RSVP: {analyticsSummary.funnel.rsvp?.clicks ?? 0} clicks → {analyticsSummary.funnel.rsvp?.views ?? 0} views → {analyticsSummary.funnel.rsvp?.rsvp_submissions ?? 0} RSVPs
+                          </p>
+                        )}
+                        {event.has_registry && (
+                          <p>
+                            Registry: {analyticsSummary.funnel.registry?.clicks ?? 0} clicks → {analyticsSummary.funnel.registry?.paid_orders ?? 0} paid orders
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stats Section */}
         <div className={

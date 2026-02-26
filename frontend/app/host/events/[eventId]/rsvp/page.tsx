@@ -100,23 +100,41 @@ export default function HostRsvpSettingsPage() {
   return (
     <div className="min-h-screen bg-eco-beige">
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between gap-3 mb-6">
+        <div className="mb-6">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={`/host/events/${eventId}`}>
+                <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  Back to Event
+                </Button>
+              </Link>
+              <Link href={`/host/events/${eventId}/guests`}>
+                <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  Guests
+                </Button>
+              </Link>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <Link href={`/event/${event.slug}/rsvp`} target="_blank">
+                <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
+                  Preview RSVP Page
+                </Button>
+              </Link>
+              <Button
+                onClick={handleSave}
+                disabled={saving || !event.has_rsvp}
+                size="sm"
+                className="bg-eco-green hover:bg-green-600 text-white"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
           <div>
             <h1 className="text-2xl font-bold text-eco-green">RSVP Settings</h1>
             <p className="text-sm text-gray-600 mt-1">
               Configure which fields guests see on your RSVP form.
             </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href={`/host/events/${eventId}`}>
-              <Button variant="outline">Back to Event</Button>
-            </Link>
-            <Link href={`/event/${event.slug}/rsvp`} target="_blank">
-              <Button variant="outline">Preview RSVP Page</Button>
-            </Link>
-            <Button onClick={handleSave} disabled={saving || !event.has_rsvp} className="bg-eco-green hover:bg-green-600 text-white">
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
           </div>
         </div>
 
