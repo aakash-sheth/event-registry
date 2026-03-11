@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action, api_view, permission_classes
@@ -16,6 +18,9 @@ import os
 import hashlib
 from urllib.parse import quote
 from urllib.parse import urlencode
+from apps.common.email_backend import send_email
+
+logger = logging.getLogger(__name__)
 from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample
 from .serializers import (
     EventSerializer, EventCreateSerializer,
@@ -29,7 +34,6 @@ from .serializers import (
     InviteDesignTemplateSerializer,
     GreetingCardSampleSerializer,
 )
-import re
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
 from apps.items.models import RegistryItem
 from apps.items.serializers import RegistryItemSerializer
@@ -2608,6 +2612,79 @@ def attribution_redirect(request, token):
     return HttpResponseRedirect(build_attribution_destination_path(link))
 
 
+def _notify_host_rsvp(event, rsvp):
+    """
+    Notify the event host of a new/updated RSVP, respecting their notification preferences.
+    Also sends a confirmation email to the guest if they provided an email address.
+    """
+    # --- Guest confirmation (always sent if email provided) ---
+    if rsvp.email:
+        guest_name = rsvp.name or 'Guest'
+        attend_label = {'yes': 'attending', 'no': 'not attending', 'maybe': 'tentatively attending'}.get(
+            rsvp.will_attend, rsvp.will_attend
+        )
+        event_date_str = event.date.strftime('%B %d, %Y') if event.date else ''
+        guest_subject = f"RSVP confirmed – {event.title}"
+        guest_body = (
+            f"Hi {guest_name},\n\n"
+            f"Your RSVP for {event.title} has been received. "
+            f"You are currently marked as {attend_label}."
+            + (f"\n\nEvent date: {event_date_str}" if event_date_str else '')
+            + "\n\nSee you there!"
+        )
+        try:
+            send_email(to_email=rsvp.email, subject=guest_subject, body_text=guest_body)
+        except Exception as e:
+            logger.warning(f"Failed to send RSVP confirmation to guest {rsvp.email}: {e}")
+
+    # --- Host notification (controlled by preferences) ---
+    host = event.host
+    prefs = getattr(host, 'notification_preferences', None)
+    freq = prefs.rsvp_new if prefs else 'immediately'
+
+    if freq == 'never':
+        return
+
+    attend_label = {'yes': 'attending', 'no': 'not attending', 'maybe': 'maybe attending'}.get(
+        rsvp.will_attend, rsvp.will_attend
+    )
+    host_subject = f"New RSVP – {event.title}"
+    host_body = (
+        f"Hi {host.name or 'there'},\n\n"
+        f"{rsvp.name or 'Someone'} has RSVP'd for {event.title}.\n\n"
+        f"Status: {attend_label}\n"
+        f"Guests: {rsvp.guests_count or 1}\n"
+        + (f"Email: {rsvp.email}\n" if rsvp.email else '')
+        + f"\nView all RSVPs: {settings.FRONTEND_ORIGIN}/host/events/{event.id}"
+    )
+    unsubscribe_token = prefs.unsubscribe_token if prefs else None
+
+    if freq == 'immediately':
+        try:
+            send_email(
+                to_email=host.email,
+                subject=host_subject,
+                body_text=host_body,
+                unsubscribe_token=unsubscribe_token,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send RSVP host notification to {host.email}: {e}")
+    elif freq == 'daily_digest':
+        from apps.notifications.models import NotificationQueue  # late import avoids circular dependency with notifications app
+        NotificationQueue.objects.create(
+            user=host,
+            notification_type='rsvp_new',
+            payload_json={
+                'event_id': event.id,
+                'event_title': event.title,
+                'rsvp_name': rsvp.name or '',
+                'rsvp_email': rsvp.email or '',
+                'will_attend': rsvp.will_attend,
+                'guests_count': rsvp.guests_count or 1,
+            },
+        )
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_rsvp(request, event_id):
@@ -2782,6 +2859,7 @@ def create_rsvp(request, event_id):
 
                 # Sub-event selection is optional. If none selected, return MAIN RSVP only.
                 if not selected_sub_event_ids:
+                    _notify_host_rsvp(event, main_rsvp)
                     return Response(
                         RSVPSerializer([main_rsvp], many=True).data,
                         status=status.HTTP_201_CREATED if any_new_main_created else status.HTTP_200_OK
@@ -2847,11 +2925,12 @@ def create_rsvp(request, event_id):
                 
                 # Return all created/updated RSVPs
                 # Status code based on whether any new RSVP rows were created
+                _notify_host_rsvp(event, main_rsvp)
                 return Response(
                     RSVPSerializer([main_rsvp] + created_rsvps, many=True).data,
                     status=status.HTTP_201_CREATED if (any_new_main_created or any_new_rsvp_created) else status.HTTP_200_OK
                 )
-            
+
             elif event.rsvp_mode == 'ONE_TAP_ALL':
                 # ONE_TAP_ALL mode:
                 # - Always create/update a MAIN RSVP row (sub_event=NULL) for overall event attendance.
@@ -2911,6 +2990,7 @@ def create_rsvp(request, event_id):
 
                 # If no sub-events are available for this guest/context, still allow MAIN RSVP.
                 if not allowed_sub_events.exists():
+                    _notify_host_rsvp(event, main_rsvp)
                     return Response(
                         RSVPSerializer([main_rsvp], many=True).data,
                         status=status.HTTP_201_CREATED if any_new_main_created else status.HTTP_200_OK
@@ -2948,11 +3028,12 @@ def create_rsvp(request, event_id):
                         created_rsvps.append(rsvp)
                         any_new_rsvp_created = True
 
+                _notify_host_rsvp(event, main_rsvp)
                 return Response(
                     RSVPSerializer([main_rsvp] + created_rsvps, many=True).data,
                     status=status.HTTP_201_CREATED if (any_new_main_created or any_new_rsvp_created) else status.HTTP_200_OK
                 )
-        
+
         # SIMPLE event: Keep existing behavior (sub_event = NULL)
         if existing_rsvp:
             # Check if RSVP itself is removed (shouldn't happen due to filter, but double-check)
@@ -2968,10 +3049,12 @@ def create_rsvp(request, event_id):
             if guest:
                 existing_rsvp.guest = guest
             existing_rsvp.save()
+            _notify_host_rsvp(event, existing_rsvp)
             return Response(RSVPSerializer(existing_rsvp).data, status=status.HTTP_200_OK)
         else:
             # Create new RSVP (sub_event will be NULL for SIMPLE events)
             rsvp = RSVP.objects.create(event=event, guest=guest, **rsvp_data)
+            _notify_host_rsvp(event, rsvp)
             return Response(RSVPSerializer(rsvp).data, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

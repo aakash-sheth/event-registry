@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/orders/', include('apps.orders.urls')),
     path('api/registry/', include('apps.events.public_urls')),
     path('api/payments/', include('apps.orders.payment_urls')),
+    path('api/notifications/', include('apps.notifications.urls')),
 ]
 
 # WhiteNoise handles static files in production, so we don't need static() helper

@@ -11,6 +11,11 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
 import { getErrorMessage, logError } from '@/lib/error-handler'
+import {
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationPreferences,
+} from '@/lib/user/api'
 
 const setPasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
@@ -56,6 +61,10 @@ export default function ProfilePage() {
   const [otpSent, setOtpSent] = useState(false)
   const [sendingOtp, setSendingOtp] = useState(false)
 
+  // Notification preferences state
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences | null>(null)
+  const [savingNotif, setSavingNotif] = useState(false)
+
   const {
     register: registerSetPassword,
     handleSubmit: handleSubmitSetPassword,
@@ -88,6 +97,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     fetchUser()
+    getNotificationPreferences()
+      .then(setNotifPrefs)
+      .catch(() => showToast('Could not load notification preferences', 'error'))
   }, [])
 
   const fetchUser = async () => {
@@ -173,6 +185,23 @@ export default function ProfilePage() {
     }
   }
 
+  const saveNotifPrefs = async (patch: Partial<NotificationPreferences>) => {
+    if (!notifPrefs || savingNotif) return
+    setSavingNotif(true)
+    const previousState = notifPrefs // capture before async — safe from stale closure
+    setNotifPrefs({ ...previousState, ...patch })
+    try {
+      const updated = await updateNotificationPreferences(patch)
+      setNotifPrefs(updated)
+      showToast('Notification preferences saved', 'success')
+    } catch (error: any) {
+      setNotifPrefs(previousState) // revert to known-good snapshot
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      setSavingNotif(false)
+    }
+  }
+
   const validatePasswordStrength = (password: string): { strength: 'weak' | 'medium' | 'strong', message: string } => {
     if (password.length < 8) {
       return { strength: 'weak', message: 'Password must be at least 8 characters' }
@@ -237,6 +266,83 @@ export default function ProfilePage() {
                 })}
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Notification Preferences */}
+        <Card className="bg-white border-2 border-eco-green-light mb-6">
+          <CardHeader>
+            <CardTitle className="text-eco-green">Notification Preferences</CardTitle>
+            <CardDescription>Choose how and when you receive updates about your events.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {notifPrefs === null ? (
+              <p className="text-sm text-gray-500">Loading preferences…</p>
+            ) : (
+              <>
+                {/* RSVP notifications */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">New RSVPs</p>
+                  <div className="flex flex-col gap-2">
+                    {(['immediately', 'daily_digest', 'never'] as const).map((opt) => (
+                      <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="rsvp_new"
+                          value={opt}
+                          checked={notifPrefs.rsvp_new === opt}
+                          onChange={() => saveNotifPrefs({ rsvp_new: opt })}
+                          disabled={savingNotif}
+                          className="accent-eco-green"
+                        />
+                        <span className="text-sm text-gray-700">
+                          {opt === 'immediately' ? 'Email me immediately' : opt === 'daily_digest' ? 'Daily digest' : 'Never'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Gift notifications */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Gift received</p>
+                  <div className="flex flex-col gap-2">
+                    {(['immediately', 'daily_digest', 'never'] as const).map((opt) => (
+                      <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="gift_received"
+                          value={opt}
+                          checked={notifPrefs.gift_received === opt}
+                          onChange={() => saveNotifPrefs({ gift_received: opt })}
+                          disabled={savingNotif}
+                          className="accent-eco-green"
+                        />
+                        <span className="text-sm text-gray-700">
+                          {opt === 'immediately' ? 'Email me immediately' : opt === 'daily_digest' ? 'Daily digest' : 'Never'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Marketing emails */}
+                <div className="border-t pt-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifPrefs.marketing_emails}
+                      onChange={(e) => saveNotifPrefs({ marketing_emails: e.target.checked })}
+                      disabled={savingNotif}
+                      className="mt-0.5 accent-eco-green"
+                    />
+                    <span className="text-sm text-gray-700">
+                      Receive product updates, tips, and news from Ekfern
+                    </span>
+                  </label>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

@@ -1,16 +1,21 @@
+import json
+import logging
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
-import json
+from django.conf import settings
+
 from .models import Order
 from .serializers import OrderSerializer, OrderCreateSerializer
 from .services import OrderService, RazorpayService
 from apps.common.email_backend import send_email
 from apps.events.models import Event
 from apps.events.utils import get_country_code, format_phone_with_country_code
-from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
@@ -19,8 +24,6 @@ def create_order(request):
     """Create order and return Razorpay order details"""
     serializer = OrderCreateSerializer(data=request.data)
     if not serializer.is_valid():
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f'Order creation validation failed: {serializer.errors}, data: {request.data}')
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -52,8 +55,6 @@ def create_order(request):
                 # Send emails
                 send_order_emails(fulfilled_order)
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f'Failed to auto-fulfill mock order: {e}')
         
         return Response({
@@ -138,55 +139,66 @@ def razorpay_webhook(request):
 
 
 def send_order_emails(order):
-    """Send receipt to guest and alert to host"""
+    """Send receipt to guest and alert to host (respects host notification preferences)."""
     event = order.event
     item_name = order.item.name if order.item else 'Cash Gift'
     amount_rupees = order.amount_inr / 100
-    
-    # Guest receipt
+
+    # --- Guest receipt (always sent) ---
     guest_subject = f"Thank you for your gift! - {event.title}"
-    guest_body = f"""
-    Hi {order.buyer_name},
-
-    Thank you so much for your generous gift of ₹{amount_rupees} for '{item_name}'!
-
-    We truly appreciate your thoughtfulness and support.
-
-    Best regards,
-    {event.host.name or event.host.email}
-    """
-    
+    guest_body = (
+        f"Hi {order.buyer_name},\n\n"
+        f"Thank you so much for your generous gift of ₹{amount_rupees} for '{item_name}'!\n\n"
+        f"We truly appreciate your thoughtfulness and support.\n\n"
+        f"Best regards,\n{event.host.name or event.host.email}"
+    )
     try:
-        send_email(
-            to_email=order.buyer_email,
-            subject=guest_subject,
-            body_text=guest_body,
-        )
+        send_email(to_email=order.buyer_email, subject=guest_subject, body_text=guest_body)
     except Exception as e:
-        print(f"Failed to send guest email: {e}")
-    
-    # Host alert
+        logger.warning(f"Failed to send guest gift receipt to {order.buyer_email}: {e}")
+
+    # --- Host alert (controlled by notification preferences) ---
+    host = event.host
+    prefs = getattr(host, 'notification_preferences', None)
+    freq = prefs.gift_received if prefs else 'immediately'
+
+    if freq == 'never':
+        return
+
     host_subject = f"New gift received! - {event.title}"
-    host_body = f"""
-    Hi {event.host.name or 'there'},
+    host_body = (
+        f"Hi {host.name or 'there'},\n\n"
+        f"Great news! You received a new gift:\n\n"
+        f"From: {order.buyer_name} ({order.buyer_email})\n"
+        f"Item: {item_name}\n"
+        f"Amount: ₹{amount_rupees}\n\n"
+        f"Don't forget to send a thank you note!\n\n"
+        f"View all gifts: {settings.FRONTEND_ORIGIN}/host/events/{event.id}"
+    )
+    unsubscribe_token = prefs.unsubscribe_token if prefs else None
 
-    Great news! You received a new gift:
-
-    From: {order.buyer_name} ({order.buyer_email})
-    Item: {item_name}
-    Amount: ₹{amount_rupees}
-
-    Don't forget to send a thank you note!
-
-    View all gifts: {settings.FRONTEND_ORIGIN}/host/events/{event.id}
-    """
-    
-    try:
-        send_email(
-            to_email=event.host.email,
-            subject=host_subject,
-            body_text=host_body,
+    if freq == 'immediately':
+        try:
+            send_email(
+                to_email=host.email,
+                subject=host_subject,
+                body_text=host_body,
+                unsubscribe_token=unsubscribe_token,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send host gift alert to {host.email}: {e}")
+    elif freq == 'daily_digest':
+        from apps.notifications.models import NotificationQueue
+        NotificationQueue.objects.create(
+            user=host,
+            notification_type='gift_received',
+            payload_json={
+                'event_id': event.id,
+                'event_title': event.title,
+                'buyer_name': order.buyer_name,
+                'buyer_email': order.buyer_email,
+                'item_name': item_name,
+                'amount_rupees': float(amount_rupees),
+            },
         )
-    except Exception as e:
-        print(f"Failed to send host email: {e}")
 
