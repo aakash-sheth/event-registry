@@ -11,8 +11,7 @@ interface SortableTileSettingsProps {
   tile: Tile
   onUpdate: (tile: Tile) => void
   onToggle: (tileId: string, enabled: boolean) => void
-  allTiles?: Tile[]
-  onOverlayToggle?: (tileId: string, targetTileId: string | undefined) => void
+  onRemove?: () => void
   eventId: number
   hasRsvp?: boolean
   hasRegistry?: boolean
@@ -24,8 +23,7 @@ export default function SortableTileSettings({
   tile,
   onUpdate,
   onToggle,
-  allTiles = [],
-  onOverlayToggle,
+  onRemove,
   eventId,
   hasRsvp = false,
   hasRegistry = false,
@@ -70,14 +68,11 @@ export default function SortableTileSettings({
           tile={tile}
           onUpdate={onUpdate}
           onToggle={onToggle}
-          allTiles={allTiles}
-          onOverlayToggle={onOverlayToggle}
+          onRemove={onRemove}
           eventId={eventId}
           hasRsvp={hasRsvp}
           hasRegistry={hasRegistry}
           forceExpanded={forceExpanded}
-          isDragging={isDragging}
-          dragHandleProps={!isFooter ? { ...attributes, ...listeners } : undefined}
         />
       </div>
     </div>

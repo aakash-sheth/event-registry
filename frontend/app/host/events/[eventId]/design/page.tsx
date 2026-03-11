@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useRef } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useToast } from '@/components/ui/toast'
@@ -11,15 +12,23 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import PublishModal from '@/components/invite/PublishModal'
 import ImageCropModal from '@/components/invite/ImageCropModal'
 import api, { uploadImage } from '@/lib/api'
-import { InviteConfig, Tile, InvitePage } from '@/lib/invite/schema'
+import { InviteConfig, Tile, TileType, InvitePage } from '@/lib/invite/schema'
 import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
 import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
+import { getInviteDesignTemplates } from '@/lib/invite/api'
 import { getInvitePage, createInvitePage, publishInvitePage, getPublicInvite } from '@/lib/invite/api'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
+import { applyTemplate } from '@/lib/invite/applyTemplate'
+import type { InviteTemplate } from '@/lib/invite/templates'
+import { getTheme } from '@/lib/invite/themes'
+import TemplateLibrary from '@/components/invite/TemplateLibrary'
 import TileList from '@/components/invite/tiles/TileList'
 import TileSettingsList from '@/components/invite/tiles/TileSettingsList'
+import { ThemeProvider } from '@/components/invite/living-poster/ThemeProvider'
+import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { cropImage } from '@/lib/invite/imageAnalysis'
+import WizardProgress from '@/components/host/WizardProgress'
 
 interface Event {
   id: number
@@ -106,26 +115,13 @@ export default function DesignInvitationPage(): JSX.Element {
   const params = useParams()
   const router = useRouter()
   const eventId = params.eventId ? parseInt(params.eventId as string) : 0
-  
-  // Validate eventId
-  if (!eventId || isNaN(eventId)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-eco-beige">
-        <div className="text-center">
-          <p className="text-red-500">Invalid event ID</p>
-          <Link href="/host/dashboard">
-            <Button className="mt-4">Go to Dashboard</Button>
-          </Link>
-        </div>
-      </div>
-    )
-  }
   const { showToast } = useToast()
   
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [allowedSubEvents, setAllowedSubEvents] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null)
   const [headerHeight, setHeaderHeight] = useState(160)
   const headerRef = useRef<HTMLDivElement>(null)
@@ -153,9 +149,25 @@ export default function DesignInvitationPage(): JSX.Element {
   const [invitePage, setInvitePage] = useState<InvitePage | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
   const [showPublishModal, setShowPublishModal] = useState(false)
+  const [showDesignStartView, setShowDesignStartView] = useState(false)
+  const [showTemplateLibraryOnStart, setShowTemplateLibraryOnStart] = useState(false)
+  const [apiTemplates, setApiTemplates] = useState<InviteTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(true)
+
+  // Fetch invite design templates from API (single source of truth)
+  useEffect(() => {
+    getInviteDesignTemplates()
+      .then(setApiTemplates)
+      .catch(() => setApiTemplates([]))
+      .finally(() => setTemplatesLoading(false))
+  }, [])
 
   useEffect(() => {
     const loadData = async () => {
+      if (!eventId || isNaN(eventId)) {
+        setLoading(false)
+        return
+      }
       try {
         // First fetch event data
         const eventResponse = await api.get(`/api/events/${eventId}/`)
@@ -307,43 +319,48 @@ export default function DesignInvitationPage(): JSX.Element {
               }
               return tile
             })
-            
-            // Ensure all tile types are present - add missing ones from defaults
-            const defaultTiles = createDefaultTiles(eventData)
-            const existingTileTypes = new Set(existingTiles.map(t => t.type))
-            const missingTiles = defaultTiles.filter(t => !existingTileTypes.has(t.type))
-            
-            // Merge existing tiles with missing default tiles, preserving saved order
-            const allTiles = [...existingTiles, ...missingTiles]
-              .sort((a, b) => {
-                // Keep existing tiles in their current order, new tiles go after
-                const aExists = existingTiles.some(t => t.id === a.id)
-                const bExists = existingTiles.some(t => t.id === b.id)
-                if (aExists && !bExists) return -1
-                if (!aExists && bExists) return 1
-                // Sort by saved order value - preserve what was saved
-                const orderA = a.order !== undefined ? a.order : (aExists ? 999 : 1000)
-                const orderB = b.order !== undefined ? b.order : (bExists ? 999 : 1000)
-                return orderA - orderB
-              })
-              .map((tile) => {
-                // CRITICAL: Preserve existing order values from saved config
-                // Only assign order to new tiles that don't have one
-                const existingTile = existingTiles.find(t => t.id === tile.id)
-                if (existingTile && existingTile.order !== undefined) {
-                  // Preserve the saved order value - this is what the user set!
-                  return { ...tile, order: existingTile.order }
-                }
-                // For new tiles, assign order after existing tiles
-                const maxExistingOrder = existingTiles.length > 0 
-                  ? Math.max(...existingTiles.map(t => t.order !== undefined ? t.order : 0), 0)
-                  : -1
-                return { ...tile, order: maxExistingOrder + 1 }
-              })
-            
-            finalConfig = {
-              ...preservedConfig,
-              tiles: allTiles
+
+            // When tileSetComplete is true (e.g. from a template), do not merge in missing tile types
+            if (loadedConfig.tileSetComplete === true) {
+              finalConfig = { ...preservedConfig, tiles: existingTiles }
+            } else {
+              // Ensure all tile types are present - add missing ones from defaults
+              const defaultTiles = createDefaultTiles(eventData)
+              const existingTileTypes = new Set(existingTiles.map(t => t.type))
+              const missingTiles = defaultTiles.filter(t => !existingTileTypes.has(t.type))
+              
+              // Merge existing tiles with missing default tiles, preserving saved order
+              const allTiles = [...existingTiles, ...missingTiles]
+                .sort((a, b) => {
+                  // Keep existing tiles in their current order, new tiles go after
+                  const aExists = existingTiles.some(t => t.id === a.id)
+                  const bExists = existingTiles.some(t => t.id === b.id)
+                  if (aExists && !bExists) return -1
+                  if (!aExists && bExists) return 1
+                  // Sort by saved order value - preserve what was saved
+                  const orderA = a.order !== undefined ? a.order : (aExists ? 999 : 1000)
+                  const orderB = b.order !== undefined ? b.order : (bExists ? 999 : 1000)
+                  return orderA - orderB
+                })
+                .map((tile) => {
+                  // CRITICAL: Preserve existing order values from saved config
+                  // Only assign order to new tiles that don't have one
+                  const existingTile = existingTiles.find(t => t.id === tile.id)
+                  if (existingTile && existingTile.order !== undefined) {
+                    // Preserve the saved order value - this is what the user set!
+                    return { ...tile, order: existingTile.order }
+                  }
+                  // For new tiles, assign order after existing tiles
+                  const maxExistingOrder = existingTiles.length > 0 
+                    ? Math.max(...existingTiles.map(t => t.order !== undefined ? t.order : 0), 0)
+                    : -1
+                  return { ...tile, order: maxExistingOrder + 1 }
+                })
+              
+              finalConfig = {
+                ...preservedConfig,
+                tiles: allTiles
+              }
             }
             
           }
@@ -360,7 +377,7 @@ export default function DesignInvitationPage(): JSX.Element {
         }
       }
       
-      // If no config exists or migration failed, initialize with event data
+      // If no config exists or migration failed, show design start (template vs scratch)
       if (!finalConfig) {
         const defaultTiles = createDefaultTiles(eventData)
         finalConfig = { 
@@ -369,6 +386,7 @@ export default function DesignInvitationPage(): JSX.Element {
           customColors: {}, // Initialize empty customColors object
         }
         setSelectedTileId('tile-title-0')
+        setShowDesignStartView(true)
       } else {
         // Ensure customColors exists in loaded config (initialize as empty object if missing)
         // But don't overwrite if it already exists (even if empty)
@@ -508,7 +526,7 @@ export default function DesignInvitationPage(): JSX.Element {
       }
       
       // Validate enabled title tiles have text
-      const enabledTitleTiles = config.tiles?.filter(t => t.type === 'title' && t.enabled && !t.overlayTargetId) || []
+      const enabledTitleTiles = config.tiles?.filter(t => t.type === 'title' && t.enabled) || []
       for (const titleTile of enabledTitleTiles) {
         const titleText = (titleTile.settings as any)?.text?.trim()
         if (!titleText || titleText === '') {
@@ -655,8 +673,13 @@ export default function DesignInvitationPage(): JSX.Element {
         ...(config.customFonts && { customFonts: config.customFonts }),
         ...(config.texture && { texture: config.texture }),
         ...(config.pageBorder && { pageBorder: config.pageBorder }),
+        ...(config.pageFrame && { pageFrame: config.pageFrame }),
+        ...(config.cornerDecorations && Object.keys(config.cornerDecorations).length > 0 && { cornerDecorations: config.cornerDecorations }),
+        ...(config.spacing && { spacing: config.spacing }),
         ...(linkMetadataToSave && { linkMetadata: linkMetadataToSave }),
         ...(config.rsvpForm && { rsvpForm: config.rsvpForm }),
+        ...(config.tileSetComplete !== undefined && { tileSetComplete: config.tileSetComplete }),
+        ...(config.animations !== undefined && { animations: config.animations }),
       }
       
       const imageTile = configToSave.tiles?.find(t => t.type === 'image')
@@ -736,6 +759,8 @@ export default function DesignInvitationPage(): JSX.Element {
       showToast(getErrorMessage(error), 'error')
     } finally {
       setSaving(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     }
   }
 
@@ -1107,6 +1132,39 @@ export default function DesignInvitationPage(): JSX.Element {
     }
   }
 
+  const handleAddTile = (type: TileType) => {
+    const defaultSettings: Record<TileType, object> = {
+      'title':           { text: 'Event Title' },
+      'image':           { src: '', fitMode: 'fit-to-screen' },
+      'timer':           {},
+      'event-details':   { location: '', date: new Date().toISOString().split('T')[0] },
+      'description':     { content: '' },
+      'feature-buttons': {},
+      'footer':          {},
+      'event-carousel':  {},
+    }
+    const maxOrder = Math.max(...(config.tiles?.map(t => t.order ?? 0) ?? [0]), 0)
+    const newTile: Tile = {
+      id: `tile-${type}-${Date.now().toString(36)}`,
+      type,
+      enabled: true,
+      order: maxOrder + 1,
+      settings: defaultSettings[type],
+    }
+    setConfig(prev => ({
+      ...prev,
+      tiles: [...(prev.tiles ?? []), newTile],
+    }))
+  }
+
+  const handleRemoveTile = (tileId: string) => {
+    setConfig(prev => ({
+      ...prev,
+      tiles: prev.tiles?.filter(t => t.id !== tileId) ?? [],
+    }))
+    if (selectedTileId === tileId) setSelectedTileId(null)
+  }
+
   const handleTileUpdate = (updatedTile: Tile) => {
     setConfig(prev => ({
       ...prev,
@@ -1144,20 +1202,9 @@ export default function DesignInvitationPage(): JSX.Element {
     // This ensures every tile has a previewOrder that reflects its actual position, not just moved tiles
     const newPreviewOrder = new Map<string, number>()
     
-    // Filter out overlay titles for ordering calculation (they'll get same order as their target)
-    const tilesForOrdering = reorderedTiles.filter(tile => {
-      if (tile.type === 'title' && tile.overlayTargetId) return false
-      return true
-    })
-    
     // Assign previewOrder based on actual position in reordered array
-    tilesForOrdering.forEach((tile, index) => {
+    reorderedTiles.forEach((tile, index) => {
       newPreviewOrder.set(tile.id, index)
-      // Overlay titles get same previewOrder as their target
-      const overlayTitle = reorderedTiles.find(t => t.type === 'title' && t.overlayTargetId === tile.id)
-      if (overlayTitle) {
-        newPreviewOrder.set(overlayTitle.id, index)
-      }
     })
     
     // Ensure ALL tiles have previewOrder (including any that might have been missed)
@@ -1192,25 +1239,12 @@ export default function DesignInvitationPage(): JSX.Element {
     setSelectedTileId(tileId)
   }
 
-  const handleOverlayToggle = (tileId: string, targetTileId: string | undefined) => {
-    setConfig(prev => ({
-      ...prev,
-      tiles: prev.tiles?.map(t => {
-        if (t.id === tileId) {
-          return {
-            ...t,
-            overlayTargetId: targetTileId,
-            settings: {
-              ...t.settings,
-              overlayMode: !!targetTileId,
-              overlayPosition: targetTileId ? ((t.settings as any).overlayPosition || { x: 50, y: 50 }) : undefined,
-            },
-          }
-        }
-        return t
-      }) || [],
-    }))
-  }
+
+
+  // Single source of truth: templates from API only
+  const getTemplateFromList = (templateId: string): InviteTemplate | undefined =>
+    apiTemplates.find((t) => String(t.id) === String(templateId))
+  const displayBackgroundColor = config.customColors?.backgroundColor ?? getTheme(config?.themeId ?? 'classic-noir').palette.bg
 
   if (loading) {
     return (
@@ -1235,6 +1269,76 @@ export default function DesignInvitationPage(): JSX.Element {
     )
   }
 
+  // Design start: choose template or scratch when user has no saved design yet
+  if (showDesignStartView) {
+    return (
+      <div className="min-h-screen bg-eco-beige w-full overflow-x-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+          <Link href={`/host/events/${eventId}`}>
+            <Button variant="outline" size="sm" className="mb-6 border-eco-green text-eco-green hover:bg-eco-green-light">
+              Back to Event
+            </Button>
+          </Link>
+          <h1 className="text-2xl font-bold text-eco-green mb-2">Design your invitation</h1>
+          <p className="text-gray-600 mb-8">Start from a template or build from scratch.</p>
+          <div className="flex flex-wrap gap-4 mb-8">
+            <Button
+              onClick={() => setShowTemplateLibraryOnStart(true)}
+              className="bg-eco-green hover:bg-green-600 text-white"
+            >
+              Start from template
+            </Button>
+            <Button
+              onClick={() => setShowDesignStartView(false)}
+              variant="outline"
+              className="border-eco-green text-eco-green hover:bg-eco-green-light"
+            >
+              Start from scratch
+            </Button>
+          </div>
+          {showTemplateLibraryOnStart && (
+            <div className="mt-8">
+              {templatesLoading ? (
+                <p className="text-gray-600">Loading templates...</p>
+              ) : apiTemplates.length === 0 ? (
+                <p className="text-gray-600">No templates yet. Run the seed command or add templates in Template Studio.</p>
+              ) : (
+                <TemplateLibrary
+                  templates={apiTemplates}
+                  onSelect={(templateId) => {
+                    const t = getTemplateFromList(templateId)
+                    if (!t) {
+                      showToast('Template no longer available.', 'error')
+                      return
+                    }
+                    if (event) {
+                      const next = applyTemplate(t.config, {
+                        title: event.title,
+                        date: event.date,
+                        city: event.city,
+                      })
+                      setConfig(next)
+                      if (next.tiles?.length) {
+                        const order = new Map<string, number>()
+                        next.tiles.forEach((tile, i) => order.set(tile.id, tile.order ?? i))
+                        setPreviewOrder(order)
+                        const first = next.tiles.find((tile) => tile.enabled)
+                        if (first) setSelectedTileId(first.id)
+                      }
+                      setShowDesignStartView(false)
+                      setShowTemplateLibraryOnStart(false)
+                    }
+                  }}
+                  onCancel={() => setShowTemplateLibraryOnStart(false)}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const selectedTile = config.tiles?.find(t => t.id === selectedTileId)
   let sortedTiles: Tile[] = []
   if (config.tiles && config.tiles.length > 0) {
@@ -1249,14 +1353,36 @@ export default function DesignInvitationPage(): JSX.Element {
     sortedTiles = DEFAULT_TILES
   }
 
+  // Validate eventId after all hooks so hook count is consistent every render
+  if (!eventId || isNaN(eventId)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-eco-beige">
+        <div className="text-center">
+          <p className="text-red-500">Invalid event ID</p>
+          <Link href="/host/dashboard">
+            <Button className="mt-4">Go to Dashboard</Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-eco-beige w-full overflow-x-hidden">
+      {/* Wizard progress bar */}
+      <WizardProgress currentStep={4} eventId={eventId} />
         {/* Header */}
       <div ref={headerRef} className="sticky top-0 z-30 bg-white border-b w-full overflow-x-hidden">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 w-full overflow-x-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 w-full">
           <div className="flex-1 min-w-0 w-full">
             <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Link
+                href={`/host/events/${eventId}/layout`}
+                className="text-xs text-eco-green hover:underline flex items-center gap-1 mr-1"
+              >
+                <span aria-hidden>&#8592;</span> Back to Layout
+              </Link>
               <Link href={`/host/events/${eventId}`}>
                 <Button
                   variant="outline"
@@ -1280,6 +1406,38 @@ export default function DesignInvitationPage(): JSX.Element {
               <p className="text-gray-600 mt-1 text-xs sm:text-sm break-words">Customize your invitation page by arranging and configuring tiles. Drag tiles in the mobile preview to reorder them.</p>
           </div>
           <div className="flex gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto items-center">
+            {/* Save status indicator */}
+            <AnimatePresence mode="wait">
+              {saving && (
+                <motion.span
+                  key="saving"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="hidden sm:flex items-center gap-1 text-xs text-gray-400"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-pulse" />
+                  Saving...
+                </motion.span>
+              )}
+              {saved && !saving && (
+                <motion.span
+                  key="saved"
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="hidden sm:flex items-center gap-1 text-xs text-green-600"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                  </svg>
+                  Saved
+                </motion.span>
+              )}
+            </AnimatePresence>
+
             {/* Fix 2: Publish Status Badge */}
             {invitePage?.is_published ? (
               <Badge variant="success" className="text-xs">Published</Badge>
@@ -1325,6 +1483,17 @@ export default function DesignInvitationPage(): JSX.Element {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            
+            {/* Templates */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-eco-green text-eco-green text-xs sm:text-sm px-3 sm:px-4 w-full sm:w-auto flex-1 sm:flex-none"
+              onClick={() => router.push(`/host/events/${eventId}/layout`)}
+            >
+              Templates
+            </Button>
             
             {/* Save button */}
             <Button
@@ -1379,6 +1548,7 @@ export default function DesignInvitationPage(): JSX.Element {
         </div>
       </div>
 
+
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 w-full overflow-x-hidden pt-4 sm:pt-6 pb-6">
         {/* Fix 5: State-based info banners */}
         {(() => {
@@ -1416,7 +1586,7 @@ export default function DesignInvitationPage(): JSX.Element {
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
-                      value={config.customColors?.backgroundColor || '#ffffff'}
+                      value={displayBackgroundColor}
                       onChange={(e) => setConfig(prev => ({
                         ...prev,
                         customColors: {
@@ -1428,7 +1598,7 @@ export default function DesignInvitationPage(): JSX.Element {
                     />
                     <Input
                       type="text"
-                      value={config.customColors?.backgroundColor || '#ffffff'}
+                      value={displayBackgroundColor}
                       onChange={(e) => setConfig(prev => ({
                         ...prev,
                         customColors: {
@@ -1517,6 +1687,77 @@ export default function DesignInvitationPage(): JSX.Element {
                           </p>
                         </div>
                       )}
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Texture image (optional)</label>
+                        <Input
+                          type="url"
+                          value={config.texture?.imageUrl || ''}
+                          onChange={(e) => setConfig(prev => ({
+                            ...prev,
+                            texture: {
+                              ...prev.texture,
+                              type: prev.texture?.type || 'none',
+                              intensity: prev.texture?.intensity || 40,
+                              imageUrl: e.target.value.trim() || undefined,
+                            },
+                          }))}
+                          placeholder="https://… (e.g. marble, watercolor)"
+                          className="w-full"
+                        />
+                        {config.texture?.imageUrl && (
+                          <div className="mt-2">
+                            <label className="text-xs font-medium text-gray-600">Blend</label>
+                            <select
+                              value={config.texture?.textureBlend || 'overlay'}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                texture: {
+                                  ...prev.texture!,
+                                  textureBlend: e.target.value as 'overlay' | 'replace',
+                                },
+                              }))}
+                              className="w-full text-sm border rounded px-2 py-1 mt-0.5"
+                            >
+                              <option value="overlay">Overlay on CSS texture</option>
+                              <option value="replace">Replace CSS texture</option>
+                            </select>
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">Image texture (e.g. marble photo). Intensity above applies to it.</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Spacing between tiles</label>
+                        <select
+                          value={config.spacing || 'normal'}
+                          onChange={(e) => setConfig(prev => ({ ...prev, spacing: e.target.value as 'tight' | 'normal' | 'spacious' }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
+                        >
+                          <option value="tight">Tight</option>
+                          <option value="normal">Normal</option>
+                          <option value="spacious">Spacious</option>
+                        </select>
+                      </div>
+
+                      {/* Opening Animation */}
+                      <div className="border-t border-gray-200 pt-4 mt-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <label className="block text-sm font-medium">Opening Animation</label>
+                            <p className="text-xs text-gray-500 mt-0.5">Envelope animation when guests open the invite</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={config.animations?.envelope !== false}
+                            onChange={(e) => setConfig(prev => ({
+                              ...prev,
+                              animations: { ...prev.animations, envelope: e.target.checked },
+                            }))}
+                            className="w-4 h-4 text-eco-green focus:ring-eco-green border-gray-300 rounded"
+                          />
+                        </div>
+                      </div>
 
                       {/* Page Border Settings */}
                       <div className="border-t border-gray-200 pt-4 mt-4">
@@ -1615,6 +1856,84 @@ export default function DesignInvitationPage(): JSX.Element {
                             </div>
                           </div>
                         )}
+                      </div>
+
+                      {/* Page Frame (ornate border image) */}
+                      <div className="border-t border-gray-200 pt-4 mt-4">
+                        <label className="block text-sm font-medium mb-2">Frame image (optional)</label>
+                        <Input
+                          type="url"
+                          value={config.pageFrame?.imageUrl || ''}
+                          onChange={(e) => setConfig(prev => ({
+                            ...prev,
+                            pageFrame: e.target.value.trim()
+                              ? { imageUrl: e.target.value.trim() }
+                              : undefined,
+                          }))}
+                          placeholder="https://… (SVG or PNG with transparency)"
+                          className="w-full"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Full-page frame overlay (e.g. ornate border). Leave empty for none.</p>
+                      </div>
+
+                      {/* Corner decorations */}
+                      <div className="border-t border-gray-200 pt-4 mt-4">
+                        <label className="block text-sm font-medium mb-2">Corner decorations (optional)</label>
+                        <p className="text-xs text-gray-500 mb-2">Image URLs for corner flourishes. Leave empty for none.</p>
+                        <div className="grid grid-cols-1 gap-3">
+                          <div>
+                            <label className="text-xs text-gray-600">Top left</label>
+                            <Input
+                              type="url"
+                              value={config.cornerDecorations?.topLeft || ''}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                cornerDecorations: { ...prev.cornerDecorations, topLeft: e.target.value.trim() || undefined },
+                              }))}
+                              placeholder="https://…"
+                              className="w-full mt-0.5"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-600">Top right</label>
+                            <Input
+                              type="url"
+                              value={config.cornerDecorations?.topRight || ''}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                cornerDecorations: { ...prev.cornerDecorations, topRight: e.target.value.trim() || undefined },
+                              }))}
+                              placeholder="https://…"
+                              className="w-full mt-0.5"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-600">Bottom left</label>
+                            <Input
+                              type="url"
+                              value={config.cornerDecorations?.bottomLeft || ''}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                cornerDecorations: { ...prev.cornerDecorations, bottomLeft: e.target.value.trim() || undefined },
+                              }))}
+                              placeholder="https://…"
+                              className="w-full mt-0.5"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-600">Bottom right</label>
+                            <Input
+                              type="url"
+                              value={config.cornerDecorations?.bottomRight || ''}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                cornerDecorations: { ...prev.cornerDecorations, bottomRight: e.target.value.trim() || undefined },
+                              }))}
+                              placeholder="https://…"
+                              className="w-full mt-0.5"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1835,11 +2154,13 @@ export default function DesignInvitationPage(): JSX.Element {
                   onReorder={handleTileReorder}
                   onUpdate={handleTileUpdate}
                   onToggle={handleTileToggle}
-                  onOverlayToggle={handleOverlayToggle}
+                  onAddTile={handleAddTile}
+                  onRemoveTile={handleRemoveTile}
                   eventId={eventId}
                   hasRsvp={event?.has_rsvp}
                   hasRegistry={event?.has_registry}
                   forceExpanded={allTilesExpanded}
+                  eventStructure={event?.event_structure}
                 />
               ) : (
                 <p className="text-gray-500 text-sm">No tiles available</p>
@@ -1873,7 +2194,7 @@ export default function DesignInvitationPage(): JSX.Element {
                   </span>
                 )}
               </h2>
-              <p className="text-xs text-gray-600 mb-3 sm:mb-4">Customize your invitation by dragging tiles up and down to reorder them.</p>
+              <p className="text-xs text-gray-600 mb-3 sm:mb-4">This preview matches your live invite. Reorder tiles using the drag handles in Tile Settings (left).</p>
               {/* iPhone 16 Frame - Responsive */}
               <div className="flex justify-center items-start w-full overflow-x-hidden">
                 <div className="relative w-full flex justify-center" style={{ maxWidth: '100%' }}>
@@ -1905,42 +2226,50 @@ export default function DesignInvitationPage(): JSX.Element {
                         }}
                       ></div>
                       {/* Screen - iPhone 16 aspect ratio (1179:2556 ≈ 0.461) */}
-                <div 
+                        <ThemeProvider config={config}>
+                <div
                         className="relative overflow-hidden bg-white flex flex-col w-full"
-                  style={{ 
+                  style={{
                           width: '100%',
                           aspectRatio: '1179 / 2556',
-                    backgroundColor: config.customColors?.backgroundColor || '#ffffff',
+                    backgroundColor: displayBackgroundColor,
                     borderRadius: 'clamp(1.25rem, 3vw, 2.5rem)'
                         }}
                       >
-                        {/* Status Bar Area with Dynamic Island space */}
-                        <div 
-                          className="bg-transparent flex items-start justify-center flex-shrink-0"
-                          style={{
-                            height: 'clamp(30px, 8vw, 47px)',
-                            paddingTop: 'clamp(4px, 1vw, 8px)'
-                          }}
-                        >
-                          {/* Dynamic Island visual indicator */}
-                          <div 
-                            className="bg-black rounded-full opacity-30"
+                          <TextureOverlay
+                            type={config.texture?.type ?? 'none'}
+                            intensity={config.texture?.intensity ?? 40}
+                            imageUrl={config.texture?.imageUrl}
+                            textureBlend={config.texture?.textureBlend}
+                          />
+                          {/* Status Bar Area with Dynamic Island space */}
+                          <div
+                            className="bg-transparent flex items-start justify-center flex-shrink-0"
                             style={{
-                              width: 'clamp(80px, 25vw, 126px)',
-                              height: 'clamp(24px, 7.5vw, 37px)'
+                              height: 'clamp(30px, 8vw, 47px)',
+                              paddingTop: 'clamp(4px, 1vw, 8px)'
                             }}
-                          ></div>
-                        </div>
-                        {/* Content Area */}
-                        <div className="overflow-y-auto flex-1 w-full overflow-x-hidden" style={{ paddingBottom: '24px' }}>
+                          >
+                            {/* Dynamic Island visual indicator */}
+                            <div
+                              className="bg-black rounded-full opacity-30"
+                              style={{
+                                width: 'clamp(80px, 25vw, 126px)',
+                                height: 'clamp(24px, 7.5vw, 37px)'
+                              }}
+                            ></div>
+                          </div>
+                          {/* Content Area */}
+                          <div className="overflow-y-auto flex-1 w-full overflow-x-hidden" style={{ paddingBottom: '24px' }}>
                     {sortedTiles && sortedTiles.length > 0 ? (
                       <>
                         <TileList
+                          variant="invite"
                           tiles={sortedTiles}
                           onReorder={handleTileReorder}
                           eventDate={event?.date}
                           eventSlug={event?.slug}
-                              eventTitle={(sortedTiles.find(t => t.type === 'title')?.settings as { text?: string })?.text || event?.title || 'Event'}
+                          eventTitle={(sortedTiles.find(t => t.type === 'title')?.settings as { text?: string })?.text || event?.title || 'Event'}
                           hasRsvp={event?.has_rsvp}
                           hasRegistry={event?.has_registry}
                           allowedSubEvents={allowedSubEvents}
@@ -1951,23 +2280,24 @@ export default function DesignInvitationPage(): JSX.Element {
                         <p>Loading tiles...</p>
                       </div>
                     )}
-                        </div>
-                        {/* Home Indicator (iPhone 16) */}
-                        <div 
-                          className="absolute left-1/2 transform -translate-x-1/2 bg-gray-800 rounded-full z-10"
-                          style={{
-                            bottom: 'clamp(4px, 1vw, 8px)',
-                            width: 'clamp(90px, 28vw, 134px)',
-                            height: 'clamp(3px, 0.8vw, 5px)'
-                          }}
-                        ></div>
+                          </div>
+                          {/* Home Indicator (iPhone 16) */}
+                          <div
+                            className="absolute left-1/2 transform -translate-x-1/2 bg-gray-800 rounded-full z-10"
+                            style={{
+                              bottom: 'clamp(4px, 1vw, 8px)',
+                              width: 'clamp(90px, 28vw, 134px)',
+                              height: 'clamp(3px, 0.8vw, 5px)'
+                            }}
+                          ></div>
                       </div>
+                        </ThemeProvider>
                     </div>
                   </div>
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 text-center">
-                Use the drag handle (⋮⋮) on each tile to reorder. Footer stays at the bottom.
+                Use the drag handle in Tile Settings (left) to reorder. Footer stays at the bottom.
                 </p>
                 </div>
             </div>

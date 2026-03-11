@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280" role="img" aria-label="Classic invitation preview">
+  <defs>
+    <linearGradient id="classicBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E0F14" />
+      <stop offset="1" stop-color="#191B22" />
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B2A45" />
+      <stop offset="1" stop-color="#5E3B52" />
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1280" fill="url(#classicBg)" />
+  <rect x="60" y="90" width="600" height="520" rx="28" fill="url(#hero)" />
+  <rect x="60" y="90" width="600" height="520" rx="28" fill="#000000" opacity="0.28" />
+  <text x="360" y="360" text-anchor="middle" font-family="'Great Vibes', cursive" font-size="86" fill="#FFFFFF">Event Title</text>
+  <text x="360" y="430" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#F3F4F6">A celebration to remember</text>
+  <text x="360" y="700" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#A7A8AD">Countdown</text>
+  <circle cx="240" cy="780" r="64" fill="none" stroke="#E55A9E" stroke-width="6" />
+  <circle cx="360" cy="780" r="64" fill="none" stroke="#E55A9E" stroke-width="6" />
+  <circle cx="480" cy="780" r="64" fill="none" stroke="#E55A9E" stroke-width="6" />
+  <text x="240" y="788" text-anchor="middle" font-family="Inter, system-ui" font-size="30" fill="#FFFFFF">12</text>
+  <text x="360" y="788" text-anchor="middle" font-family="Inter, system-ui" font-size="30" fill="#FFFFFF">20</text>
+  <text x="480" y="788" text-anchor="middle" font-family="Inter, system-ui" font-size="30" fill="#FFFFFF">45</text>
+  <text x="360" y="940" text-anchor="middle" font-family="Inter, system-ui" font-size="32" fill="#FFFFFF">Saturday, 6:00 PM</text>
+  <text x="360" y="995" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#A7A8AD">Rosewood Manor, Delhi</text>
+  <rect x="190" y="1060" width="340" height="68" rx="34" fill="#E55A9E" />
+  <text x="360" y="1104" text-anchor="middle" font-family="Inter, system-ui" font-size="30" fill="#FFFFFF">RSVP</text>
+</svg>

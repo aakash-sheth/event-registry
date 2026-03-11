@@ -16,7 +16,7 @@ import os
 import hashlib
 from urllib.parse import quote
 from urllib.parse import urlencode
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun, AttributionLink, AttributionClick
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -25,7 +25,9 @@ from .serializers import (
     SubEventSerializer, SubEventCreateSerializer,
     GuestSubEventInviteSerializer,
     MessageTemplateSerializer,
-    AttributionLinkSerializer
+    AttributionLinkSerializer,
+    InviteDesignTemplateSerializer,
+    GreetingCardSampleSerializer,
 )
 import re
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
@@ -3615,6 +3617,168 @@ class MessageTemplateViewSet(viewsets.ModelViewSet):
             'template': MessageTemplateSerializer(template).data,
             'guest': GuestSerializer(guest).data,
         })
+
+
+class InviteDesignTemplateViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for invite design templates (Template Studio).
+    List: hosts see published+public; staff see all (optional ?mine=1).
+    Create/Update/Delete: staff only. created_by/updated_by set from request.user.
+    """
+    serializer_class = InviteDesignTemplateSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+    lookup_url_kwarg = 'id'
+
+    def get_queryset(self):
+        user = self.request.user
+        if getattr(user, 'is_staff', False):
+            qs = InviteDesignTemplate.objects.all().select_related('created_by', 'updated_by')
+            if self.request.query_params.get('mine') == '1':
+                qs = qs.filter(created_by=user)
+            return qs
+        return InviteDesignTemplate.objects.filter(
+            status='published',
+            visibility='public',
+        ).select_related('created_by')
+
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        obj = self.get_object()
+        if not getattr(request.user, 'is_staff', False) and (obj.status != 'published' or obj.visibility != 'public'):
+            raise PermissionDenied("Not found or not available.")
+        return Response(InviteDesignTemplateSerializer(obj).data)
+
+    def create(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied("Only staff can create invite design templates.")
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied("Only staff can update invite design templates.")
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied("Only staff can delete invite design templates.")
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ---------------------------------------------------------------------------
+# Greeting Card Samples
+# ---------------------------------------------------------------------------
+
+def _upload_greeting_card_to_s3(file):
+    """Upload a greeting card background image to S3 under greeting-cards/ prefix."""
+    import hashlib
+    import os as _os
+    from django.conf import settings as django_settings
+
+    file.seek(0)
+    content = file.read()
+    ext = _os.path.splitext(file.name)[1].lower() if hasattr(file, 'name') and file.name else '.jpg'
+    if not ext:
+        ext = '.jpg'
+    content_hash = hashlib.sha256(content).hexdigest()[:20]
+    key = f"greeting-cards/{content_hash}{ext}"
+
+    debug_mode = getattr(django_settings, 'DEBUG', False)
+    bucket_name = getattr(django_settings, 'AWS_STORAGE_BUCKET_NAME', '') or _os.environ.get('AWS_S3_BUCKET', '')
+    access_key = getattr(django_settings, 'AWS_ACCESS_KEY_ID', '') or _os.environ.get('AWS_ACCESS_KEY_ID', '')
+    secret_key = getattr(django_settings, 'AWS_SECRET_ACCESS_KEY', '') or _os.environ.get('AWS_SECRET_ACCESS_KEY', '')
+    region = getattr(django_settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
+    cloudfront_domain = getattr(django_settings, 'AWS_CLOUDFRONT_DOMAIN', '') or _os.environ.get('CLOUDFRONT_DOMAIN', '')
+
+    use_local = debug_mode and (not bucket_name or not access_key or not secret_key)
+
+    if use_local:
+        from django.conf import settings as _s
+        import pathlib
+        media_root = getattr(_s, 'MEDIA_ROOT', '/tmp/media')
+        pathlib.Path(f"{media_root}/greeting-cards").mkdir(parents=True, exist_ok=True)
+        local_path = f"{media_root}/greeting-cards/{content_hash}{ext}"
+        with open(local_path, 'wb') as f:
+            f.write(content)
+        media_url = getattr(_s, 'MEDIA_URL', '/media/')
+        return f"{media_url}greeting-cards/{content_hash}{ext}"
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
+    )
+    content_type = getattr(file, 'content_type', 'image/jpeg') or 'image/jpeg'
+    s3_client.put_object(
+        Bucket=bucket_name,
+        Key=key,
+        Body=content,
+        ContentType=content_type,
+    )
+    if cloudfront_domain:
+        return f"https://{cloudfront_domain}/{key}"
+    return f"https://{bucket_name}.s3.{region}.amazonaws.com/{key}"
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_greeting_card_image(request):
+    """Upload a background image for a greeting card sample (staff only)."""
+    if not getattr(request.user, 'is_staff', False):
+        return Response({'error': 'Staff only.'}, status=status.HTTP_403_FORBIDDEN)
+    image_file = request.FILES.get('image')
+    if not image_file:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    if image_file.size > 20 * 1024 * 1024:
+        return Response({'error': 'Max file size is 20 MB.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        url = _upload_greeting_card_to_s3(image_file)
+        return Response({'url': url})
+    except Exception as e:
+        logger.error(f'Greeting card image upload failed: {e}', exc_info=True)
+        return Response({'error': f'Upload failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GreetingCardSampleViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for greeting card samples.
+    List/retrieve: all authenticated users (active only for non-staff).
+    Create/update/delete: staff only.
+    """
+    serializer_class = GreetingCardSampleSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self.request.user, 'is_staff', False):
+            return GreetingCardSample.objects.all()
+        return GreetingCardSample.objects.filter(is_active=True)
+
+    def create(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can create greeting card samples.')
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can update greeting card samples.')
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can delete greeting card samples.')
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 # Standalone view functions for WhatsApp template actions

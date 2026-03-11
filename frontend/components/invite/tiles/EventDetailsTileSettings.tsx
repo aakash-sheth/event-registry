@@ -118,6 +118,18 @@ export default function EventDetailsTileSettings({ settings, onChange }: EventDe
         />
       </div>
 
+      <div>
+        <label className="block text-sm font-medium mb-2">Date layout</label>
+        <select
+          value={settings.dateLayout || 'single-line'}
+          onChange={(e) => onChange({ ...settings, dateLayout: e.target.value as 'single-line' | 'day-prominent' })}
+          className="w-full text-sm border rounded px-3 py-2"
+        >
+          <option value="single-line">Single line (e.g. Saturday, June 14, 2025)</option>
+          <option value="day-prominent">Day prominent (large day number, then weekday · time, month year)</option>
+        </select>
+      </div>
+
       {/* Location Input - Display text only */}
       <div>
         <label className="block text-sm font-medium mb-2">Location *</label>

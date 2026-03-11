@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280" role="img" aria-label="Minimal invitation preview">
+  <defs>
+    <linearGradient id="minimalBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8F7F4" />
+      <stop offset="1" stop-color="#EFEDE7" />
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1280" fill="url(#minimalBg)" />
+  <rect x="72" y="140" width="576" height="1000" rx="32" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="2" />
+  <text x="360" y="300" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#6B7280">You're Invited</text>
+  <text x="360" y="380" text-anchor="middle" font-family="'Playfair Display', serif" font-size="68" fill="#111827">Event Title</text>
+  <line x1="180" y1="430" x2="540" y2="430" stroke="#D1D5DB" stroke-width="2" />
+  <text x="360" y="530" text-anchor="middle" font-family="Inter, system-ui" font-size="34" fill="#1F2937">Saturday, 5:30 PM</text>
+  <text x="360" y="590" text-anchor="middle" font-family="Inter, system-ui" font-size="30" fill="#4B5563">Grand Ballroom, Mumbai</text>
+  <rect x="210" y="760" width="300" height="64" rx="32" fill="#0D6EFD" />
+  <text x="360" y="802" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#FFFFFF">RSVP</text>
+  <rect x="210" y="850" width="300" height="64" rx="32" fill="#EEF2FF" stroke="#BFDBFE" />
+  <text x="360" y="892" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#1D4ED8">View Registry</text>
+</svg>

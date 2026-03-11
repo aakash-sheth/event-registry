@@ -18,17 +18,19 @@ export default function FooterTile({ settings, preview = false }: FooterTileProp
     )
   }
 
+  const textColor = settings.fontColor ?? '#4B5563'
+
   if (preview) {
     return (
-      <div className="w-full py-6 px-4 text-center border-t">
-        <p className="text-sm text-gray-600">{settings.text}</p>
+      <div className="w-full py-6 px-4 text-center border-t border-gray-200/50">
+        <p className="text-sm" style={{ color: textColor }}>{settings.text}</p>
       </div>
     )
   }
 
   return (
     <div className="w-full py-4 px-4 text-center border rounded bg-gray-50">
-      <p className="text-sm text-gray-600">{settings.text}</p>
+      <p className="text-sm" style={{ color: textColor }}>{settings.text}</p>
     </div>
   )
 }

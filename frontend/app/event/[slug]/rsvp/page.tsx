@@ -16,6 +16,7 @@ import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { getEventDetailsFromConfig } from '@/lib/event/utils'
 import { BRAND_NAME, COMPANY_HOMEPAGE } from '@/lib/brand_utility'
+import { generateWhatsAppShareLink, openWhatsApp } from '@/lib/whatsapp'
 import { getTimezoneLabel } from '@/lib/invite/timezone'
 import type { RsvpCustomFieldConfig, RsvpFormConfig } from '@/lib/invite/schema'
 
@@ -861,59 +862,87 @@ export default function RSVPPage() {
 
         {/* Thank You Message (shown when registry is disabled) */}
         {showThankYou ? (
-          <Card className="bg-white border-eco-green-light">
-            <CardHeader>
-              <CardTitle className="text-eco-green text-2xl text-center">
-                Thank You! 🌿
-              </CardTitle>
-              <CardDescription className="text-center">
-                Your RSVP has been confirmed. We're excited to celebrate with you!
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-4">
+          <Card className="bg-white overflow-hidden">
+            {/* Banner image if available */}
+            {event?.banner_image && (
+              <div className="w-full h-44 overflow-hidden">
+                <img
+                  src={event.banner_image}
+                  alt={event.title}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            <CardContent className="pt-8 pb-8">
               <div className="space-y-6 text-center">
-                <div className="bg-eco-green-light p-6 rounded-lg">
-                  <p className="text-gray-700 text-lg mb-4">
-                    <strong>Your response helps us plan better and celebrate sustainably.</strong>
-                  </p>
-                  <p className="text-gray-600">
-                    We'll send you updates via SMS or WhatsApp as the event approaches.
-                  </p>
+                {/* Personalized heading */}
+                <div>
+                  <p className="text-4xl mb-3">🎉</p>
+                  <CardTitle className="text-2xl font-bold text-gray-900 mb-1">
+                    You&apos;re going{existingRSVP?.name ? `, ${existingRSVP.name.split(' ')[0]}` : ''}!
+                  </CardTitle>
+                  <CardDescription className="text-base text-gray-600 mt-2">
+                    Your RSVP has been confirmed.
+                  </CardDescription>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                {/* Event details */}
+                {event && (
+                  <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 space-y-1">
+                    <p className="font-semibold text-gray-900 text-base">{event.title}</p>
+                    {event.date && (
+                      <p>{new Date(event.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    )}
+                    {event.city && <p>{event.city}{event.country ? `, ${event.country}` : ''}</p>}
+                  </div>
+                )}
+
+                {/* WhatsApp share */}
+                <Button
+                  onClick={() => {
+                    const inviteUrl = `${window.location.origin}/invite/${slug}`
+                    const msg = `I just RSVP'd to ${event?.title || 'an event'}! Join me: ${inviteUrl}`
+                    openWhatsApp(generateWhatsAppShareLink(msg))
+                  }}
+                  className="w-full bg-[#25D366] hover:bg-[#1ebe5d] text-white font-medium py-3"
+                >
+                  💬 Share on WhatsApp
+                </Button>
+
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link href={`/invite/${slug}`} className="flex-1">
+                    <Button variant="outline" className="w-full border-gray-300 text-gray-700">
+                      View Invitation
+                    </Button>
+                  </Link>
                   <Button
+                    variant="ghost"
                     onClick={() => {
                       setShowThankYou(false)
                       reset()
                     }}
-                    className="bg-eco-green hover:bg-green-600 text-white px-8 py-3"
+                    className="flex-1 text-gray-500"
                   >
                     Submit Another RSVP
                   </Button>
-                  <Link href={`/invite/${slug}`}>
-                    <Button
-                      variant="outline"
-                      className="border-eco-green text-eco-green px-8 py-3"
-                    >
-                      View Invitation
-                    </Button>
-                  </Link>
                 </div>
 
                 {/* Company Branding */}
-                <div className="pt-6 mt-6 border-t border-gray-200">
+                <div className="pt-4 border-t border-gray-100 flex flex-col items-center gap-2">
                   <p className="text-xs text-gray-400">
                     Created using{' '}
-                    <a
-                      href={COMPANY_HOMEPAGE}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-eco-green hover:underline"
-                    >
+                    <a href={COMPANY_HOMEPAGE} target="_blank" rel="noopener noreferrer" className="hover:underline">
                       {BRAND_NAME}
                     </a>
                   </p>
+                  <a
+                    href={COMPANY_HOMEPAGE}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-gray-500 border border-gray-300 rounded-full px-4 py-1.5 hover:border-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Create your own invite →
+                  </a>
                 </div>
               </div>
             </CardContent>

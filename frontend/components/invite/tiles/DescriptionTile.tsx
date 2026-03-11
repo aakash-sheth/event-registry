@@ -144,22 +144,23 @@ export default function DescriptionTile({ settings, preview = false }: Descripti
         text-align: justify !important;
       }
     `
+    const textStyle = settings.fontColor ? { backgroundColor: 'transparent' as const, color: settings.fontColor } : { backgroundColor: 'transparent' as const }
     return (
       <>
         <style dangerouslySetInnerHTML={{ __html: styleContent }} />
         <div className="w-full py-1 px-6" style={{ backgroundColor: 'transparent' }}>
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl mx-auto" style={textStyle}>
           {isHTML ? (
             <div 
                 ref={contentRef}
                 className="prose prose-lg max-w-none description-content break-words" 
-              style={{ backgroundColor: 'transparent' }}
+              style={{ backgroundColor: 'transparent', color: 'inherit' }}
               dangerouslySetInnerHTML={{ __html: content }}
             />
           ) : (
               <div 
                 className="prose prose-lg max-w-none whitespace-pre-wrap description-content break-words" 
-                style={{ backgroundColor: 'transparent' }}
+                style={{ backgroundColor: 'transparent', color: 'inherit' }}
               >
               {content}
             </div>

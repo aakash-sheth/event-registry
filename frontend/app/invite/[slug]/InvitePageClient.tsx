@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { InviteConfig } from '@/lib/invite/schema'
+import { getTheme } from '@/lib/invite/themes'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
 import { logError, logDebug } from '@/lib/error-handler'
 import api from '@/lib/api'
@@ -25,6 +26,7 @@ interface Event {
   has_registry?: boolean
   country?: string
   timezone?: string
+  rsvp_count?: number
 }
 
 interface InvitePageClientProps {
@@ -226,12 +228,13 @@ export default function InvitePageClient({
           }
         }
         
-        // Preserve all config properties including pageBorder
+        // Preserve all config properties including pageBorder and pageFrame
         const configWithCustomColors = {
           ...eventData.page_config,
           customColors,
-          // Explicitly preserve pageBorder if it exists
           ...(eventData.page_config.pageBorder && { pageBorder: eventData.page_config.pageBorder }),
+          ...(eventData.page_config.pageFrame && { pageFrame: eventData.page_config.pageFrame }),
+          ...(eventData.page_config.cornerDecorations && { cornerDecorations: eventData.page_config.cornerDecorations }),
         }
         
         // Debug: Log image tile settings when loading public page
@@ -506,8 +509,9 @@ export default function InvitePageClient({
     }
   }, [fetchInvite, slug])
 
-  // Compute backgroundColor early (before early returns) so we can use it in useEffect
-  const backgroundColor = config?.customColors?.backgroundColor || '#ffffff'
+  // Compute backgroundColor from theme when customColors not set, so template theme shows correctly
+  const theme = getTheme(config?.themeId || 'classic-noir')
+  const backgroundColor = config?.customColors?.backgroundColor ?? theme.palette.bg
 
   // Set body background to match page background
   // This MUST be called before any early returns to follow React hooks rules
@@ -776,14 +780,16 @@ export default function InvitePageClient({
             } as React.CSSProperties}
           >
             {/* Texture overlay at page level */}
-            <TextureOverlay 
-              type={config.texture?.type || 'none'} 
-              intensity={config.texture?.intensity || 40} 
+            <TextureOverlay
+              type={config.texture?.type || 'none'}
+              intensity={config.texture?.intensity || 40}
+              imageUrl={config.texture?.imageUrl}
+              textureBlend={config.texture?.textureBlend}
             />
-            
+
             {/* Server-rendered hero section (image with overlay title for SEO) */}
             {heroSSR}
-            
+
             {/* All other tiles (including title and event-details) render client-side in correct order */}
             <LivingPosterPage
               config={configForClient}
@@ -796,32 +802,34 @@ export default function InvitePageClient({
               skipBackgroundColor={true}
               allowedSubEvents={subEvents}
               guestToken={guestToken}
+              rsvpCount={event?.rsvp_count}
             />
-            
             {/* Branding component at the bottom */}
             <PoweredByBranding />
           </div>
         </div>
       ) : (
         // No border - original structure
-        <div 
+        <div
           className="w-full relative overflow-x-hidden"
-          style={{ 
-            backgroundColor, 
-            background: backgroundColor, 
-            minHeight: 'auto', 
+          style={{
+            backgroundColor,
+            background: backgroundColor,
+            minHeight: 'auto',
             height: 'auto',
           } as React.CSSProperties}
         >
           {/* Texture overlay at page level */}
-          <TextureOverlay 
-            type={config.texture?.type || 'none'} 
-            intensity={config.texture?.intensity || 40} 
+          <TextureOverlay
+            type={config.texture?.type || 'none'}
+            intensity={config.texture?.intensity || 40}
+            imageUrl={config.texture?.imageUrl}
+            textureBlend={config.texture?.textureBlend}
           />
-          
+
           {/* Server-rendered hero section (image with overlay title for SEO) */}
           {heroSSR}
-          
+
           {/* All other tiles (including title and event-details) render client-side in correct order */}
           <LivingPosterPage
             config={configForClient}
@@ -834,8 +842,8 @@ export default function InvitePageClient({
             skipBackgroundColor={true}
             allowedSubEvents={subEvents}
             guestToken={guestToken}
+            rsvpCount={event?.rsvp_count}
           />
-          
           {/* Branding component at the bottom */}
           <PoweredByBranding />
         </div>

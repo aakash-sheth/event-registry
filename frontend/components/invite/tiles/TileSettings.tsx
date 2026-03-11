@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Tile, TileType } from '@/lib/invite/schema'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import TitleTileSettings from './TitleTileSettings'
 import ImageTileSettings from './ImageTileSettings'
 import TimerTileSettings from './TimerTileSettings'
@@ -16,19 +16,16 @@ interface TileSettingsProps {
   tile: Tile
   onUpdate: (tile: Tile) => void
   onToggle: (tileId: string, enabled: boolean) => void
-  allTiles?: Tile[]
-  onOverlayToggle?: (tileId: string, targetTileId: string | undefined) => void
+  onRemove?: () => void
   eventId: number
   hasRsvp?: boolean
   hasRegistry?: boolean
   forceExpanded?: boolean
-  isDragging?: boolean
-  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>
 }
 
 const TILE_LABELS: Record<TileType, string> = {
   'title': 'Title',
-  'image': 'Image',
+  'image': 'Greeting',
   'timer': 'Timer',
   'event-details': 'Event Details',
   'description': 'Description',
@@ -37,7 +34,7 @@ const TILE_LABELS: Record<TileType, string> = {
   'event-carousel': 'Event Carousel',
 }
 
-export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], onOverlayToggle, eventId, hasRsvp = false, hasRegistry = false, forceExpanded = false, isDragging = false, dragHandleProps }: TileSettingsProps) {
+export default function TileSettings({ tile, onUpdate, onToggle, onRemove, eventId, hasRsvp = false, hasRegistry = false, forceExpanded = false }: TileSettingsProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   // Sync with forceExpanded prop
@@ -52,29 +49,6 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
     })
   }
 
-  const handleOverlayToggle = (targetTileId: string | undefined) => {
-    if (onOverlayToggle) {
-      onOverlayToggle(tile.id, targetTileId)
-    } else {
-      // Fallback: update settings directly
-      handleSettingsChange({
-        ...tile.settings,
-        overlayMode: !!targetTileId,
-        overlayPosition: targetTileId ? ((tile.settings as any).overlayPosition || { x: 50, y: 50 }) : undefined,
-      })
-      // Update overlayTargetId
-      onUpdate({
-        ...tile,
-        overlayTargetId: targetTileId,
-        settings: {
-          ...tile.settings,
-          overlayMode: !!targetTileId,
-          overlayPosition: targetTileId ? ((tile.settings as any).overlayPosition || { x: 50, y: 50 }) : undefined,
-        },
-      })
-    }
-  }
-
   const renderSettings = () => {
     switch (tile.type) {
       case 'title':
@@ -82,14 +56,10 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
           <TitleTileSettings
             settings={tile.settings as any}
             onChange={handleSettingsChange}
-            tile={tile}
-            allTiles={allTiles}
-            onOverlayToggle={handleOverlayToggle}
           />
         )
       case 'image':
-        const hasTitleOverlay = allTiles.some(t => t.type === 'title' && t.overlayTargetId === tile.id)
-        return <ImageTileSettings settings={tile.settings as any} onChange={handleSettingsChange} hasTitleOverlay={hasTitleOverlay} eventId={eventId} />
+        return <ImageTileSettings settings={tile.settings as any} onChange={handleSettingsChange} eventId={eventId} />
       case 'timer':
         return <TimerTileSettings settings={tile.settings as any} onChange={handleSettingsChange} />
       case 'event-details':
@@ -119,20 +89,28 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
             />
           <h3 className={`font-semibold text-sm sm:text-base truncate min-w-0 ${tile.enabled ? 'text-gray-800' : 'text-gray-500'}`}>
             {TILE_LABELS[tile.type]}
-            {tile.type === 'title' && tile.overlayTargetId && (
-              <span className="text-xs text-blue-600 ml-2 font-normal">(Overlaying on Image)</span>
-            )}
             {!tile.enabled && (
               <span className="text-xs text-gray-400 ml-2 font-normal">(Disabled)</span>
             )}
           </h3>
         </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-gray-100 rounded flex-shrink-0"
-        >
-          {isExpanded ? <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />}
-        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {onRemove && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRemove() }}
+              className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500 transition-colors"
+              title="Remove tile"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1 hover:bg-gray-100 rounded"
+          >
+            {isExpanded ? <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />}
+          </button>
+        </div>
       </div>
       {isExpanded && (
         <div className="p-3 sm:p-4 w-full overflow-x-hidden">
@@ -142,4 +120,3 @@ export default function TileSettings({ tile, onUpdate, onToggle, allTiles = [], 
     </div>
   )
 }
-

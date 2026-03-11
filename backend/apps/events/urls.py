@@ -4,6 +4,8 @@ from .views import (
     EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp, get_guest_by_token,
     InvitePageViewSet, PublicInviteViewSet, upload_image,
     SubEventViewSet, GuestInviteViewSet, MessageTemplateViewSet,
+    InviteDesignTemplateViewSet,
+    GreetingCardSampleViewSet, upload_greeting_card_image,
     whatsapp_template_preview, whatsapp_template_duplicate,
     whatsapp_template_archive, whatsapp_template_activate,
     whatsapp_template_increment_usage, whatsapp_template_set_default,
@@ -18,6 +20,13 @@ router.register(r'guest-invites', GuestInviteViewSet, basename='guest-invite')
 
 urlpatterns = [
     # Put custom paths BEFORE router.urls so they take precedence
+    # Invite design templates (Template Studio) - list/create and retrieve/update/delete
+    path('invite-templates/', InviteDesignTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='invite-templates-list'),
+    path('invite-templates/<int:id>/', InviteDesignTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='invite-template-detail'),
+    # Greeting card samples (staff-curated card backgrounds)
+    path('greeting-card-samples/upload-image/', upload_greeting_card_image, name='greeting-card-upload-image'),
+    path('greeting-card-samples/', GreetingCardSampleViewSet.as_view({'get': 'list', 'post': 'create'}), name='greeting-card-samples-list'),
+    path('greeting-card-samples/<int:pk>/', GreetingCardSampleViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='greeting-card-sample-detail'),
     path('q/<str:token>/', attribution_redirect, name='attribution-redirect'),
     # Impact endpoints - must be before routes with <int:id> to avoid conflicts
     path('impact/overall/', get_overall_impact, name='overall-impact'),

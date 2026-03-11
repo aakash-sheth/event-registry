@@ -745,6 +745,100 @@ class MessageTemplate(models.Model):
         return message
 
 
+class InviteDesignTemplate(models.Model):
+    """
+    Backend-stored invite page design templates for the Template Studio.
+    Staff (and later creators) design templates using the tile system; hosts pick from the library.
+    """
+    VISIBILITY_CHOICES = [
+        ('internal', 'Internal'),
+        ('public', 'Public'),
+        ('premium', 'Premium'),
+    ]
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('published', 'Published'),
+    ]
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    thumbnail = models.URLField(max_length=2000, blank=True)
+    preview_alt = models.CharField(max_length=255, blank=True)
+    config = models.JSONField(default=dict, help_text='Full InviteConfig: themeId, tiles, customColors, texture, etc.')
+    visibility = models.CharField(max_length=20, choices=VISIBILITY_CHOICES, default='public')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_invite_design_templates')
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='updated_invite_design_templates',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Future: premium and creator revenue share
+    is_premium = models.BooleanField(default=False)
+    price_cents = models.IntegerField(null=True, blank=True)
+    creator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='creator_invite_design_templates',
+    )
+    creator_share_percent = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'invite_design_templates'
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['visibility'], name='invite_dt_visibility_idx'),
+            models.Index(fields=['status'], name='invite_dt_status_idx'),
+            models.Index(fields=['visibility', 'status'], name='invite_dt_vis_status_idx'),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class GreetingCardSample(models.Model):
+    """
+    Staff-curated greeting card samples for the card designer.
+    Each sample has a background image (S3/CloudFront URL) and placeholder text overlays.
+    Hosts browse these in the card designer and can customise the text before saving.
+    The background_image_url and text_overlays are snapshot-copied into InvitePage.config
+    at save time — this record is NOT referenced by guest-facing invite rendering.
+    """
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    background_image_url = models.URLField(max_length=500)
+    text_overlays = models.JSONField(
+        default=list,
+        help_text='Same shape as ImageTile.settings.textOverlays — placeholder text positioned on the card.',
+    )
+    tags = models.JSONField(default=list, help_text='e.g. ["wedding", "floral", "minimalist"]')
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='greeting_card_samples',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'greeting_card_samples'
+        ordering = ['sort_order', '-created_at']
+
+    def __str__(self):
+        return self.name
+
+
 # Signal to keep InvitePage.slug in sync with Event.slug
 @receiver(post_save, sender=Event)
 def sync_invite_page_slug(sender, instance, **kwargs):

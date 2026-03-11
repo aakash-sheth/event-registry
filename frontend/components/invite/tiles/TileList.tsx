@@ -31,6 +31,9 @@ interface TileListProps {
   hasRsvp?: boolean
   hasRegistry?: boolean
   allowedSubEvents?: any[]
+  /** When 'invite', renders without editor chrome (no cards, no drag handles) so preview matches the live invite page. Reorder via the left panel Tile Settings. */
+  variant?: 'editor' | 'invite'
+  eventTimezone?: string
 }
 
 interface SortableTileItemProps {
@@ -195,6 +198,8 @@ export default function TileList({
   hasRsvp,
   hasRegistry,
   allowedSubEvents = [],
+  variant = 'editor',
+  eventTimezone,
 }: TileListProps) {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -215,6 +220,72 @@ export default function TileList({
     }
     return true
   })
+
+  // Invite-style preview: no cards, no drag handles — matches live invite page so template preview matches final result
+  if (variant === 'invite') {
+    return (
+      <div className="space-y-0 w-full overflow-x-hidden">
+        {tilesToRender.map((tile) => {
+          const titleOverlay = tiles.find(t => t.type === 'title' && t.overlayTargetId === tile.id)
+          if (tile.type === 'image' && titleOverlay) {
+            return (
+              <div key={tile.id} className="relative w-full">
+                <TilePreview
+                  tile={tile}
+                  eventDate={eventDate}
+                  eventTimezone={eventTimezone}
+                  eventSlug={eventSlug}
+                  eventTitle={eventTitle}
+                  hasRsvp={hasRsvp}
+                  hasRegistry={hasRegistry}
+                  allTiles={tiles}
+                  allowedSubEvents={allowedSubEvents}
+                />
+                <TilePreview
+                  tile={titleOverlay}
+                  eventDate={eventDate}
+                  eventTimezone={eventTimezone}
+                  eventSlug={eventSlug}
+                  eventTitle={eventTitle}
+                  hasRsvp={hasRsvp}
+                  hasRegistry={hasRegistry}
+                  allTiles={tiles}
+                  allowedSubEvents={allowedSubEvents}
+                />
+              </div>
+            )
+          }
+          return (
+            <TilePreview
+              key={tile.id}
+              tile={tile}
+              eventDate={eventDate}
+              eventTimezone={eventTimezone}
+              eventSlug={eventSlug}
+              eventTitle={eventTitle}
+              hasRsvp={hasRsvp}
+              hasRegistry={hasRegistry}
+              allTiles={tiles}
+              allowedSubEvents={allowedSubEvents}
+            />
+          )
+        })}
+        {footerTile && (
+          <TilePreview
+            tile={footerTile}
+            eventDate={eventDate}
+            eventTimezone={eventTimezone}
+            eventSlug={eventSlug}
+            eventTitle={eventTitle}
+            hasRsvp={hasRsvp}
+            hasRegistry={hasRegistry}
+            allTiles={tiles}
+            allowedSubEvents={allowedSubEvents}
+          />
+        )}
+      </div>
+    )
+  }
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event

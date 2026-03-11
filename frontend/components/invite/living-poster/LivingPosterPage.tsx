@@ -8,6 +8,7 @@ import Description from './Description'
 import TilePreview from '@/components/invite/tiles/TilePreview'
 import ScrollIndicator from '@/components/invite/ScrollIndicator'
 import TextureOverlay from './TextureOverlay'
+import PoweredByBranding from '@/components/invite/PoweredByBranding'
 
 interface LivingPosterPageProps {
   config: InviteConfig
@@ -21,6 +22,7 @@ interface LivingPosterPageProps {
   skipBackgroundColor?: boolean
   allowedSubEvents?: any[]
   guestToken?: string | null
+  rsvpCount?: number
 }
 
 function LivingPosterContent({
@@ -35,9 +37,10 @@ function LivingPosterContent({
   skipBackgroundColor = false,
   allowedSubEvents = [],
   guestToken,
+  rsvpCount,
 }: LivingPosterPageProps) {
   const theme = useTheme()
-  const backgroundColor = config.customColors?.backgroundColor || '#ffffff'
+  const backgroundColor = config.customColors?.backgroundColor ?? theme.backgroundColor
 
   // Set body background to match page background (skip if already set at page level)
   useEffect(() => {
@@ -83,69 +86,87 @@ function LivingPosterContent({
       })
     }
 
+    const sharedProps = {
+      eventDate,
+      eventTimezone,
+      eventSlug,
+      hasRsvp,
+      hasRegistry,
+      allTiles: config.tiles || [],
+      allowedSubEvents,
+      guestToken,
+    }
+
     return (
       <div className="w-full relative overflow-x-hidden" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
         {!skipTextureOverlay && (
-          <TextureOverlay 
-            type={config.texture?.type || 'none'} 
-            intensity={config.texture?.intensity || 40} 
+          <TextureOverlay
+            type={config.texture?.type || 'none'}
+            intensity={config.texture?.intensity || 40}
+            imageUrl={config.texture?.imageUrl}
+            textureBlend={config.texture?.textureBlend}
           />
         )}
+        {config.cornerDecorations && (config.cornerDecorations.topLeft || config.cornerDecorations.topRight || config.cornerDecorations.bottomLeft || config.cornerDecorations.bottomRight) && (
+          <div className="absolute inset-0 pointer-events-none w-full h-full" style={{ zIndex: 2 }} aria-hidden>
+            {config.cornerDecorations.topLeft && (
+              <img src={config.cornerDecorations.topLeft} alt="" className="absolute left-0 top-0 w-24 h-24 md:w-32 md:h-32 object-contain object-left-top" />
+            )}
+            {config.cornerDecorations.topRight && (
+              <img src={config.cornerDecorations.topRight} alt="" className="absolute right-0 top-0 w-24 h-24 md:w-32 md:h-32 object-contain object-right-top" />
+            )}
+            {config.cornerDecorations.bottomLeft && (
+              <img src={config.cornerDecorations.bottomLeft} alt="" className="absolute left-0 bottom-0 w-24 h-24 md:w-32 md:h-32 object-contain object-left-bottom" />
+            )}
+            {config.cornerDecorations.bottomRight && (
+              <img src={config.cornerDecorations.bottomRight} alt="" className="absolute right-0 bottom-0 w-24 h-24 md:w-32 md:h-32 object-contain object-right-bottom" />
+            )}
+          </div>
+        )}
+        <div
+          className={
+            config.spacing === 'tight'
+              ? 'flex flex-col gap-4'
+              : config.spacing === 'spacious'
+                ? 'flex flex-col gap-12'
+                : 'flex flex-col gap-8'
+          }
+        >
         {sortedTiles.map((tile) => {
-          // Handle overlay case (title over image)
-          if (tile.type === 'title' && tile.overlayTargetId) {
-            const imageTile = config.tiles?.find(t => t.id === tile.overlayTargetId)
-            if (imageTile && imageTile.type === 'image') {
-              return (
-                <div key={tile.id} className="relative w-full">
-                  <TilePreview
-                    tile={imageTile}
-                    eventDate={eventDate}
-                    eventTimezone={eventTimezone}
-                    eventSlug={eventSlug}
-                    hasRsvp={hasRsvp}
-                    hasRegistry={hasRegistry}
-                    allTiles={config.tiles || []}
-                    allowedSubEvents={allowedSubEvents}
-                    guestToken={guestToken}
-                  />
-                  <TilePreview
-                    tile={tile}
-                    eventDate={eventDate}
-                    eventTimezone={eventTimezone}
-                    eventSlug={eventSlug}
-                    hasRsvp={hasRsvp}
-                    hasRegistry={hasRegistry}
-                    allTiles={config.tiles || []}
-                    allowedSubEvents={allowedSubEvents}
-                    guestToken={guestToken}
-                  />
-                </div>
-              )
-            }
+          const tileEl = <TilePreview key={tile.id} tile={tile} {...sharedProps} />
+
+          // Inject attendee count above the RSVP/feature-buttons tile (min 5 to avoid "2 attending")
+          if (tile.type === 'feature-buttons' && hasRsvp && rsvpCount !== undefined && rsvpCount >= 5) {
+            const countColor = config.customColors?.fontColor ?? theme.fontColor
+            return (
+              <React.Fragment key={tile.id}>
+                <p className="text-center text-sm px-6" style={{ color: countColor, opacity: 0.6 }}>
+                  ✓ {rsvpCount} {rsvpCount === 1 ? 'person' : 'people'} attending
+                </p>
+                {tileEl}
+              </React.Fragment>
+            )
           }
 
-          // Skip image tile if it has a title overlay (already rendered above)
-          if (tile.type === 'image' && config.tiles?.some(t => t.type === 'title' && t.overlayTargetId === tile.id)) {
-            return null
-          }
-
-          return (
-            <TilePreview
-              key={tile.id}
-              tile={tile}
-              eventDate={eventDate}
-              eventTimezone={eventTimezone}
-              eventSlug={eventSlug}
-              hasRsvp={hasRsvp}
-              hasRegistry={hasRegistry}
-              allTiles={config.tiles || []}
-              allowedSubEvents={allowedSubEvents}
-              guestToken={guestToken}
-            />
-          )
+          return tileEl
         })}
+        </div>
+        {config.pageFrame?.imageUrl && (
+          <div
+            className="absolute inset-0 pointer-events-none w-full h-full"
+            style={{ zIndex: 5 }}
+            aria-hidden
+          >
+            <img
+              src={config.pageFrame.imageUrl}
+              alt=""
+              className="w-full h-full object-contain"
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
+          </div>
+        )}
         <ScrollIndicator />
+        <PoweredByBranding />
       </div>
     )
   }
@@ -154,9 +175,11 @@ function LivingPosterContent({
   return (
     <div className="relative" style={skipBackgroundColor ? {} : { backgroundColor, background: backgroundColor } as React.CSSProperties}>
       {!skipTextureOverlay && (
-        <TextureOverlay 
-          type={config.texture?.type || 'none'} 
-          intensity={config.texture?.intensity || 40} 
+        <TextureOverlay
+          type={config.texture?.type || 'none'}
+          intensity={config.texture?.intensity || 40}
+          imageUrl={config.texture?.imageUrl}
+          textureBlend={config.texture?.textureBlend}
         />
       )}
       <Hero
@@ -171,6 +194,7 @@ function LivingPosterContent({
         <Description markdown={config.descriptionMarkdown} config={config} />
       )}
       <ScrollIndicator />
+      <PoweredByBranding />
     </div>
   )
 }
