@@ -68,6 +68,9 @@ export default function EventDetailPage() {
   const [showExpiryEditor, setShowExpiryEditor] = useState(false)
   const [expiryDate, setExpiryDate] = useState('')
   const [savingExpiry, setSavingExpiry] = useState(false)
+  const [showSlugEditor, setShowSlugEditor] = useState(false)
+  const [slugDraft, setSlugDraft] = useState('')
+  const [savingSlug, setSavingSlug] = useState(false)
   const [impact, setImpact] = useState<any>(null)
   const [invitePublishStatus, setInvitePublishStatus] = useState<InvitePublishStatus>('Unknown')
   const [trackedLinks, setTrackedLinks] = useState<Record<LinkKey, AttributionLink | null>>({
@@ -1551,6 +1554,78 @@ export default function EventDetailPage() {
                       </CardContent>
                     </Card>
                   )}
+
+                  {/* Invite URL (slug) */}
+                  <Card className="bg-white border-2 border-eco-green-light">
+                    <CardHeader>
+                      <CardTitle className="text-eco-green">Invite URL</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {!showSlugEditor ? (
+                        <>
+                          <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm font-mono text-gray-700 break-all">
+                            /invite/<strong>{event?.slug}</strong>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSlugDraft(event?.slug ?? '')
+                              setShowSlugEditor(true)
+                            }}
+                          >
+                            Change URL
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                            ⚠️ Changing your invite URL will break any links you've already shared. Update all shared links after saving.
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-500 shrink-0">/invite/</span>
+                            <input
+                              type="text"
+                              value={slugDraft}
+                              onChange={(e) => setSlugDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                              className="flex-1 h-9 rounded-md border border-gray-300 bg-white px-3 text-sm"
+                              placeholder="your-event-slug"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              disabled={savingSlug || !slugDraft.trim() || slugDraft === event?.slug}
+                              onClick={async () => {
+                                setSavingSlug(true)
+                                try {
+                                  await api.patch(`/api/events/${eventId}/`, { slug: slugDraft.trim() })
+                                  showToast('Invite URL updated', 'success')
+                                  setShowSlugEditor(false)
+                                  fetchEvent()
+                                } catch (error: any) {
+                                  const msg = error?.response?.data?.slug?.[0] ?? error?.response?.data?.detail ?? 'Failed to update URL'
+                                  showToast(msg, 'error')
+                                } finally {
+                                  setSavingSlug(false)
+                                }
+                              }}
+                              className="bg-eco-green hover:bg-green-600 text-white"
+                            >
+                              {savingSlug ? 'Saving…' : 'Save'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setShowSlugEditor(false)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
 
                   </div>
                 </div>

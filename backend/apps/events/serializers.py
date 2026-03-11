@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
+from django.utils.text import slugify
 from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header
@@ -128,20 +129,35 @@ class InvitePageUpdateSerializer(serializers.ModelSerializer):
 
 
 class EventCreateSerializer(serializers.ModelSerializer):
+    slug = serializers.SlugField(required=False, allow_blank=True, max_length=100)
+
     class Meta:
         model = Event
         fields = ('slug', 'title', 'event_type', 'date', 'city', 'country', 'timezone', 'is_public', 'has_rsvp', 'has_registry')
         read_only_fields = ('id',)
-    
-    def validate_slug(self, value):
-        """Ensure slug is unique"""
-        # Normalize to lowercase (matching model's save behavior)
-        value = value.lower() if value else value
-        
-        if Event.objects.filter(slug=value).exists():
-            raise serializers.ValidationError("This slug is already taken.")
-        return value
-    
+
+    @staticmethod
+    def _generate_unique_slug(base: str) -> str:
+        """Slugify base and append a numeric suffix until unique."""
+        candidate = slugify(base)[:90] or 'event'
+        if not Event.objects.filter(slug=candidate).exists():
+            return candidate
+        counter = 2
+        while Event.objects.filter(slug=f"{candidate}-{counter}").exists():
+            counter += 1
+        return f"{candidate}-{counter}"
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        slug = attrs.get('slug', '').strip()
+        if not slug:
+            attrs['slug'] = self._generate_unique_slug(attrs.get('title', 'event'))
+        else:
+            attrs['slug'] = slug.lower()
+            if Event.objects.filter(slug=attrs['slug']).exists():
+                raise serializers.ValidationError({'slug': 'This slug is already taken.'})
+        return attrs
+
     def to_representation(self, instance):
         """Return full event data including id after creation"""
         return EventSerializer(instance).data

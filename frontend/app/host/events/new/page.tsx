@@ -15,7 +15,6 @@ import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import WizardProgress from '@/components/host/WizardProgress'
 
 const eventSchema = z.object({
-  slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
   title: z.string().min(1, 'Title is required'),
   event_type: z.enum([
     'wedding', 'engagement', 'reception', 'anniversary', 'birthday', 'baby_shower', 'bridal_shower',
@@ -26,7 +25,7 @@ const eventSchema = z.object({
     'fundraiser', 'charity_event', 'community_event', 'festival', 'cultural_event', 'exhibition',
     'art_show', 'concert', 'music_event', 'theater', 'comedy_show', 'sports_event',
     'dinner_party', 'brunch', 'cocktail_party', 'tea_party', 'potluck', 'other'
-  ]),
+  ], { errorMap: () => ({ message: 'Please select an event type' }) }),
   date: z.string().optional(),
   city: z.string().optional(),
   country: z.string().default('IN'),
@@ -49,7 +48,7 @@ export default function NewEventPage() {
   } = useForm<EventForm>({
     resolver: zodResolver(eventSchema),
     defaultValues: {
-      event_type: 'wedding',
+      event_type: '' as any,
       country: 'IN',
       timezone: 'Asia/Kolkata',
       is_public: true,
@@ -95,26 +94,8 @@ export default function NewEventPage() {
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Slug (URL-friendly identifier)
-                </label>
-                <Input
-                  {...register('slug')}
-                  placeholder="john-jane-wedding"
-                />
-                {errors.slug && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.slug.message}
-                  </p>
-                )}
-                <p className="text-xs text-gray-500 mt-1">
-                  Used in URL: /registry/your-slug
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Title</label>
-                <Input {...register('title')} placeholder="John & Jane's Wedding" />
+                <label className="block text-sm font-medium mb-1">Event Title</label>
+                <Input {...register('title')} placeholder="Your event name" />
                 {errors.title && (
                   <p className="text-red-500 text-sm mt-1">
                     {errors.title.message}
@@ -124,12 +105,13 @@ export default function NewEventPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Event Type
+                  What type of event are you hosting?
                 </label>
                 <select
                   {...register('event_type')}
                   className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                 >
+                  <option value="" disabled>Wedding, birthday, corporate, and more…</option>
                   <optgroup label="Life Events">
                     <option value="wedding">Wedding</option>
                     <option value="engagement">Engagement</option>
@@ -193,6 +175,9 @@ export default function NewEventPage() {
                     <option value="other">Other</option>
                   </optgroup>
                 </select>
+                {errors.event_type && (
+                  <p className="text-red-500 text-sm mt-1">{errors.event_type.message}</p>
+                )}
               </div>
 
               <div>
@@ -202,8 +187,8 @@ export default function NewEventPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">City</label>
-                  <Input {...register('city')} placeholder="Mumbai" />
+                  <label className="block text-sm font-medium mb-1">City (leave blank for virtual)</label>
+                  <Input {...register('city')} placeholder="e.g. New York, London, Mumbai" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Country</label>
@@ -253,6 +238,12 @@ export default function NewEventPage() {
                     className="form-checkbox text-eco-green"
                   />
                   <span>Make this event public</span>
+                  <span className="relative group cursor-default">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-xs font-bold leading-none">?</span>
+                    <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-6 w-64 rounded-md bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg">
+                      When public, anyone with the link can view your invite, RSVP, and purchase gifts — even if they&apos;re not on your guest list. When private, only people you&apos;ve invited can participate.
+                    </span>
+                  </span>
                 </label>
               </div>
 
@@ -265,6 +256,12 @@ export default function NewEventPage() {
                     className="form-checkbox text-eco-green"
                   />
                   <span className="text-sm">Enable RSVP</span>
+                  <span className="relative group cursor-default">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-xs font-bold leading-none">?</span>
+                    <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-6 w-64 rounded-md bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg">
+                      RSVP lets guests confirm whether they&apos;ll attend. You&apos;ll see a live headcount as responses come in. You can enable or disable this later.
+                    </span>
+                  </span>
                 </label>
                 <label className="flex items-center gap-2">
                   <input
@@ -273,6 +270,12 @@ export default function NewEventPage() {
                     className="form-checkbox text-eco-green"
                   />
                   <span className="text-sm">Enable Gift Registry</span>
+                  <span className="relative group cursor-default">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-xs font-bold leading-none">?</span>
+                    <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-6 w-64 rounded-md bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg">
+                      A gift registry lets guests contribute money or buy gifts for your event. You add items to the registry and guests can browse and purchase them. You can enable or disable this later.
+                    </span>
+                  </span>
                 </label>
               </div>
 
