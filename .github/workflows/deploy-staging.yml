@@ -365,6 +365,8 @@ jobs:
           fi
 
       - name: Ensure daily digest scheduler is configured
+        # IAM role (EventBridge-ECSRunTask-Role) is a one-time setup via infrastructure/setup-digest-scheduler.sh
+        # CI/CD only manages the EventBridge rule and target — no IAM permissions required
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           REGION="${{ env.AWS_REGION }}"
@@ -373,25 +375,9 @@ jobs:
           SUBNET_1="${{ secrets.ECS_PRIVATE_SUBNET_1 }}"
           SUBNET_2="${{ secrets.ECS_PRIVATE_SUBNET_2 }}"
           SG_ID="${{ secrets.ECS_BACKEND_SECURITY_GROUP }}"
-          ROLE_NAME="EventBridge-ECSRunTask-Role"
-          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/EventBridge-ECSRunTask-Role"
           RULE_NAME="daily-digest-sender"
           TARGET_ID="digest-sender-ecs-task"
-
-          # Create IAM role if it doesn't exist
-          if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
-            echo "Creating EventBridge IAM role..."
-            aws iam create-role \
-              --role-name "$ROLE_NAME" \
-              --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"events.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
-              --description "Allows EventBridge to run ECS tasks"
-          fi
-
-          # Attach/update inline policy (idempotent)
-          aws iam put-role-policy \
-            --role-name "$ROLE_NAME" \
-            --policy-name "EventBridge-ECSRunTask-Policy" \
-            --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ecs:RunTask\"],\"Resource\":\"arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${TASK_DEF}\"},{\"Effect\":\"Allow\",\"Action\":[\"iam:PassRole\"],\"Resource\":[\"arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole\",\"arn:aws:iam::${ACCOUNT_ID}:role/backend-task-role\"]}]}"
 
           # Create or update EventBridge rule (daily at 08:00 UTC)
           aws events put-rule \
