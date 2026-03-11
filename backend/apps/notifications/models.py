@@ -1,8 +1,11 @@
+import logging
 import uuid
 from django.db import models
 from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationLog(models.Model):
@@ -92,8 +95,63 @@ class NotificationQueue(models.Model):
         return f"{self.notification_type} for {self.user.email} ({status})"
 
 
+class StaffNotificationRecipient(models.Model):
+    """
+    List of emails that receive internal business notifications (signup alerts, daily digest).
+    Managed via Django admin — add/remove without any code changes.
+    """
+    email = models.EmailField(unique=True)
+    name = models.CharField(max_length=100, blank=True)
+    notify_on_signup = models.BooleanField(
+        default=True,
+        help_text='Send an immediate email when a new user signs up',
+    )
+    receive_daily_digest = models.BooleanField(
+        default=True,
+        help_text='Include in the daily business summary email',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Uncheck to stop all emails without deleting this row',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'staff_notification_recipients'
+        ordering = ['email']
+
+    def __str__(self):
+        status = 'active' if self.is_active else 'inactive'
+        return f"{self.name or self.email} ({status})"
+
+
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_notification_preference(sender, instance, created, **kwargs):
     """Auto-create default notification preferences when a new user is created."""
     if created:
         NotificationPreference.objects.get_or_create(user=instance)
+
+
+@receiver(post_save, sender=settings.AUTH_USER_MODEL)
+def notify_staff_on_signup(sender, instance, created, **kwargs):
+    """Send immediate signup alert to all active staff recipients."""
+    if not created:
+        return
+    recipients = StaffNotificationRecipient.objects.filter(notify_on_signup=True, is_active=True)
+    if not recipients.exists():
+        return
+    from apps.common.email_backend import send_email  # late import — avoids circular dep
+    frontend = getattr(settings, 'FRONTEND_ORIGIN', 'https://ekfern.com')
+    subject = f"New signup: {instance.email}"
+    body = (
+        f"A new user just signed up on Ekfern.\n\n"
+        f"Name:   {getattr(instance, 'name', None) or '(not set)'}\n"
+        f"Email:  {instance.email}\n"
+        f"Joined: {instance.date_joined.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+        f"View in admin: {frontend}/api/admin/users/customuser/{instance.pk}/change/"
+    )
+    for recipient in recipients:
+        try:
+            send_email(to_email=recipient.email, subject=subject, body_text=body)
+        except Exception as e:
+            logger.error(f'Failed to notify {recipient.email} of signup by {instance.email}: {e}')

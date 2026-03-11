@@ -18,8 +18,9 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Sum
 
-from apps.notifications.models import NotificationQueue
+from apps.notifications.models import NotificationQueue, StaffNotificationRecipient
 from apps.common.email_backend import send_email
 
 logger = logging.getLogger(__name__)
@@ -130,3 +131,82 @@ class Command(BaseCommand):
         summary = f'Done. Users processed: {sent_count}, Failed: {failed_count}'
         self.stdout.write(self.style.SUCCESS(summary))
         logger.info(f'send_digests complete: {summary}')
+
+        self._send_business_digest(dry_run)
+
+    def _send_business_digest(self, dry_run):
+        """Send daily business metrics summary to all active staff recipients."""
+        recipients = StaffNotificationRecipient.objects.filter(receive_daily_digest=True, is_active=True)
+        if not recipients.exists():
+            logger.info('send_digests: no staff recipients configured for business digest')
+            return
+
+        # Late imports to avoid circular dependencies
+        from django.contrib.auth import get_user_model
+        from apps.events.models import Event, RSVP
+        from apps.orders.models import Order
+
+        User = get_user_model()
+        today = timezone.localdate()
+
+        # Today's metrics
+        new_signups = User.objects.filter(date_joined__date=today).count()
+        new_events = Event.objects.filter(created_at__date=today).count()
+        new_rsvps = RSVP.objects.filter(created_at__date=today, is_removed=False).count()
+        gifts_today_qs = Order.objects.filter(created_at__date=today, status='fulfilled')
+        gifts_today_count = gifts_today_qs.count()
+        gifts_today_inr = (gifts_today_qs.aggregate(total=Sum('amount_inr'))['total'] or 0) / 100
+
+        # All-time metrics
+        total_users = User.objects.count()
+        total_events = Event.objects.count()
+        total_revenue_inr = (
+            Order.objects.filter(status='fulfilled').aggregate(total=Sum('amount_inr'))['total'] or 0
+        ) / 100
+
+        date_str = today.strftime('%B %d')
+        subject = f"Ekfern business digest \u2013 {date_str}"
+        frontend = getattr(settings, 'FRONTEND_ORIGIN', 'https://ekfern.com')
+
+        gifts_line = (
+            f"\u20b9{gifts_today_inr:,.0f} across {gifts_today_count} order{'s' if gifts_today_count != 1 else ''}"
+            if gifts_today_count else "none"
+        )
+
+        body_template = (
+            "Hi {name},\n\n"
+            f"Here's your Ekfern business summary for {date_str}:\n\n"
+            f"TODAY\n"
+            f"  New signups:  {new_signups}\n"
+            f"  New events:   {new_events}\n"
+            f"  New RSVPs:    {new_rsvps}\n"
+            f"  Gifts:        {gifts_line}\n\n"
+            f"ALL TIME\n"
+            f"  Total users:   {total_users}\n"
+            f"  Total events:  {total_events}\n"
+            f"  Total revenue: \u20b9{total_revenue_inr:,.0f}\n\n"
+            f"View admin: {frontend}/api/admin/"
+        )
+
+        if dry_run:
+            self.stdout.write(
+                f'  [DRY RUN] Would send business digest to {recipients.count()} staff recipient(s)'
+            )
+            self.stdout.write(f'  Subject: {subject}')
+            self.stdout.write(
+                f'  Today: {new_signups} signups, {new_events} events, {new_rsvps} RSVPs, {gifts_line}'
+            )
+            return
+
+        sent = 0
+        for recipient in recipients:
+            body = body_template.format(name=recipient.name or 'there')
+            try:
+                send_email(to_email=recipient.email, subject=subject, body_text=body)
+                sent += 1
+                logger.info(f'Business digest sent to {recipient.email}')
+            except Exception as e:
+                logger.error(f'Failed to send business digest to {recipient.email}: {e}', exc_info=True)
+                self.stderr.write(f'  Failed to send business digest to {recipient.email}: {e}')
+
+        self.stdout.write(f'  Business digest sent to {sent}/{recipients.count()} staff recipient(s)')

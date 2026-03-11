@@ -1,6 +1,6 @@
 from django.contrib import admin
 from apps.users.admin import admin_site
-from .models import NotificationLog, NotificationPreference, NotificationQueue
+from .models import NotificationLog, NotificationPreference, NotificationQueue, StaffNotificationRecipient
 
 
 class NotificationLogAdmin(admin.ModelAdmin):
@@ -24,6 +24,15 @@ class NotificationQueueAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at',)
 
 
+class StaffNotificationRecipientAdmin(admin.ModelAdmin):
+    list_display = ('email', 'name', 'notify_on_signup', 'receive_daily_digest', 'is_active', 'created_at')
+    list_editable = ('notify_on_signup', 'receive_daily_digest', 'is_active')
+    list_filter = ('is_active', 'notify_on_signup', 'receive_daily_digest')
+    search_fields = ('email', 'name')
+    readonly_fields = ('created_at',)
+
+
 admin_site.register(NotificationLog, NotificationLogAdmin)
 admin_site.register(NotificationPreference, NotificationPreferenceAdmin)
 admin_site.register(NotificationQueue, NotificationQueueAdmin)
+admin_site.register(StaffNotificationRecipient, StaffNotificationRecipientAdmin)

@@ -61,6 +61,27 @@ services:
     restart: unless-stopped
     command: sh -c "python manage.py schedule_analytics_batch && python manage.py process_tasks"
 
+  digest-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/registry
+      - DJANGO_SECRET_KEY=dev-secret-key-change-in-production
+      - DEBUG=True
+      - FRONTEND_ORIGIN=http://localhost:3000
+      # Override to a short interval for local testing, e.g. DIGEST_INTERVAL_SECONDS=300 (5 min)
+      - DIGEST_INTERVAL_SECONDS=${DIGEST_INTERVAL_SECONDS:-86400}
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    command: sh -c "while true; do python manage.py send_digests; sleep $${DIGEST_INTERVAL_SECONDS:-86400}; done"
+
   frontend:
     build:
       context: ./frontend
