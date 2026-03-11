@@ -364,38 +364,6 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure daily digest scheduler is configured
-        # IAM role (EventBridge-ECSRunTask-Role) is a one-time setup via infrastructure/setup-digest-scheduler.sh
-        # CI/CD only manages the EventBridge rule and target — no IAM permissions required
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION="${{ env.AWS_REGION }}"
-          CLUSTER="${{ env.ECS_CLUSTER_NAME }}"
-          TASK_DEF="backend-task"
-          SUBNET_1="${{ secrets.ECS_PRIVATE_SUBNET_1 }}"
-          SUBNET_2="${{ secrets.ECS_PRIVATE_SUBNET_2 }}"
-          SG_ID="${{ secrets.ECS_BACKEND_SECURITY_GROUP }}"
-          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/EventBridge-ECSRunTask-Role"
-          RULE_NAME="daily-digest-sender"
-          TARGET_ID="digest-sender-ecs-task"
-
-          # Create or update EventBridge rule (daily at 08:00 UTC)
-          aws events put-rule \
-            --name "$RULE_NAME" \
-            --description "Sends daily digest emails to hosts at 08:00 UTC" \
-            --schedule-expression "cron(0 8 * * ? *)" \
-            --state ENABLED \
-            --region "$REGION"
-
-          # Register ECS task as target (idempotent: remove-targets is safe even if target doesn't exist)
-          aws events remove-targets --rule "$RULE_NAME" --ids "$TARGET_ID" --region "$REGION" 2>/dev/null || true
-          aws events put-targets \
-            --rule "$RULE_NAME" \
-            --region "$REGION" \
-            --targets "[{\"Id\":\"${TARGET_ID}\",\"Arn\":\"arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${CLUSTER}\",\"RoleArn\":\"${ROLE_ARN}\",\"EcsParameters\":{\"TaskDefinitionArn\":\"arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${TASK_DEF}\",\"LaunchType\":\"FARGATE\",\"NetworkConfiguration\":{\"awsvpcConfiguration\":{\"Subnets\":[\"${SUBNET_1}\",\"${SUBNET_2}\"],\"SecurityGroups\":[\"${SG_ID}\"],\"AssignPublicIp\":\"DISABLED\"}}},\"Input\":\"{\\\"containerOverrides\\\":[{\\\"name\\\":\\\"backend\\\",\\\"command\\\":[\\\"python\\\",\\\"manage.py\\\",\\\"send_digests\\\"]}]}\"}]"
-
-          echo "Daily digest scheduler configured: $RULE_NAME (cron 08:00 UTC)"
-
       - name: Verify health checks
         continue-on-error: true
         run: |
