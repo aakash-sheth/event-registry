@@ -121,7 +121,7 @@ export default function GreetingCardSamplesPage() {
                         </td>
                         <td className="py-3 pr-4 text-gray-600">{s.text_overlays.length}</td>
                         <td className="py-3 pr-4">
-                          <Badge variant={s.is_active ? 'default' : 'outline'}>
+                          <Badge variant={s.is_active ? 'success' : 'warning'}>
                             {s.is_active ? 'Active' : 'Inactive'}
                           </Badge>
                         </td>
