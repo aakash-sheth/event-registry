@@ -200,8 +200,8 @@ export default function EditTemplatePage() {
         </div>
 
         <TemplateStudioDesignCanvas
-          config={config}
-          setConfig={setConfig}
+          config={config!}
+          setConfig={setConfig as React.Dispatch<React.SetStateAction<InviteConfig>>}
           eventLike={DUMMY_EVENT}
           eventIdForTiles={0}
         />
