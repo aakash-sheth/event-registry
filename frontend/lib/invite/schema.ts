@@ -23,17 +23,44 @@ export interface TitleTileSettings {
   text: string
   font?: string // Font family from FONT_OPTIONS
   color?: string // Hex color
-  size?: 'small' | 'medium' | 'large' | 'xlarge' // Title size option
-  overlayMode?: boolean // When overlaid on Image tile
-  overlayPosition?: { x: number; y: number } // Position within image (0-100)
+  size?: 'small' | 'medium' | 'large' | 'xlarge' // Title size option (preset)
+  // Optional second line (e.g. "Request the pleasure of your company…")
+  subtitle?: string
+  subtitleFont?: string
+  subtitleColor?: string
+  subtitleSize?: 'small' | 'medium' | 'large'
+}
+
+export interface TextOverlay {
+  id: string
+  text: string
+  x: number         // % from left edge of 9:16 container (card designer coordinate)
+  y: number         // % from top edge of 9:16 container (card designer coordinate)
+  width: number     // % of container width
+  fontFamily: string
+  fontSize: number  // px
+  color: string
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  strikethrough: boolean
+  textAlign: 'left' | 'center' | 'right'
+  verticalAlign?: 'top' | 'middle' | 'bottom'
 }
 
 export interface ImageTileSettings {
   src?: string // Image URL or data URL
   fitMode?: 'fit-to-screen' | 'full-image'
   backgroundColor?: string // Background color if image doesn't fill
-  blur?: number // 0-100, only when Title overlay is active
+  blur?: number // 0-100
   coverPosition?: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | { x: number; y: number } // Position for cover image mode (x, y are 0-100 percentages)
+  // Shape and frame (for sleek invite look)
+  shape?: 'rectangle' | 'circle' | 'rounded'
+  frameStyle?: 'none' | 'single' | 'double'
+  frameColor?: string // Hex color for frame border
+  frameWidth?: number // Pixels
+  // Text overlays from card designer (stored with 9:16 coordinate system)
+  textOverlays?: TextOverlay[]
 }
 
 export interface TimerTileSettings {
@@ -58,6 +85,8 @@ export interface EventDetailsTileSettings {
   mapZoom?: number // Zoom level for embedded map (11-20: 11-15 for city/area view, 16-20 for street view, default: 15)
   fontColor?: string // Font color for event details text (hex color, e.g., "#000000")
   buttonColor?: string // Hex color for Save the Date button (e.g., "#1F2937")
+  // Date block layout: single-line (default) or day-prominent (large day number, smaller weekday/month/year/time)
+  dateLayout?: 'single-line' | 'day-prominent'
   // Border styling options
   borderStyle?: 'elegant' | 'minimal' | 'ornate' | 'modern' | 'classic' | 'vintage' | 'none'
   borderColor?: string // Hex color for borders (default: based on borderStyle)
@@ -69,6 +98,7 @@ export interface EventDetailsTileSettings {
 
 export interface DescriptionTileSettings {
   content: string // Rich text/markdown content
+  fontColor?: string // Hex color; use for contrast on dark themes
 }
 
 export interface FeatureButtonsTileSettings {
@@ -79,6 +109,7 @@ export interface FeatureButtonsTileSettings {
 
 export interface FooterTileSettings {
   text: string
+  fontColor?: string // Hex color; use theme fg on dark backgrounds for contrast
 }
 
 export interface EventCarouselTileSettings {
@@ -133,6 +164,8 @@ export type TextureType =
 export interface TextureSettings {
   type: TextureType
   intensity?: number // 0-100, default 20
+  imageUrl?: string // Optional texture image (e.g. marble photo, watercolor)
+  textureBlend?: 'overlay' | 'replace' // When imageUrl set: overlay on background, or replace CSS texture
 }
 
 export interface LinkMetadata {
@@ -197,7 +230,6 @@ export interface Tile {
   order: number // Saved order (snapshot when save button clicked) - used by invite page
   previewOrder?: number // Real-time order for mobile preview (not saved to backend)
   settings: TileSettings
-  overlayTargetId?: string // If this tile is overlaid on another (e.g., title on image)
 }
 
 export interface InviteConfig {
@@ -222,6 +254,17 @@ export interface InviteConfig {
     color?: string // Hex color for border (default: '#D1D5DB')
     width?: number // Border width in pixels (default: 2)
   }
+  // Full-page frame image (ornate border/frame overlay, e.g. SVG or PNG with transparency)
+  pageFrame?: {
+    imageUrl?: string
+  }
+  // Corner decoration image URLs (optional flourishes in each corner)
+  cornerDecorations?: {
+    topLeft?: string
+    topRight?: string
+    bottomLeft?: string
+    bottomRight?: string
+  }
   // Animation settings
   animations?: {
     envelope?: boolean // Enable/disable envelope opening animation (default: true)
@@ -232,6 +275,10 @@ export interface InviteConfig {
   rsvpForm?: RsvpFormConfig
   // New tile-based structure
   tiles?: Tile[]
+  // When true, design page must not merge in missing tile types (preserves template-defined tile set)
+  tileSetComplete?: boolean
+  // Global spacing between tiles
+  spacing?: 'tight' | 'normal' | 'spacious'
   // Legacy structure (for backward compatibility)
   hero?: {
     background?: BackgroundImage | {
@@ -269,6 +316,7 @@ export interface InvitePage {
   background_url: string
   config: InviteConfig
   is_published: boolean
+  rsvp_count?: number
   created_at: string
   updated_at: string
 }

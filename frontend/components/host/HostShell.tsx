@@ -3,16 +3,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
+  CalendarCheck,
   ChevronLeft,
   ChevronRight,
+  Gift,
   LayoutDashboard,
+  Layers,
   Menu,
+  MessageSquare,
+  Palette,
+  Paintbrush,
   PlusCircle,
   User,
+  Users,
   LogOut,
 } from 'lucide-react'
 import Logo from '@/components/Logo'
+import { TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -58,6 +67,7 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
     has_registry: boolean
     event_structure: 'SIMPLE' | 'ENVELOPE'
   } | null>(null)
+  const [isStaff, setIsStaff] = useState(false)
 
   const isAuthRoute = AUTH_ROUTES.has(pathname)
   const eventId = getEventIdFromPath(pathname)
@@ -65,6 +75,13 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (isAuthRoute) return
+    api.get('/api/auth/me/').then((r) => {
+      if (r?.data?.is_staff === true) setIsStaff(true)
+    }).catch(() => {})
+  }, [isAuthRoute])
 
   const globalNavItems = useMemo(
     () => [
@@ -92,15 +109,15 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
     const hasRsvp = eventSettings?.has_rsvp ?? true
     const hasRegistry = eventSettings?.has_registry ?? true
     const isEnvelope = eventSettings?.event_structure === 'ENVELOPE'
-    const items: { href: string; label: string }[] = [
-      { href: `/host/events/${eventId}`, label: 'Overview' },
-      { href: `/host/events/${eventId}/design`, label: 'Design' },
-      { href: `/host/events/${eventId}/guests`, label: 'Guests' },
+    const items: { href: string; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
+      { href: `/host/events/${eventId}`, label: 'Overview', icon: LayoutDashboard },
+      { href: `/host/events/${eventId}/design`, label: 'Design', icon: Paintbrush },
+      { href: `/host/events/${eventId}/guests`, label: 'Guests', icon: Users },
     ]
-    if (hasRsvp) items.push({ href: `/host/events/${eventId}/rsvp`, label: 'RSVP' })
-    if (isEnvelope) items.push({ href: `/host/events/${eventId}/sub-events`, label: 'Sub-Events' })
-    items.push({ href: `/host/events/${eventId}/communications`, label: 'Communications' })
-    if (hasRegistry) items.push({ href: `/host/items/${eventId}`, label: 'Registry' })
+    if (hasRsvp) items.push({ href: `/host/events/${eventId}/rsvp`, label: 'RSVP', icon: CalendarCheck })
+    if (isEnvelope) items.push({ href: `/host/events/${eventId}/sub-events`, label: 'Sub-Events', icon: Layers })
+    items.push({ href: `/host/events/${eventId}/communications`, label: 'Communications', icon: MessageSquare })
+    if (hasRegistry) items.push({ href: `/host/items/${eventId}`, label: 'Registry', icon: Gift })
 
     return items
   }, [eventId, eventSettings])
@@ -176,74 +193,113 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className="flex-1 space-y-1 p-3">
-            {globalNavItems.map((item) => {
-              const isActive = isActivePath(pathname, item.href)
-              const Icon = item.icon
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    isActive ? 'bg-eco-green text-white' : 'text-gray-700 hover:bg-eco-green-light',
-                    isDesktopNavCollapsed && 'md:justify-center md:px-0'
-                  )}
-                  onClick={() => setIsMobileDrawerOpen(false)}
-                >
-                  <Icon size={18} />
-                  <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>{item.label}</span>
-                </Link>
-              )
-            })}
-
-            {mounted && eventId && eventNavItems.length > 0 && (
-              <>
-                <div className={cn('my-3 border-t border-eco-green-light', isDesktopNavCollapsed && 'md:hidden')} />
-                <p
-                  className={cn(
-                    'px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500',
-                    isDesktopNavCollapsed && 'md:hidden'
-                  )}
-                >
-                  Event
-                </p>
-                {eventNavItems.map((item) => {
-                  const isEventRootLink = item.href === `/host/events/${eventId}`
-                  const isActive = isActivePath(pathname, item.href, isEventRootLink)
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={cn(
-                        'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                        isActive
-                          ? 'bg-eco-green text-white'
-                          : 'text-gray-700 hover:bg-eco-green-light hover:text-eco-green',
-                        isDesktopNavCollapsed && 'md:hidden'
-                      )}
-                      onClick={() => setIsMobileDrawerOpen(false)}
-                    >
+            <TooltipProvider delayDuration={400}>
+              {globalNavItems.map((item) => {
+                const isActive = isActivePath(pathname, item.href)
+                const Icon = item.icon
+                const link = (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      isActive ? 'bg-eco-green text-white' : 'text-gray-700 hover:bg-eco-green-light',
+                      isDesktopNavCollapsed && 'md:justify-center md:px-0'
+                    )}
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                  >
+                    <Icon size={18} />
+                    <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>{item.label}</span>
+                  </Link>
+                )
+                return isDesktopNavCollapsed ? (
+                  <div key={item.href} className="group relative">
+                    {link}
+                    <TooltipContent side="right">
                       {item.label}
-                    </Link>
-                  )
-                })}
-              </>
-            )}
-          </nav>
+                    </TooltipContent>
+                  </div>
+                ) : (
+                  link
+                )
+              })}
 
-          <div className="border-t border-eco-green-light p-3">
-            <button
-              type="button"
-              className={cn(
-                'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-eco-green-light',
-                isDesktopNavCollapsed && 'md:justify-center md:px-0'
+              {isStaff && (() => {
+                const link = (
+                  <Link
+                    href="/host/templates"
+                    className={cn(
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      isActivePath(pathname, '/host/templates')
+                        ? 'bg-eco-green text-white'
+                        : 'text-gray-700 hover:bg-eco-green-light',
+                      isDesktopNavCollapsed && 'md:justify-center md:px-0'
+                    )}
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                  >
+                    <Palette size={18} />
+                    <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>Template Studio</span>
+                  </Link>
+                )
+                return isDesktopNavCollapsed ? (
+                  <div className="group relative">
+                    {link}
+                    <TooltipContent side="right">
+                      Template Studio
+                    </TooltipContent>
+                  </div>
+                ) : (
+                  link
+                )
+              })()}
+
+              {mounted && eventId && eventNavItems.length > 0 && (
+                <>
+                  <div className="my-3 border-t border-eco-green-light" aria-hidden="true" />
+                  <p
+                    className={cn(
+                      'px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500',
+                      isDesktopNavCollapsed && 'md:hidden'
+                    )}
+                  >
+                    Event
+                  </p>
+                  {eventNavItems.map((item) => {
+                    const isEventRootLink = item.href === `/host/events/${eventId}`
+                    const isActive = isActivePath(pathname, item.href, isEventRootLink)
+                    const Icon = item.icon
+                    const link = (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={cn(
+                          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                          isActive
+                            ? 'bg-eco-green text-white'
+                            : 'text-gray-700 hover:bg-eco-green-light hover:text-eco-green',
+                          isDesktopNavCollapsed && 'md:justify-center md:px-0'
+                        )}
+                        onClick={() => setIsMobileDrawerOpen(false)}
+                      >
+                        <Icon size={18} />
+                        <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>{item.label}</span>
+                      </Link>
+                    )
+                    return isDesktopNavCollapsed ? (
+                      <div key={item.href} className="group relative">
+                        {link}
+                        <TooltipContent side="right">
+                          {item.label}
+                        </TooltipContent>
+                      </div>
+                    ) : (
+                      link
+                    )
+                  })}
+                </>
               )}
-              onClick={handleLogout}
-            >
-              <LogOut size={18} />
-              <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>Logout</span>
-            </button>
-          </div>
+            </TooltipProvider>
+          </nav>
         </div>
       </aside>
 
@@ -263,10 +319,30 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
                 <span className="font-semibold text-eco-green">Host Workspace</span>
               </div>
             </div>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-eco-green-light hover:text-eco-green"
+              onClick={handleLogout}
+            >
+              <LogOut size={18} />
+              <span>Logout</span>
+            </button>
           </div>
         </header>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        </main>
       </div>
     </div>
   )

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280" role="img" aria-label="Emerald Mist invitation preview">
+  <defs>
+    <linearGradient id="emeraldBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0D1F1A" />
+      <stop offset="1" stop-color="#153C2F" />
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1280" fill="url(#emeraldBg)" />
+  <circle cx="620" cy="160" r="180" fill="#34D399" opacity="0.12" />
+  <circle cx="120" cy="1160" r="140" fill="#A7F3D0" opacity="0.15" />
+  <rect x="64" y="120" width="592" height="1040" rx="30" fill="#FFFFFF" opacity="0.06" stroke="#A7F3D0" stroke-opacity="0.35" />
+  <text x="360" y="300" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#A7F3D0">You are warmly invited</text>
+  <text x="360" y="390" text-anchor="middle" font-family="'Cormorant Garamond', serif" font-size="76" fill="#FFFFFF">Event Title</text>
+  <line x1="200" y1="445" x2="520" y2="445" stroke="#A7F3D0" stroke-opacity="0.7" stroke-width="2" />
+  <text x="360" y="575" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#D1FAE5">Countdown</text>
+  <circle cx="270" cy="670" r="56" fill="none" stroke="#34D399" stroke-width="6" />
+  <circle cx="450" cy="670" r="56" fill="none" stroke="#34D399" stroke-width="6" />
+  <text x="270" y="678" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#FFFFFF">08</text>
+  <text x="450" y="678" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#FFFFFF">15</text>
+  <text x="360" y="830" text-anchor="middle" font-family="Inter, system-ui" font-size="32" fill="#ECFDF5">Sunday, 7:00 PM</text>
+  <text x="360" y="885" text-anchor="middle" font-family="Inter, system-ui" font-size="28" fill="#A7F3D0">Lakeside Pavilion, Pune</text>
+  <rect x="200" y="1010" width="320" height="68" rx="34" fill="#34D399" />
+  <text x="360" y="1054" text-anchor="middle" font-family="Inter, system-ui" font-size="30" fill="#053C2E">RSVP</text>
+</svg>

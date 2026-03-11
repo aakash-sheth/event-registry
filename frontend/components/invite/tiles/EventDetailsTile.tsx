@@ -203,6 +203,27 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
     return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm} ${getTimezoneLabel(tz)}`
   }
 
+  const parseDateParts = (dateString: string): { day: number; weekday: string; month: string; year: number } | null => {
+    try {
+      let date: Date
+      if (dateString.includes('T')) {
+        date = new Date(dateString)
+      } else {
+        const [year, month, day] = dateString.split('-').map(Number)
+        if (isNaN(year) || isNaN(month) || isNaN(day)) return null
+        date = new Date(year, month - 1, day)
+      }
+      return {
+        day: date.getDate(),
+        weekday: date.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase(),
+        month: date.toLocaleDateString('en-US', { month: 'long' }).toUpperCase(),
+        year: date.getFullYear(),
+      }
+    } catch {
+      return null
+    }
+  }
+
   const handleSaveTheDate = (e?: React.MouseEvent<HTMLButtonElement>) => {
     e?.preventDefault()
     e?.stopPropagation()
@@ -290,6 +311,94 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
 
           {(() => {
             const labelColor = getAutomaticLabelColor(settings.fontColor)
+            const fontColor = settings.fontColor || '#1F2937'
+            const dateLayout = settings.dateLayout || 'single-line'
+
+            if (dateLayout === 'day-prominent' && settings.date) {
+              const parts = parseDateParts(settings.date)
+              if (parts) {
+                return (
+                  <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                    <div className="space-y-4">
+                      <div className="text-4xl md:text-5xl lg:text-6xl font-bold leading-none tracking-tight" style={{ color: fontColor }}>
+                        {parts.day}
+                      </div>
+                      <div className="text-sm md:text-base uppercase tracking-widest font-medium" style={{ color: fontColor }}>
+                        {parts.weekday}
+                        {settings.time && ` · ${formatTime(settings.time)}`}
+                      </div>
+                      <div className="text-sm md:text-base uppercase tracking-widest" style={{ color: fontColor }}>
+                        {parts.month} {parts.year}
+                      </div>
+                    </div>
+                    {settings.location && (() => {
+                      let mapUrl = settings.mapUrl
+                      if (settings.coordinates) {
+                        mapUrl = generateMapUrlFromCoordinates(settings.coordinates.lat, settings.coordinates.lng)
+                      }
+                      const canDisplay = canShowMap(settings)
+                      return (
+                        <div className="space-y-2">
+                          <div className="text-xl md:text-2xl font-normal leading-relaxed flex items-center justify-center gap-2" style={{ color: fontColor }}>
+                            <span>{settings.location}</span>
+                            {canDisplay && mapUrl && (
+                              <a
+                                href={mapUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded-full hover:bg-gray-100 transition-colors ml-2"
+                                aria-label="Open location in maps"
+                              >
+                                <MapPin className="w-4 h-4 text-gray-600" />
+                              </a>
+                            )}
+                          </div>
+                          {canDisplay && settings.showMap && mapUrl && isValidMapUrl(mapUrl) && (() => {
+                            const embedUrl = getEmbedUrl(mapUrl, settings.coordinates, settings.mapZoom)
+                            if (embedUrl) {
+                              const mapBorderColor = settings.borderColor || '#D1D5DB'
+                              const mapBorderWidth = settings.borderWidth || 1
+                              const mapBackgroundColor = settings.backgroundColor || '#FFFFFF'
+                              const mapBorderRadius = settings.borderRadius ?? 8
+                              return (
+                                <div className="mt-6">
+                                  <div
+                                    className="w-full rounded-xl overflow-hidden"
+                                    style={{
+                                      border: `${mapBorderWidth * 2}px solid ${mapBorderColor}`,
+                                      borderRadius: `${mapBorderRadius}px`,
+                                      backgroundColor: mapBackgroundColor,
+                                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                                    }}
+                                  >
+                                    <div className="relative">
+                                      <iframe
+                                        key={`map-${settings.mapZoom ?? 15}-${embedUrl}`}
+                                        src={embedUrl}
+                                        width="100%"
+                                        height="400"
+                                        style={{ border: 0 }}
+                                        allowFullScreen
+                                        loading="lazy"
+                                        referrerPolicy="no-referrer-when-downgrade"
+                                        title="Event location map"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            }
+                            return null
+                          })()}
+                        </div>
+                      )
+                    })()}
+                    {/* Save the Date button for day-prominent - rendered below in shared section */}
+                  </div>
+                )
+              }
+            }
+
             return (
               <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
                 {settings.date && (
@@ -297,23 +406,21 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
                     <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
                       Date
                     </div>
-                    <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: fontColor }}>
                       {formatDate(settings.date)}
                     </div>
-                </div>
-              )}
-
+                  </div>
+                )}
                 {settings.time && (
                   <div className="space-y-2">
                     <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
                       Time
                     </div>
-                    <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: settings.fontColor || '#1F2937' }}>
+                    <div className="text-xl md:text-2xl font-normal leading-relaxed" style={{ color: fontColor }}>
                       {formatTime(settings.time)}
                     </div>
-                </div>
-              )}
-
+                  </div>
+                )}
                 {settings.location && (() => {
                   // Determine map URL - prioritize coordinates, then mapUrl
                   let mapUrl = settings.mapUrl

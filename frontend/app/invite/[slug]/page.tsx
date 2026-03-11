@@ -4,6 +4,7 @@ import React from 'react'
 import InvitePageClient from './InvitePageClient'
 import { InviteConfig, Tile } from '@/lib/invite/schema'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
+import { getTheme } from '@/lib/invite/themes'
 import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
 import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
@@ -91,6 +92,7 @@ interface Event {
   has_registry?: boolean
   country?: string
   timezone?: string
+  rsvp_count?: number
 }
 
 // Get API base URL for server-side fetching
@@ -957,6 +959,7 @@ export default async function InvitePage({
           has_registry: inviteData.has_registry,
           country: inviteData.event_country,
           timezone: inviteData.event_timezone,
+          rsvp_count: inviteData.rsvp_count,
         } as Event
         
         tracker?.step('DATA_PROCESSING_COMPLETE', 'Event object constructed from invite data')
@@ -1175,7 +1178,8 @@ export default async function InvitePage({
   let heroSSR: React.ReactNode = null
   let titleSSR: React.ReactNode = null
   let eventDetailsSSR: React.ReactNode = null
-  const backgroundColor = initialConfig?.customColors?.backgroundColor || '#ffffff'
+  const theme = getTheme(initialConfig?.themeId || 'classic-noir')
+  const backgroundColor = initialConfig?.customColors?.backgroundColor ?? theme.palette.bg
 
   if (initialConfig?.tiles && initialConfig.tiles.length > 0) {
     // Find image tile (first enabled image tile)

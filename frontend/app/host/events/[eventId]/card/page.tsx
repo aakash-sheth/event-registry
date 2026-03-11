@@ -1,0 +1,875 @@
+'use client'
+
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import api, { uploadImage } from '@/lib/api'
+import { getInvitePage, updateInvitePage, getGreetingCardSamples, type GreetingCardSample } from '@/lib/invite/api'
+import type { ImageTileSettings } from '@/lib/invite/schema'
+import { FONT_OPTIONS } from '@/lib/invite/fonts'
+import WizardProgress from '@/components/host/WizardProgress'
+import { logError } from '@/lib/error-handler'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface TextBox {
+  id: string
+  text: string
+  x: number         // % from left of canvas (0–100)
+  y: number         // % from top of canvas (0–100)
+  width: number     // % of canvas width (default 80)
+  fontFamily: string
+  fontSize: number  // px (default 32)
+  color: string     // hex (default '#ffffff')
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  strikethrough: boolean
+  textAlign: 'left' | 'center' | 'right'
+  verticalAlign: 'top' | 'middle' | 'bottom'
+}
+
+interface DragState {
+  boxId: string
+  startPointerX: number
+  startPointerY: number
+  startBoxX: number
+  startBoxY: number
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const GRADIENT_PRESETS: string[] = [
+  'linear-gradient(135deg, #fce4ec 0%, #f48fb1 100%)',
+  'linear-gradient(135deg, #e8f5e9 0%, #66bb6a 100%)',
+  'linear-gradient(135deg, #ede7f6 0%, #9575cd 100%)',
+  'linear-gradient(135deg, #fff8e1 0%, #ffb300 100%)',
+  'linear-gradient(135deg, #e3f2fd 0%, #42a5f5 100%)',
+  'linear-gradient(135deg, #fce4ec 0%, #e91e63 100%)',
+  'linear-gradient(135deg, #f1f8e9 0%, #8bc34a 100%)',
+  'linear-gradient(135deg, #eceff1 0%, #607d8b 100%)',
+  'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)',
+  'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
+  'linear-gradient(135deg, #2c3e50 0%, #3498db 100%)',
+  'linear-gradient(135deg, #000000 0%, #434343 100%)',
+  'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)',
+  'linear-gradient(135deg, #134e5e 0%, #71b280 100%)',
+  'linear-gradient(135deg, #ee0979 0%, #ff6a00 100%)',
+  'linear-gradient(135deg, #c94b4b 0%, #4b134f 100%)',
+]
+
+const SUBTITLE_MAP: Record<string, string> = {
+  wedding: "We're getting married!",
+  birthday: 'Come celebrate with us!',
+  baby_shower: 'A little one is on the way!',
+  engagement: 'We said yes!',
+  anniversary: 'Celebrating our love',
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeId(): string {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function buildInitialBoxes(title: string, eventType: string): TextBox[] {
+  const subtitle = SUBTITLE_MAP[eventType] ?? 'Join us for a special celebration!'
+  return [
+    {
+      id: makeId(),
+      text: title || 'Your Names Here',
+      x: 10,
+      y: 30,
+      width: 80,
+      fontFamily: "'Playfair Display', serif",
+      fontSize: 40,
+      color: '#ffffff',
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+      textAlign: 'center',
+      verticalAlign: 'middle',
+    },
+    {
+      id: makeId(),
+      text: subtitle,
+      x: 10,
+      y: 60,
+      width: 80,
+      fontFamily: 'Georgia, serif',
+      fontSize: 20,
+      color: '#f0f0f0',
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+      textAlign: 'center',
+      verticalAlign: 'middle',
+    },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Sub-component: Background Library Modal
+// ---------------------------------------------------------------------------
+
+interface BgModalProps {
+  onClose: () => void
+  onSelectGradient: (gradient: string) => void
+  onSelectSample: (sample: GreetingCardSample) => void
+}
+
+function BgModal({ onClose, onSelectGradient, onSelectSample }: BgModalProps): React.ReactElement {
+  const [activeTab, setActiveTab] = useState<'samples' | 'gradients' | 'gifs'>('samples')
+  const [samples, setSamples] = useState<GreetingCardSample[]>([])
+  const [loadingSamples, setLoadingSamples] = useState(false)
+
+  // Fetch samples when tab is shown
+  React.useEffect(() => {
+    if (activeTab !== 'samples') return
+    setLoadingSamples(true)
+    getGreetingCardSamples()
+      .then(setSamples)
+      .finally(() => setLoadingSamples(false))
+  }, [activeTab])
+
+  const TABS = [
+    { id: 'samples' as const, label: 'Samples' },
+    { id: 'gradients' as const, label: 'Gradients' },
+    { id: 'gifs' as const, label: 'GIFs' },
+  ]
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-gray-800">Choose Background</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 text-gray-500 text-lg leading-none"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 px-5">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={[
+                'py-2.5 px-4 text-sm font-medium border-b-2 -mb-px transition-colors',
+                activeTab === tab.id
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700',
+              ].join(' ')}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {activeTab === 'samples' && (
+            loadingSamples ? (
+              <div className="flex items-center justify-center h-40">
+                <p className="text-gray-400 text-sm">Loading samples…</p>
+              </div>
+            ) : samples.length === 0 ? (
+              <div className="flex items-center justify-center h-40 text-center">
+                <p className="text-gray-500 text-sm leading-relaxed">
+                  No samples available yet. Upload your own background using &quot;Upload Background&quot;.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {samples.map((sample) => (
+                  <button
+                    key={sample.id}
+                    onClick={() => onSelectSample(sample)}
+                    className="group flex flex-col rounded-xl overflow-hidden border-2 border-transparent hover:border-blue-400 transition-all shadow-sm hover:shadow-md"
+                    aria-label={`Select ${sample.name}`}
+                  >
+                    <div className="w-full bg-gray-100 overflow-hidden" style={{ aspectRatio: '9 / 16' }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={sample.background_image_url}
+                        alt={sample.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      />
+                    </div>
+                    <div className="px-2 py-2 bg-white text-left">
+                      <p className="text-xs font-medium text-gray-800 truncate">{sample.name}</p>
+                      {sample.description && (
+                        <p className="text-xs text-gray-400 truncate mt-0.5">{sample.description}</p>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          )}
+
+          {activeTab === 'gradients' && (
+            <div className="grid grid-cols-4 gap-3">
+              {GRADIENT_PRESETS.map((gradient, i) => (
+                <button
+                  key={i}
+                  aria-label={`Gradient preset ${i + 1}`}
+                  onClick={() => onSelectGradient(gradient)}
+                  className="h-20 rounded-xl border-2 border-transparent hover:border-blue-400 transition-all hover:scale-105"
+                  style={{ background: gradient }}
+                />
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'gifs' && (
+            <div className="flex items-center justify-center h-40 text-center">
+              <p className="text-gray-500 text-sm leading-relaxed">
+                GIF library coming soon — upload your own GIF using &quot;Upload Background&quot;
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function GreetingCardPage(): React.ReactElement {
+  const params = useParams()
+  const router = useRouter()
+  const eventId = Number(params.eventId)
+
+  // Canvas + drag
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const dragState = useRef<DragState | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // State
+  const [event, setEvent] = useState<{ title: string; event_type: string } | null>(null)
+  const [bgUrl, setBgUrl] = useState<string | null>(null)
+  const [bgGradient, setBgGradient] = useState<string>(GRADIENT_PRESETS[0]!)
+  const [textBoxes, setTextBoxes] = useState<TextBox[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [showBgModal, setShowBgModal] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Load event + restore saved state from localStorage
+  useEffect(() => {
+    if (!eventId || isNaN(eventId)) return
+    api
+      .get<{ id: number; title: string; event_type: string }>(`/api/events/${eventId}/`)
+      .then((res) => {
+        const data = res.data
+        setEvent(data)
+        // Restore saved text boxes (card designer work) or fall back to event-based defaults
+        const savedBoxes = localStorage.getItem(`card-textboxes-${eventId}`)
+        if (savedBoxes) {
+          try {
+            setTextBoxes(JSON.parse(savedBoxes) as TextBox[])
+          } catch {
+            setTextBoxes(buildInitialBoxes(data.title, data.event_type))
+          }
+        } else {
+          setTextBoxes(buildInitialBoxes(data.title, data.event_type))
+        }
+      })
+      .catch((err: unknown) => {
+        logError('GreetingCardPage: failed to load event', err)
+      })
+  }, [eventId])
+
+  // Restore saved background from localStorage
+  useEffect(() => {
+    if (!eventId || isNaN(eventId)) return
+    const saved = localStorage.getItem(`card-bg-${eventId}`)
+    if (saved) {
+      setBgUrl(saved)
+      setBgGradient(GRADIENT_PRESETS[0]!)
+    }
+  }, [eventId])
+
+  // Persist text boxes to localStorage whenever they change
+  useEffect(() => {
+    if (!eventId || isNaN(eventId) || textBoxes.length === 0) return
+    localStorage.setItem(`card-textboxes-${eventId}`, JSON.stringify(textBoxes))
+  }, [textBoxes, eventId])
+
+  // -------------------------------------------------------------------------
+  // Text box helpers
+  // -------------------------------------------------------------------------
+
+  const selectedBox = textBoxes.find((b) => b.id === selectedId) ?? null
+
+  function updateBox<K extends keyof TextBox>(id: string, key: K, value: TextBox[K]): void {
+    setTextBoxes((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, [key]: value } : b))
+    )
+  }
+
+  function toggleProp(id: string, key: 'bold' | 'italic' | 'underline' | 'strikethrough'): void {
+    setTextBoxes((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, [key]: !b[key] } : b))
+    )
+  }
+
+  function deleteBox(id: string): void {
+    setTextBoxes((prev) => prev.filter((b) => b.id !== id))
+    if (selectedId === id) setSelectedId(null)
+    if (editingId === id) setEditingId(null)
+  }
+
+  function addTextBox(): void {
+    const newBox: TextBox = {
+      id: makeId(),
+      text: 'Add text here',
+      x: 10,
+      y: 20,
+      width: 80,
+      fontFamily: "'Playfair Display', serif",
+      fontSize: 32,
+      color: '#ffffff',
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+      textAlign: 'center',
+      verticalAlign: 'middle',
+    }
+    setTextBoxes((prev) => [...prev, newBox])
+    setSelectedId(newBox.id)
+  }
+
+  // -------------------------------------------------------------------------
+  // Drag handlers (pointer events on canvas container)
+  // -------------------------------------------------------------------------
+
+  const handleCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragState.current || !canvasRef.current) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    const dx = ((e.clientX - dragState.current.startPointerX) / rect.width) * 100
+    const dy = ((e.clientY - dragState.current.startPointerY) / rect.height) * 100
+    const { boxId, startBoxX, startBoxY } = dragState.current
+    setTextBoxes((prev) =>
+      prev.map((b) => {
+        if (b.id !== boxId) return b
+        return {
+          ...b,
+          x: clamp(startBoxX + dx, 0, 100 - b.width),
+          y: clamp(startBoxY + dy, 0, 95),
+        }
+      })
+    )
+  }, [])
+
+  const handleCanvasPointerUp = useCallback(() => {
+    dragState.current = null
+  }, [])
+
+  // -------------------------------------------------------------------------
+  // Upload handler
+  // -------------------------------------------------------------------------
+
+  async function handleUpload(file: File): Promise<void> {
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Max file size is 10 MB.')
+      return
+    }
+    setUploading(true)
+    try {
+      const url = await uploadImage(file, eventId)
+      setBgUrl(url)
+      setBgGradient(GRADIENT_PRESETS[0]!)
+      localStorage.setItem(`card-bg-${eventId}`, url)
+    } catch (err: unknown) {
+      logError('GreetingCardPage: upload failed', err)
+      alert('Upload failed. Please try again.')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Next step
+  // -------------------------------------------------------------------------
+
+  async function handleNext(): Promise<void> {
+    if (bgUrl) {
+      setSaving(true)
+      try {
+        const existing = await getInvitePage(eventId)
+        if (existing) {
+          const updatedTiles = (existing.config.tiles ?? []).map((t) =>
+            t.type === 'image'
+              ? {
+                  ...t,
+                  settings: {
+                    ...(t.settings as ImageTileSettings),
+                    src: bgUrl,
+                    fitMode: 'full-image' as const,
+                    textOverlays: textBoxes,
+                  },
+                }
+              : t
+          )
+          await updateInvitePage(eventId, { config: { ...existing.config, tiles: updatedTiles } })
+        }
+      } catch {
+        // Non-fatal: layout step reads from localStorage as fallback
+      } finally {
+        setSaving(false)
+      }
+    }
+    router.push(`/host/events/${eventId}/layout`)
+  }
+
+  // -------------------------------------------------------------------------
+  // Guard
+  // -------------------------------------------------------------------------
+
+  if (!eventId || isNaN(eventId)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-red-500 text-sm">Invalid event ID.</p>
+      </div>
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Google Fonts */}
+      <style dangerouslySetInnerHTML={{ __html: `@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Dancing+Script:wght@400;700&family=Great+Vibes&family=Pacifico&family=Lora:ital,wght@0,400;0,600;1,400&family=Poppins:wght@400;600&family=Open+Sans:wght@400;600&family=Montserrat:wght@400;600&family=Raleway:wght@400;600&display=swap');` }} />
+
+      <WizardProgress currentStep={2} eventId={eventId} />
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Top action bar                                                       */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setShowBgModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <span>Select Background</span>
+        </button>
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+        >
+          {uploading ? 'Uploading…' : 'Upload Background'}
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void handleUpload(file)
+          }}
+        />
+
+        <button
+          onClick={addTextBox}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-400 text-sm text-blue-600 hover:bg-blue-50 transition-colors font-medium"
+        >
+          + Add Text
+        </button>
+
+        {event && (
+          <span className="text-xs text-gray-500 truncate max-w-[180px]">{event.title}</span>
+        )}
+
+        {bgUrl && (
+          <span className="ml-auto text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
+            Custom image active
+          </span>
+        )}
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Canvas area                                                          */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="flex-1 flex items-start justify-center px-4 py-6">
+        {/* Outer wrapper enforces 9:16 aspect ratio at max-height 72vh */}
+        <div
+          style={{
+            height: '72vh',
+            aspectRatio: '9 / 16',
+          }}
+          className="relative select-none"
+        >
+          <div
+            ref={canvasRef}
+            className="relative overflow-hidden rounded-2xl shadow-2xl"
+            style={{ width: '100%', height: '100%' }}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerLeave={handleCanvasPointerUp}
+            onClick={(e) => {
+              // Deselect if clicking canvas background directly
+              if (e.target === canvasRef.current || e.target === e.currentTarget) {
+                setSelectedId(null)
+                setEditingId(null)
+              }
+            }}
+          >
+            {/* Background layer */}
+            {bgUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={bgUrl}
+                alt="Card background"
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              />
+            ) : (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{ background: bgGradient }}
+              />
+            )}
+
+            {/* Text boxes */}
+            {textBoxes.map((box) => {
+              const isSelected = selectedId === box.id
+              const isEditing = editingId === box.id
+
+              const justifyContent =
+                box.verticalAlign === 'top'
+                  ? 'flex-start'
+                  : box.verticalAlign === 'bottom'
+                  ? 'flex-end'
+                  : 'center'
+
+              const textDecoration = [
+                box.underline ? 'underline' : '',
+                box.strikethrough ? 'line-through' : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || 'none'
+
+              return (
+                <div
+                  key={box.id}
+                  style={{
+                    position: 'absolute',
+                    left: `${box.x}%`,
+                    top: `${box.y}%`,
+                    width: `${box.width}%`,
+                    // Give a reasonable min-height so small text is still draggable
+                    minHeight: `${box.fontSize * 1.6}px`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent,
+                    cursor: isEditing ? 'text' : 'move',
+                    outline: isSelected ? '2px solid #3b82f6' : 'none',
+                    outlineOffset: '2px',
+                    borderRadius: '2px',
+                    userSelect: isEditing ? 'text' : 'none',
+                    zIndex: isSelected ? 10 : 5,
+                  }}
+                  onPointerDown={(e) => {
+                    if (isEditing) return // let contentEditable handle it
+                    e.stopPropagation()
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                    setSelectedId(box.id)
+                    if (!canvasRef.current) return
+                    dragState.current = {
+                      boxId: box.id,
+                      startPointerX: e.clientX,
+                      startPointerY: e.clientY,
+                      startBoxX: box.x,
+                      startBoxY: box.y,
+                    }
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedId(box.id)
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedId(box.id)
+                    setEditingId(box.id)
+                  }}
+                >
+                  <div
+                    contentEditable={isEditing}
+                    suppressContentEditableWarning
+                    style={{
+                      fontFamily: box.fontFamily,
+                      fontSize: `${box.fontSize}px`,
+                      color: box.color,
+                      fontWeight: box.bold ? 700 : 400,
+                      fontStyle: box.italic ? 'italic' : 'normal',
+                      textDecoration,
+                      textAlign: box.textAlign,
+                      lineHeight: 1.3,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      outline: 'none',
+                      padding: '2px 4px',
+                      textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                      minWidth: '1em',
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setEditingId(null)
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const newText = e.currentTarget.innerText
+                      updateBox(box.id, 'text', newText)
+                      setEditingId(null)
+                    }}
+                  >
+                    {isEditing ? undefined : box.text}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Format toolbar — visible only when a text box is selected           */}
+      {/* ------------------------------------------------------------------ */}
+      {selectedBox && (
+        <div className="sticky bottom-14 z-20 bg-white border-t border-b border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap overflow-x-auto">
+          {/* Font family */}
+          <select
+            value={selectedBox.fontFamily}
+            onChange={(e) => updateBox(selectedBox.id, 'fontFamily', e.target.value)}
+            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white max-w-[130px]"
+          >
+            {FONT_OPTIONS.map((f) => (
+              <option key={f.id} value={f.family}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Font size */}
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              min={8}
+              max={200}
+              value={selectedBox.fontSize}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10)
+                if (!isNaN(v)) updateBox(selectedBox.id, 'fontSize', clamp(v, 8, 200))
+              }}
+              className="w-16 text-sm border border-gray-300 rounded px-2 py-1 text-center"
+            />
+            <span className="text-xs text-gray-500">px</span>
+          </div>
+
+          <div className="w-px h-5 bg-gray-200 flex-none" />
+
+          {/* Bold */}
+          <button
+            onClick={() => toggleProp(selectedBox.id, 'bold')}
+            className={`px-2 py-1 rounded text-sm font-bold transition-colors ${
+              selectedBox.bold ? 'bg-gray-200' : 'hover:bg-gray-100'
+            }`}
+            title="Bold"
+          >
+            B
+          </button>
+
+          {/* Italic */}
+          <button
+            onClick={() => toggleProp(selectedBox.id, 'italic')}
+            className={`px-2 py-1 rounded text-sm italic transition-colors ${
+              selectedBox.italic ? 'bg-gray-200' : 'hover:bg-gray-100'
+            }`}
+            title="Italic"
+          >
+            I
+          </button>
+
+          {/* Underline */}
+          <button
+            onClick={() => toggleProp(selectedBox.id, 'underline')}
+            className={`px-2 py-1 rounded text-sm underline transition-colors ${
+              selectedBox.underline ? 'bg-gray-200' : 'hover:bg-gray-100'
+            }`}
+            title="Underline"
+          >
+            U
+          </button>
+
+          {/* Strikethrough */}
+          <button
+            onClick={() => toggleProp(selectedBox.id, 'strikethrough')}
+            className={`px-2 py-1 rounded text-sm line-through transition-colors ${
+              selectedBox.strikethrough ? 'bg-gray-200' : 'hover:bg-gray-100'
+            }`}
+            title="Strikethrough"
+          >
+            S
+          </button>
+
+          <div className="w-px h-5 bg-gray-200 flex-none" />
+
+          {/* H-Align */}
+          {(['left', 'center', 'right'] as const).map((align) => (
+            <button
+              key={align}
+              onClick={() => updateBox(selectedBox.id, 'textAlign', align)}
+              title={`Align ${align}`}
+              className={`px-2 py-1 rounded text-sm transition-colors ${
+                selectedBox.textAlign === align ? 'bg-gray-200' : 'hover:bg-gray-100'
+              }`}
+            >
+              {align === 'left' ? '←' : align === 'center' ? '↔' : '→'}
+            </button>
+          ))}
+
+          <div className="w-px h-5 bg-gray-200 flex-none" />
+
+          {/* V-Align */}
+          {(['top', 'middle', 'bottom'] as const).map((va) => (
+            <button
+              key={va}
+              onClick={() => updateBox(selectedBox.id, 'verticalAlign', va)}
+              title={`Vertical ${va}`}
+              className={`px-2 py-1 rounded text-sm transition-colors ${
+                selectedBox.verticalAlign === va ? 'bg-gray-200' : 'hover:bg-gray-100'
+              }`}
+            >
+              {va === 'top' ? '↑' : va === 'middle' ? '↕' : '↓'}
+            </button>
+          ))}
+
+          <div className="w-px h-5 bg-gray-200 flex-none" />
+
+          {/* Color */}
+          <div className="flex items-center gap-1">
+            <input
+              type="color"
+              value={selectedBox.color}
+              onChange={(e) => updateBox(selectedBox.id, 'color', e.target.value)}
+              className="w-8 h-8 rounded border border-gray-300 cursor-pointer p-0.5"
+              title="Text color"
+            />
+            <input
+              type="text"
+              value={selectedBox.color}
+              maxLength={7}
+              onChange={(e) => {
+                const v = e.target.value
+                if (/^#[0-9a-fA-F]{0,6}$/.test(v)) updateBox(selectedBox.id, 'color', v)
+              }}
+              className="w-24 text-xs border border-gray-300 rounded px-2 py-1 font-mono"
+              placeholder="#ffffff"
+            />
+          </div>
+
+          <div className="w-px h-5 bg-gray-200 flex-none" />
+
+          {/* Delete */}
+          <button
+            onClick={() => deleteBox(selectedBox.id)}
+            className="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-sm transition-colors"
+            title="Delete text box"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Bottom navigation                                                    */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="sticky bottom-0 z-10 bg-white border-t border-gray-200 px-4 py-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          Back
+        </button>
+
+        <button
+          type="button"
+          onClick={() => router.push(`/host/events/${eventId}/layout`)}
+          className="ml-auto text-sm text-gray-500 hover:text-blue-600 underline underline-offset-2 transition-colors"
+        >
+          Skip for now
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void handleNext()}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Next: Choose Layout'}
+        </button>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Background library modal                                             */}
+      {/* ------------------------------------------------------------------ */}
+      {showBgModal && (
+        <BgModal
+          onClose={() => setShowBgModal(false)}
+          onSelectGradient={(gradient) => {
+            setBgGradient(gradient)
+            setBgUrl(null)
+            setShowBgModal(false)
+          }}
+          onSelectSample={(sample) => {
+            setBgUrl(sample.background_image_url)
+            setBgGradient(GRADIENT_PRESETS[0]!)
+            if (sample.text_overlays && sample.text_overlays.length > 0) {
+              setTextBoxes(sample.text_overlays as TextBox[])
+            }
+            localStorage.setItem(`card-bg-${eventId}`, sample.background_image_url)
+            setShowBgModal(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}

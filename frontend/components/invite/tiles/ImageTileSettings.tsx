@@ -9,7 +9,6 @@ import { uploadImage } from '@/lib/api'
 interface ImageTileSettingsProps {
   settings: ImageTileSettings
   onChange: (settings: ImageTileSettings) => void
-  hasTitleOverlay?: boolean
   eventId: number
 }
 
@@ -17,7 +16,8 @@ interface ImageTileSettingsProps {
 const IPHONE_ASPECT_RATIO = 1179 / 2556
 const ASPECT_RATIO_TOLERANCE = 0.01 // Allow small tolerance for floating point comparison
 
-export default function ImageTileSettings({ settings, onChange, hasTitleOverlay = false, eventId }: ImageTileSettingsProps) {
+export default function ImageTileSettings({ settings, onChange, eventId }: ImageTileSettingsProps) {
+  const cardDesignerUrl = `/host/events/${eventId}/card`
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
 
@@ -97,6 +97,16 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
 
   return (
     <div className="space-y-4 w-full max-w-full overflow-x-hidden min-w-0">
+      {/* Link back to the greeting card designer (only when text overlays exist) */}
+      {settings.textOverlays && settings.textOverlays.length > 0 && (
+        <a
+          href={cardDesignerUrl}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors"
+        >
+          <span>Edit card design</span>
+        </a>
+      )}
+
       <div>
         <label className="block text-sm font-medium mb-2">Image Upload</label>
         <input
@@ -128,6 +138,64 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
               <strong>Fit to Screen:</strong> Shows entire image without cropping. 
               <strong> Cover Image:</strong> Fills container with position control.
             </p>
+          </div>
+
+          {/* Shape */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Shape</label>
+            <select
+              value={settings.shape || 'rectangle'}
+              onChange={(e) => onChange({ ...settings, shape: e.target.value as any })}
+              className="w-full text-sm border rounded px-3 py-2"
+            >
+              <option value="rectangle">Rectangle</option>
+              <option value="circle">Circle</option>
+              <option value="rounded">Rounded</option>
+            </select>
+          </div>
+
+          {/* Frame */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Frame</label>
+            <select
+              value={settings.frameStyle ?? 'none'}
+              onChange={(e) => onChange({ ...settings, frameStyle: e.target.value as any })}
+              className="w-full text-sm border rounded px-3 py-2"
+            >
+              <option value="none">None</option>
+              <option value="single">Single border</option>
+              <option value="double">Double border</option>
+            </select>
+            {(settings.frameStyle === 'single' || settings.frameStyle === 'double') && (
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium">Color</label>
+                  <input
+                    type="color"
+                    value={settings.frameColor || '#D4AF37'}
+                    onChange={(e) => onChange({ ...settings, frameColor: e.target.value })}
+                    className="w-10 h-8 rounded border cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={settings.frameColor || '#D4AF37'}
+                    onChange={(e) => onChange({ ...settings, frameColor: e.target.value })}
+                    className="flex-1 text-sm border rounded px-2 py-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Width (px)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={settings.frameWidth ?? 2}
+                    onChange={(e) => onChange({ ...settings, frameWidth: parseInt(e.target.value, 10) || 2 })}
+                    className="w-full text-sm border rounded px-2 py-1"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 3. Background Color */}
@@ -343,22 +411,6 @@ export default function ImageTileSettings({ settings, onChange, hasTitleOverlay 
                   display: 'block',
                 }}
               />
-            </div>
-          )}
-
-          {/* Blur (when title overlay is active) */}
-          {hasTitleOverlay && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Blur (when title overlay is active)</label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={settings.blur || 0}
-                onChange={(e) => onChange({ ...settings, blur: parseInt(e.target.value) })}
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500 mt-1">Blur value: {settings.blur || 0}</p>
             </div>
           )}
 

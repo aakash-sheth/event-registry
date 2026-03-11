@@ -11,6 +11,8 @@ export const COMPANY_HOMEPAGE = process.env.NEXT_PUBLIC_COMPANY_HOMEPAGE || proc
 // Generic envelope image for link previews (common fallback for all events)
 // This should be a publicly accessible URL (S3, CDN, or public asset)
 // Recommended size: 1200x630px for optimal Open Graph display
-export const GENERIC_ENVELOPE_IMAGE = process.env.NEXT_PUBLIC_GENERIC_ENVELOPE_IMAGE || 
+export const GENERIC_ENVELOPE_IMAGE = process.env.NEXT_PUBLIC_GENERIC_ENVELOPE_IMAGE ||
   'https://event-registry-staging-uploads-1764200910.s3.amazonaws.com/events/ekfern_banner/ekfern_envelope.png'
 
+// Default hero image for invite templates (e.g. Classic) so save succeeds before host uploads their own
+export const DEFAULT_HERO_IMAGE = GENERIC_ENVELOPE_IMAGE

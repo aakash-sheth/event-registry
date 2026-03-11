@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Tile, TileType } from '@/lib/invite/schema'
+import { Tile } from '@/lib/invite/schema'
 import TitleTile from './TitleTile'
 import ImageTile from './ImageTile'
 import TimerTile from './TimerTile'
@@ -19,8 +19,8 @@ export interface TilePreviewProps {
   eventTitle?: string
   hasRsvp?: boolean
   hasRegistry?: boolean
-  allTiles?: Tile[] // For overlay relationships
-  allowedSubEvents?: any[] // Sub-events for event-carousel tile
+  allTiles?: Tile[]
+  allowedSubEvents?: any[]
   guestToken?: string | null
 }
 
@@ -45,8 +45,6 @@ export default function TilePreview({
           <TitleTile
             settings={tile.settings as any}
             preview
-            overlayMode={tile.overlayTargetId !== undefined}
-            overlayTargetTile={allTiles.find(t => t.id === tile.overlayTargetId)}
           />
         )
       case 'image':
@@ -54,7 +52,6 @@ export default function TilePreview({
           <ImageTile
             settings={tile.settings as any}
             preview
-            hasTitleOverlay={allTiles.some(t => t.type === 'title' && t.overlayTargetId === tile.id)}
           />
         )
       case 'timer':

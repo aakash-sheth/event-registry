@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header
 import re
@@ -56,11 +56,12 @@ class InvitePageSerializer(serializers.ModelSerializer):
     has_rsvp = serializers.BooleanField(source='event.has_rsvp', read_only=True)
     has_registry = serializers.BooleanField(source='event.has_registry', read_only=True)
     state = serializers.SerializerMethodField()  # Expose state property using method field
-    
+    rsvp_count = serializers.SerializerMethodField()
+
     class Meta:
         model = InvitePage
-        fields = ('id', 'event', 'event_slug', 'event_country', 'event_timezone', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'event_slug', 'event_country', 'event_timezone', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'event_slug', 'event_country', 'event_timezone', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'rsvp_count', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event_slug', 'event_country', 'event_timezone', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'rsvp_count', 'created_at', 'updated_at')
     
     def get_allowed_sub_events(self, obj):
         """Get allowed sub-events - set by view based on guest token or public visibility"""
@@ -75,7 +76,11 @@ class InvitePageSerializer(serializers.ModelSerializer):
     def get_state(self, obj):
         """Get the state property from the InvitePage model"""
         return obj.state
-    
+
+    def get_rsvp_count(self, obj):
+        """Count of confirmed (will_attend=yes) RSVPs for the event"""
+        return obj.event.rsvps.filter(will_attend='yes', is_removed=False).count()
+
     def validate_config(self, value):
         """Validate config structure"""
         if not isinstance(value, dict):
@@ -681,4 +686,39 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             raise serializers.ValidationError("Template name cannot be empty.")
         return value.strip()
+
+
+class InviteDesignTemplateSerializer(serializers.ModelSerializer):
+    """Serializer for InviteDesignTemplate (Template Studio)."""
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True, allow_null=True)
+    updated_by_name = serializers.CharField(source='updated_by.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = InviteDesignTemplate
+        fields = (
+            'id', 'name', 'description', 'thumbnail', 'preview_alt', 'config',
+            'visibility', 'status', 'created_by', 'created_by_name', 'updated_by', 'updated_by_name',
+            'created_at', 'updated_at',
+            'is_premium', 'price_cents', 'creator', 'creator_share_percent',
+        )
+        read_only_fields = ('id', 'created_by', 'created_by_name', 'updated_by', 'updated_by_name', 'created_at', 'updated_at')
+
+    def validate_config(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("config must be a JSON object.")
+        return value
+
+
+class GreetingCardSampleSerializer(serializers.ModelSerializer):
+    """Serializer for GreetingCardSample (staff-curated card backgrounds)."""
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = GreetingCardSample
+        fields = (
+            'id', 'name', 'description', 'background_image_url', 'text_overlays',
+            'tags', 'sort_order', 'is_active', 'created_by', 'created_by_name',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'created_by', 'created_by_name', 'created_at', 'updated_at')
 

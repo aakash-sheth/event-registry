@@ -6,18 +6,52 @@ import { TextureType } from '@/lib/invite/schema'
 export interface TextureOverlayProps {
   type: TextureType
   intensity?: number // 0-100, default 20
+  imageUrl?: string
+  textureBlend?: 'overlay' | 'replace'
 }
 
 /**
- * CSS-based texture overlay that sits underneath all content
- * Acts like printing on textured paper - the texture is part of the background
+ * CSS-based texture overlay that sits underneath all content.
+ * When imageUrl is set, can render an image texture (overlay or replace CSS texture).
  */
-export default function TextureOverlay({ type, intensity = 40 }: TextureOverlayProps) {
-  if (type === 'none') {
+export default function TextureOverlay({ type, intensity = 40, imageUrl, textureBlend = 'overlay' }: TextureOverlayProps) {
+  const opacity = intensity / 100
+  const showCssTexture = type !== 'none' && (!imageUrl || textureBlend !== 'replace')
+  const showImageTexture = !!imageUrl
+
+  if (!showCssTexture && !showImageTexture) {
     return null
   }
 
-  const opacity = intensity / 100
+  if (showImageTexture && (textureBlend === 'replace' || !showCssTexture)) {
+    return (
+      <div
+        aria-hidden
+        data-texture-type="image"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 1,
+          opacity,
+        }}
+      >
+        <img
+          src={imageUrl}
+          alt=""
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block',
+          }}
+        />
+      </div>
+    )
+  }
 
   // Base styles for all textures
   const baseStyle: React.CSSProperties = {
@@ -186,6 +220,37 @@ export default function TextureOverlay({ type, intensity = 40 }: TextureOverlayP
   }
 
   const textureStyle = getTextureStyle()
-  
-  return <div style={textureStyle} aria-hidden="true" data-texture-type={type} />
+
+  return (
+    <>
+      {showCssTexture && <div style={textureStyle} aria-hidden data-texture-type={type} />}
+      {showImageTexture && (
+        <div
+          aria-hidden
+          data-texture-type="image"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+            zIndex: 1,
+            opacity,
+          }}
+        >
+          <img
+            src={imageUrl}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+          />
+        </div>
+      )}
+    </>
+  )
 }

@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
 import { COUNTRY_CODES } from '@/lib/countryCodesFull'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
+import WizardProgress from '@/components/host/WizardProgress'
 
 const eventSchema = z.object({
   slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
@@ -54,7 +55,7 @@ export default function NewEventPage() {
       is_public: true,
       has_rsvp: true,
       has_registry: true,
-    },
+    } as EventForm,
   })
 
   const onSubmit = async (data: EventForm) => {
@@ -68,13 +69,12 @@ export default function NewEventPage() {
         router.push('/host/dashboard')
         return
       }
-      logDebug('Event created successfully, navigating to:', eventId)
-      showToast('Event created successfully!', 'success')
-      // Small delay to ensure state is updated
+      logDebug('Event created successfully, navigating to card step:', eventId)
+      showToast('Event created! Now let\'s create your greeting card.', 'success')
       setTimeout(() => {
-        router.push(`/host/events/${eventId}`)
+        router.push(`/host/events/${eventId}/card`)
       }, 100)
-    } catch (error: any) {
+    } catch (error: unknown) {
       logError('Event creation error:', error)
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -84,6 +84,7 @@ export default function NewEventPage() {
 
   return (
     <div className="min-h-screen bg-eco-beige">
+      <WizardProgress currentStep={1} />
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <h1 className="text-4xl font-bold mb-2 text-eco-green">Create Your Event</h1>
         <p className="text-lg text-gray-700 mb-8">Start with your basic details — you can add RSVP or a Gift Registry anytime.</p>
@@ -220,7 +221,7 @@ export default function NewEventPage() {
                   </select>
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium mb-1">Timezone</label>
                 <select
@@ -255,42 +256,24 @@ export default function NewEventPage() {
                 </label>
               </div>
 
-              {/* Feature Toggles */}
-              <div className="border-t pt-6 mt-6">
-                <h3 className="text-lg font-semibold text-eco-green mb-4">Event Features</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Choose which features you want to enable for your event. You can change these later.
-                </p>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        {...register('has_rsvp')}
-                        className="form-checkbox text-eco-green"
-                      />
-                      <div>
-                        <span className="font-medium">Enable RSVP</span>
-                        <p className="text-xs text-gray-500">Allow guests to confirm their attendance</p>
-                      </div>
-                    </label>
-                  </div>
-
-                  <div>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        {...register('has_registry')}
-                        className="form-checkbox text-eco-green"
-                      />
-                      <div>
-                        <span className="font-medium">Enable Gift Registry</span>
-                        <p className="text-xs text-gray-500">Allow guests to purchase gifts from your registry</p>
-                      </div>
-                    </label>
-                  </div>
-                </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Features</p>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    {...register('has_rsvp')}
+                    className="form-checkbox text-eco-green"
+                  />
+                  <span className="text-sm">Enable RSVP</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    {...register('has_registry')}
+                    className="form-checkbox text-eco-green"
+                  />
+                  <span className="text-sm">Enable Gift Registry</span>
+                </label>
               </div>
 
               <div className="flex gap-2 pt-4">
@@ -302,16 +285,16 @@ export default function NewEventPage() {
                 >
                   Cancel
                 </Button>
-                <Button 
-                  type="submit" 
-                  disabled={loading} 
+                <Button
+                  type="submit"
+                  disabled={loading}
                   className="flex-1 bg-eco-green hover:bg-green-600 text-white"
                 >
-                  {loading ? 'Creating...' : 'Create Event →'}
+                  {loading ? 'Creating...' : 'Next: Create Greeting Card'}
                 </Button>
               </div>
               <p className="text-sm text-center text-gray-600 mt-4">
-                🌿 You can enable RSVP or Registry later from your Dashboard.
+                You can enable RSVP or Registry later from your Dashboard.
               </p>
             </form>
           </CardContent>
@@ -320,4 +303,3 @@ export default function NewEventPage() {
     </div>
   )
 }
-
