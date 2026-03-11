@@ -37,8 +37,9 @@ interface TileSettingsListProps {
   onReorder: (tiles: Tile[]) => void
   onUpdate: (tile: Tile) => void
   onToggle: (tileId: string, enabled: boolean) => void
-  onAddTile: (type: TileType) => void
-  onRemoveTile: (tileId: string) => void
+  onOverlayToggle?: (tileId: string, targetTileId: string | undefined) => void
+  onAddTile?: (type: TileType) => void
+  onRemoveTile?: (tileId: string) => void
   eventId: number
   hasRsvp?: boolean
   hasRegistry?: boolean
@@ -109,7 +110,7 @@ export default function TileSettingsList({
               tile={tile}
               onUpdate={onUpdate}
               onToggle={onToggle}
-              onRemove={() => onRemoveTile(tile.id)}
+              onRemove={onRemoveTile ? () => onRemoveTile(tile.id) : undefined}
               eventId={eventId}
               hasRsvp={hasRsvp}
               hasRegistry={hasRegistry}
@@ -122,7 +123,7 @@ export default function TileSettingsList({
               tile={footerTile}
               onUpdate={onUpdate}
               onToggle={onToggle}
-              onRemove={() => onRemoveTile(footerTile.id)}
+              onRemove={onRemoveTile ? () => onRemoveTile(footerTile.id) : undefined}
               eventId={eventId}
               hasRsvp={hasRsvp}
               hasRegistry={hasRegistry}
@@ -132,7 +133,7 @@ export default function TileSettingsList({
           )}
 
           {/* Add tile */}
-          {availableToAdd.length > 0 && (
+          {onAddTile && availableToAdd.length > 0 && (
             <div className="pt-1">
               {!showPicker ? (
                 <button

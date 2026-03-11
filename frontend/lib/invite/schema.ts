@@ -29,6 +29,7 @@ export interface TitleTileSettings {
   subtitleFont?: string
   subtitleColor?: string
   subtitleSize?: 'small' | 'medium' | 'large'
+  overlayPosition?: { x: number; y: number } // % position when overlaying on image tile
 }
 
 export interface TextOverlay {
@@ -230,6 +231,7 @@ export interface Tile {
   order: number // Saved order (snapshot when save button clicked) - used by invite page
   previewOrder?: number // Real-time order for mobile preview (not saved to backend)
   settings: TileSettings
+  overlayTargetId?: string // If set, this title tile overlays on top of the target tile (image)
 }
 
 export interface InviteConfig {

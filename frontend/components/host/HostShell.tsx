@@ -19,6 +19,7 @@ import {
   User,
   Users,
   LogOut,
+  type LucideIcon,
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 import { TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
@@ -109,7 +110,7 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
     const hasRsvp = eventSettings?.has_rsvp ?? true
     const hasRegistry = eventSettings?.has_registry ?? true
     const isEnvelope = eventSettings?.event_structure === 'ENVELOPE'
-    const items: { href: string; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
+    const items: { href: string; label: string; icon: LucideIcon }[] = [
       { href: `/host/events/${eventId}`, label: 'Overview', icon: LayoutDashboard },
       { href: `/host/events/${eventId}/design`, label: 'Design', icon: Paintbrush },
       { href: `/host/events/${eventId}/guests`, label: 'Guests', icon: Users },

@@ -138,10 +138,10 @@ export default function TemplateStudioListPage() {
                         </td>
                         <td className="py-3 pr-4 font-medium">{t.name}</td>
                         <td className="py-3 pr-4">
-                          <Badge variant="secondary">{t.visibility ?? 'public'}</Badge>
+                          <Badge>{t.visibility ?? 'public'}</Badge>
                         </td>
                         <td className="py-3 pr-4">
-                          <Badge variant={t.status === 'published' ? 'default' : 'outline'}>
+                          <Badge variant={t.status === 'published' ? 'default' : undefined}>
                             {t.status ?? 'draft'}
                           </Badge>
                         </td>
