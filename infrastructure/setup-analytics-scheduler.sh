@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# NOTE (2026-03): The analytics-batch-processor EventBridge rule was DISABLED after
+# the direct-write analytics migration. Analytics views are now written directly to
+# the database (InvitePageView/RSVPPageView via objects.create()) on each request.
+# The batch pipeline in tasks.py has been removed.
+#
+# Do NOT re-enable this rule without also restoring the batch pipeline in tasks.py.
+#
+# To disable the rule (if it was previously enabled):
+#   aws events disable-rule --name analytics-batch-processor --region us-east-1
+#
+# This script is retained for reference only. Running it would re-enable the rule,
+# which is no longer correct for the current architecture.
+
 # Script to setup AWS EventBridge scheduler for analytics batch processing
 # This is the most reliable approach - uses AWS managed service with 99.99% uptime SLA
 # Usage: ./setup-analytics-scheduler.sh
