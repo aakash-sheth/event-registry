@@ -465,6 +465,7 @@ class InvitePageView(models.Model):
             models.Index(fields=['guest', '-viewed_at'], name='invite_views_guest_idx'),
             models.Index(fields=['event', '-viewed_at'], name='invite_views_event_idx'),
             models.Index(fields=['event', 'source_channel', '-viewed_at'], name='invite_views_event_src_idx'),
+            models.Index(fields=['event', 'guest'], name='invite_views_event_guest_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -500,6 +501,7 @@ class RSVPPageView(models.Model):
             models.Index(fields=['guest', '-viewed_at'], name='rsvp_views_guest_idx'),
             models.Index(fields=['event', '-viewed_at'], name='rsvp_views_event_idx'),
             models.Index(fields=['event', 'source_channel', '-viewed_at'], name='rsvp_views_event_src_idx'),
+            models.Index(fields=['event', 'guest'], name='rsvp_views_event_guest_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
