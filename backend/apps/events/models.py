@@ -455,14 +455,22 @@ class InvitePageView(models.Model):
     )
     campaign = models.CharField(max_length=100, blank=True, default='')
     placement = models.CharField(max_length=100, blank=True, default='')
-    viewed_at = models.DateTimeField(auto_now_add=True)
-    
+    viewed_at = models.DateTimeField(
+        help_text='When the guest actually viewed the page (from cached timestamp)'
+    )
+
     class Meta:
         db_table = 'invite_page_views'
         indexes = [
             models.Index(fields=['guest', '-viewed_at'], name='invite_views_guest_idx'),
             models.Index(fields=['event', '-viewed_at'], name='invite_views_event_idx'),
             models.Index(fields=['event', 'source_channel', '-viewed_at'], name='invite_views_event_src_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['guest', 'event', 'viewed_at'],
+                name='invite_views_unique_guest_event_time',
+            ),
         ]
         ordering = ['-viewed_at']
     
@@ -482,8 +490,10 @@ class RSVPPageView(models.Model):
     )
     campaign = models.CharField(max_length=100, blank=True, default='')
     placement = models.CharField(max_length=100, blank=True, default='')
-    viewed_at = models.DateTimeField(auto_now_add=True)
-    
+    viewed_at = models.DateTimeField(
+        help_text='When the guest actually viewed the page (from cached timestamp)'
+    )
+
     class Meta:
         db_table = 'rsvp_page_views'
         indexes = [
@@ -491,10 +501,40 @@ class RSVPPageView(models.Model):
             models.Index(fields=['event', '-viewed_at'], name='rsvp_views_event_idx'),
             models.Index(fields=['event', 'source_channel', '-viewed_at'], name='rsvp_views_event_src_idx'),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['guest', 'event', 'viewed_at'],
+                name='rsvp_views_unique_guest_event_time',
+            ),
+        ]
         ordering = ['-viewed_at']
     
     def __str__(self):
         return f"{self.guest.name} viewed RSVP at {self.viewed_at}"
+
+
+class RegistryPageView(models.Model):
+    """Track when guests open the registry page"""
+    guest = models.ForeignKey(Guest, on_delete=models.CASCADE, related_name='registry_views')
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='registry_views')
+    viewed_at = models.DateTimeField(
+        help_text='When the guest viewed the registry page'
+    )
+
+    class Meta:
+        ordering = ['-viewed_at']
+        indexes = [
+            models.Index(fields=['event', 'guest'], name='registry_views_event_guest_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['guest', 'event', 'viewed_at'],
+                name='registry_views_unique_guest_event_time',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.guest.name} viewed registry at {self.viewed_at}"
 
 
 class AnalyticsBatchRun(models.Model):
@@ -507,7 +547,9 @@ class AnalyticsBatchRun(models.Model):
     ]
     
     run_id = models.CharField(max_length=100, unique=True, help_text="Unique identifier for this batch run")
-    started_at = models.DateTimeField(help_text="When batch collection period started")
+    collection_window_start = models.DateTimeField(
+        help_text='Start of the analytics collection window this batch covers'
+    )
     processed_at = models.DateTimeField(null=True, blank=True, help_text="When batch was processed")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     
@@ -532,9 +574,9 @@ class AnalyticsBatchRun(models.Model):
     
     class Meta:
         db_table = 'analytics_batch_runs'
-        ordering = ['-started_at']
+        ordering = ['-collection_window_start']
         indexes = [
-            models.Index(fields=['status', '-started_at'], name='batch_runs_status_idx'),
+            models.Index(fields=['status', '-collection_window_start'], name='batch_runs_status_idx'),
             models.Index(fields=['-processed_at'], name='batch_runs_processed_idx'),
         ]
     

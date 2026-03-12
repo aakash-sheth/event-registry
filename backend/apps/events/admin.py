@@ -54,13 +54,13 @@ class MessageTemplateAdmin(admin.ModelAdmin):
 
 
 class AnalyticsBatchRunAdmin(admin.ModelAdmin):
-    list_display = ('run_id', 'status_badge', 'started_at', 'processed_at', 'views_collected', 'views_deduplicated', 'views_inserted', 'processing_time_ms')
-    list_filter = ('status', 'started_at', 'processed_at')
+    list_display = ('run_id', 'status_badge', 'collection_window_start', 'processed_at', 'views_collected', 'views_deduplicated', 'views_inserted', 'processing_time_ms')
+    list_filter = ('status', 'collection_window_start', 'processed_at')
     search_fields = ('run_id', 'error_message')
-    readonly_fields = ('run_id', 'started_at', 'processed_at', 'status', 'views_collected', 'views_deduplicated', 
-                      'views_inserted', 'invite_views_count', 'rsvp_views_count', 'processing_time_ms', 
+    readonly_fields = ('run_id', 'collection_window_start', 'processed_at', 'status', 'views_collected', 'views_deduplicated',
+                      'views_inserted', 'invite_views_count', 'rsvp_views_count', 'processing_time_ms',
                       'error_message', 'metadata', 'created_at', 'updated_at')
-    ordering = ('-started_at',)
+    ordering = ('-collection_window_start',)
     
     def status_badge(self, obj):
         """Display status with color coding"""
@@ -77,7 +77,7 @@ class AnalyticsBatchRunAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Run Information', {
-            'fields': ('run_id', 'status', 'started_at', 'processed_at')
+            'fields': ('run_id', 'status', 'collection_window_start', 'processed_at')
         }),
         ('Statistics', {
             'fields': ('views_collected', 'views_deduplicated', 'views_inserted', 

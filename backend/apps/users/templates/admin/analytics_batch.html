@@ -234,7 +234,7 @@
                                     {{ batch.get_status_display }}
                                 </span>
                             </td>
-                            <td>{{ batch.started_at|date:"Y-m-d H:i:s" }}</td>
+                            <td>{{ batch.collection_window_start|date:"Y-m-d H:i:s" }}</td>
                             <td>{{ batch.processed_at|date:"Y-m-d H:i:s"|default:"—" }}</td>
                             <td>{{ batch.views_collected }}</td>
                             <td>{{ batch.views_deduplicated }}</td>

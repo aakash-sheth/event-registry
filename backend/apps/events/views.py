@@ -1,6 +1,7 @@
 import logging
 
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -21,7 +22,7 @@ from urllib.parse import urlencode
 from apps.common.email_backend import send_email
 
 logger = logging.getLogger(__name__)
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -2007,29 +2008,28 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 }
             )
 
-        # Collect invite page view for batch processing (synchronous, fast cache write)
-        # Only track if guest token is present and not a preview
-        if guest_token and event and not is_preview:
+        # Record invite page view directly to DB (fire-and-forget, never breaks response)
+        if guest is not None and not is_preview:
             try:
-                from .tasks import collect_page_view
-                result = collect_page_view(
-                    guest_token,
-                    event.id,
-                    view_type='invite',
-                    source_channel=normalize_source_channel(request.query_params.get('source')),
-                    attribution_token=(request.query_params.get('al') or '').strip() or None,
-                    campaign=(request.query_params.get('campaign') or '').strip(),
-                    placement=(request.query_params.get('placement') or '').strip(),
+                source = request.query_params.get('source', '')
+                channel = normalize_source_channel(source)
+                attribution_link = None
+                attribution_token = (request.query_params.get('al') or '').strip() or None
+                if attribution_token:
+                    attribution_link = AttributionLink.objects.filter(
+                        token=attribution_token, event=event
+                    ).first()
+                InvitePageView.objects.create(
+                    guest=guest,
+                    event=event,
+                    viewed_at=timezone.now(),
+                    source_channel=channel,
+                    attribution_link=attribution_link,
                 )
-                if result:
-                    logger.info(f"[Batch Analytics] Successfully collected invite view: guest_token={guest_token[:8]}..., event_id={event.id}")
-                else:
-                    logger.warning(f"[Batch Analytics] Failed to collect invite view (returned False): guest_token={guest_token[:8]}..., event_id={event.id}")
+                logger.info(f"[Analytics] Recorded invite view: guest_id={guest.id}, event_id={event.id}")
             except Exception as e:
-                # Log error but don't break the response
-                # This handles cases where migrations haven't been run yet or cache isn't available
                 logger.error(
-                    f"[Batch Analytics] Failed to collect invite view: {str(e)}",
+                    f"[Analytics] Failed to record invite view: {str(e)}",
                     exc_info=True
                 )
 
@@ -2518,33 +2518,17 @@ def get_guest_by_token(request, event_id):
         from .utils import parse_phone_number
         country_code, local_number = parse_phone_number(guest.phone)
         
-        # Collect RSVP page view for batch processing (synchronous, fast cache write)
+        # Record RSVP page view directly to DB (fire-and-forget, never breaks response)
         try:
-            from .tasks import collect_page_view
-            result = collect_page_view(
-                guest_token,
-                event_id,
-                view_type='rsvp',
-                source_channel=normalize_source_channel(request.query_params.get('source')),
-                attribution_token=(request.query_params.get('al') or '').strip() or None,
-                campaign=(request.query_params.get('campaign') or '').strip(),
-                placement=(request.query_params.get('placement') or '').strip(),
+            RSVPPageView.objects.create(
+                guest=guest,
+                event=event,
+                viewed_at=timezone.now(),
             )
-            if result:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.info(f"[Batch Analytics] Successfully collected RSVP view: guest_token={guest_token[:8]}..., event_id={event_id}")
-            else:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"[Batch Analytics] Failed to collect RSVP view (returned False): guest_token={guest_token[:8]}..., event_id={event_id}")
+            logger.info(f"[Analytics] Recorded RSVP view: guest_id={guest.id}, event_id={event.id}")
         except Exception as e:
-            # Log error but don't break the response
-            # This handles cases where migrations haven't been run yet or cache isn't available
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(
-                f"[Batch Analytics] Failed to collect RSVP view: {str(e)}",
+                f"[Analytics] Failed to record RSVP view: {str(e)}",
                 exc_info=True
             )
         
@@ -2562,6 +2546,43 @@ def get_guest_by_token(request, event_id):
         return Response(guest_data, status=status.HTTP_200_OK)
     except Guest.DoesNotExist:
         return Response({'error': 'Invalid guest token'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class RecordRegistryView(APIView):
+    """
+    POST /api/events/registry/<slug>/view/?gt=<guest_token>
+
+    Fire-and-forget endpoint: records a RegistryPageView when a guest opens the
+    registry page. Always returns 204; never surfaces errors to the caller.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, slug):
+        try:
+            event = get_object_or_404(Event, slug=slug)
+            gt = (request.query_params.get('gt') or '').strip()
+            if gt:
+                guest = Guest.objects.filter(
+                    guest_token=gt,
+                    event=event,
+                    is_removed=False,
+                ).first()
+                if guest:
+                    RegistryPageView.objects.create(
+                        guest=guest,
+                        event=event,
+                        viewed_at=timezone.now(),
+                    )
+                    logger.info(
+                        f"[Analytics] Recorded registry view: guest_id={guest.id}, event_id={event.id}"
+                    )
+        except Exception as e:
+            # Fire-and-forget — never let tracking break the caller
+            logger.error(
+                f"[Analytics] Failed to record registry view: {str(e)}",
+                exc_info=True,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['GET'])

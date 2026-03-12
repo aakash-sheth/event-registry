@@ -400,7 +400,7 @@ class CustomAdminSite(AdminSite):
         
         try:
             # Get recent batch runs
-            recent_batches = AnalyticsBatchRun.objects.all().order_by('-started_at')[:50]
+            recent_batches = AnalyticsBatchRun.objects.all().order_by('-collection_window_start')[:50]
             
             # Summary statistics
             total_batches = AnalyticsBatchRun.objects.count()
@@ -431,7 +431,7 @@ class CustomAdminSite(AdminSite):
             
             # Today's statistics
             today = timezone.now().date()
-            today_batches = AnalyticsBatchRun.objects.filter(started_at__date=today)
+            today_batches = AnalyticsBatchRun.objects.filter(collection_window_start__date=today)
             today_stats = {
                 'total': today_batches.count(),
                 'completed': today_batches.filter(status='completed').count(),

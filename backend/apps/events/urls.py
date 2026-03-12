@@ -10,7 +10,8 @@ from .views import (
     whatsapp_template_archive, whatsapp_template_activate,
     whatsapp_template_increment_usage, whatsapp_template_set_default,
     get_event_impact, get_overall_impact,
-    invite_page_by_event, attribution_redirect
+    invite_page_by_event, attribution_redirect,
+    RecordRegistryView,
 )
 
 router = DefaultRouter()
@@ -42,6 +43,8 @@ urlpatterns = [
     path('<int:event_id>/rsvp/check/', get_rsvp, name='event-rsvp-check'),
     path('<int:event_id>/rsvp/check/phone/', check_phone_for_rsvp, name='event-rsvp-check-phone'),
     path('<int:event_id>/rsvp/guest-by-token/', get_guest_by_token, name='event-rsvp-guest-by-token'),
+    # Registry view tracking (fire-and-forget, always 204)
+    path('registry/<slug:slug>/view/', RecordRegistryView.as_view(), name='registry-page-view'),
     # Public invite routes
     path('invite/<str:slug>/', PublicInviteViewSet.as_view({'get': 'retrieve'}), name='public-invite'),
     path('invite/<str:slug>/publish/', InvitePageViewSet.as_view({'post': 'publish'}), name='invite-publish'),

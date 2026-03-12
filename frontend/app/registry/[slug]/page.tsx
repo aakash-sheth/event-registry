@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import api from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import CheckoutModal from '@/components/CheckoutModal'
 import { logError } from '@/lib/error-handler'
 import { getEventDetailsFromConfig } from '@/lib/event/utils'
+import { RegistryViewTracker } from '@/components/RegistryViewTracker'
 
 interface Event {
   id: number
@@ -45,7 +46,9 @@ interface Item {
 export default function RegistryPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
+  const guestToken = searchParams.get('gt') || ''
   const [event, setEvent] = useState<Event | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
@@ -132,6 +135,7 @@ export default function RegistryPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-eco-beige to-white">
+      {guestToken && <RegistryViewTracker slug={slug} gt={guestToken} />}
       {/* Hero Section with Banner */}
       <div className="relative w-full">
         {/* Banner Image with Overlay */}

@@ -31,9 +31,9 @@ export default function FeatureButtonsTile({
     })
   }
   if (hasRegistry) {
-    buttons.push({ 
+    buttons.push({
       label: settings.registryLabel || 'Registry', // Use custom label or default
-      href: `/registry/${eventSlug}` 
+      href: guestToken ? `/registry/${eventSlug}?gt=${guestToken}` : `/registry/${eventSlug}`
     })
   }
 

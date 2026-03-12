@@ -2,7 +2,7 @@
 Serializers for guest invite analytics
 """
 from rest_framework import serializers
-from .models import Guest, InvitePageView, RSVPPageView
+from .models import Guest, InvitePageView, RSVPPageView, RegistryPageView
 
 
 class GuestAnalyticsSerializer(serializers.ModelSerializer):
@@ -13,7 +13,10 @@ class GuestAnalyticsSerializer(serializers.ModelSerializer):
     last_rsvp_view = serializers.SerializerMethodField()
     has_viewed_invite = serializers.SerializerMethodField()
     has_viewed_rsvp = serializers.SerializerMethodField()
-    
+    registry_views_count = serializers.SerializerMethodField()
+    last_registry_view = serializers.SerializerMethodField()
+    has_viewed_registry = serializers.SerializerMethodField()
+
     class Meta:
         model = Guest
         fields = (
@@ -21,6 +24,7 @@ class GuestAnalyticsSerializer(serializers.ModelSerializer):
             'invite_views_count', 'rsvp_views_count',
             'last_invite_view', 'last_rsvp_view',
             'has_viewed_invite', 'has_viewed_rsvp',
+            'registry_views_count', 'last_registry_view', 'has_viewed_registry',
         )
     
     def get_invite_views_count(self, obj):
@@ -50,6 +54,19 @@ class GuestAnalyticsSerializer(serializers.ModelSerializer):
     def get_has_viewed_rsvp(self, obj):
         """Check if guest has viewed RSVP page"""
         return obj.rsvp_views.exists()
+
+    def get_registry_views_count(self, obj):
+        """Get total number of registry page views for this guest"""
+        return obj.registry_views.count()
+
+    def get_last_registry_view(self, obj):
+        """Get timestamp of last registry page view"""
+        view = obj.registry_views.order_by('-viewed_at').first()
+        return view.viewed_at if view else None
+
+    def get_has_viewed_registry(self, obj):
+        """Check if guest has viewed the registry page"""
+        return obj.registry_views.exists()
 
 
 class EventAnalyticsSummarySerializer(serializers.Serializer):
