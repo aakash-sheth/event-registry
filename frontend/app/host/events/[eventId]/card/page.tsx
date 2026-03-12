@@ -283,6 +283,8 @@ export default function GreetingCardPage(): React.ReactElement {
   const [showBgModal, setShowBgModal] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [userHasEditedText, setUserHasEditedText] = useState(false)
+  const [pendingSample, setPendingSample] = useState<GreetingCardSample | null>(null)
 
   // Load event + restore saved state from localStorage
   useEffect(() => {
@@ -297,6 +299,7 @@ export default function GreetingCardPage(): React.ReactElement {
         if (savedBoxes) {
           try {
             setTextBoxes(JSON.parse(savedBoxes) as TextBox[])
+            setUserHasEditedText(true)
           } catch {
             setTextBoxes(buildInitialBoxes(data.title, data.event_type))
           }
@@ -316,6 +319,9 @@ export default function GreetingCardPage(): React.ReactElement {
     if (saved) {
       setBgUrl(saved)
       setBgGradient(GRADIENT_PRESETS[0]!)
+    } else {
+      const savedGradient = localStorage.getItem(`card-gradient-${eventId}`)
+      if (savedGradient) setBgGradient(savedGradient)
     }
   }, [eventId])
 
@@ -332,6 +338,7 @@ export default function GreetingCardPage(): React.ReactElement {
   const selectedBox = textBoxes.find((b) => b.id === selectedId) ?? null
 
   function updateBox<K extends keyof TextBox>(id: string, key: K, value: TextBox[K]): void {
+    if (key === 'text') setUserHasEditedText(true)
     setTextBoxes((prev) =>
       prev.map((b) => (b.id === id ? { ...b, [key]: value } : b))
     )
@@ -411,6 +418,7 @@ export default function GreetingCardPage(): React.ReactElement {
       setBgUrl(url)
       setBgGradient(GRADIENT_PRESETS[0]!)
       localStorage.setItem(`card-bg-${eventId}`, url)
+      localStorage.removeItem(`card-gradient-${eventId}`)
     } catch (err: unknown) {
       logError('GreetingCardPage: upload failed', err)
       alert('Upload failed. Please try again.')
@@ -425,7 +433,8 @@ export default function GreetingCardPage(): React.ReactElement {
   // -------------------------------------------------------------------------
 
   async function handleNext(): Promise<void> {
-    if (bgUrl) {
+    const hasExplicitSelection = !!bgUrl || !!localStorage.getItem(`card-gradient-${eventId}`)
+    if (hasExplicitSelection) {
       setSaving(true)
       try {
         const existing = await getInvitePage(eventId)
@@ -436,7 +445,8 @@ export default function GreetingCardPage(): React.ReactElement {
                   ...t,
                   settings: {
                     ...(t.settings as ImageTileSettings),
-                    src: bgUrl,
+                    src: bgUrl ?? undefined,
+                    backgroundGradient: bgUrl ? undefined : bgGradient,
                     fitMode: 'full-image' as const,
                     textOverlays: textBoxes,
                   },
@@ -849,6 +859,38 @@ export default function GreetingCardPage(): React.ReactElement {
       </div>
 
       {/* ------------------------------------------------------------------ */}
+      {/* Keep-text confirmation dialog                                        */}
+      {/* ------------------------------------------------------------------ */}
+      {pendingSample && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+            <h3 className="text-base font-semibold text-gray-800">Replace your text?</h3>
+            <p className="text-sm text-gray-500">
+              This sample comes with its own text layout. Do you want to keep the text you've written or use the sample's text?
+            </p>
+            <div className="flex gap-3">
+              <button
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                onClick={() => setPendingSample(null)}
+              >
+                Keep my text
+              </button>
+              <button
+                className="flex-1 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 transition-colors"
+                onClick={() => {
+                  setTextBoxes(pendingSample.text_overlays as TextBox[])
+                  setUserHasEditedText(false)
+                  setPendingSample(null)
+                }}
+              >
+                Use sample text
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
       {/* Background library modal                                             */}
       {/* ------------------------------------------------------------------ */}
       {showBgModal && (
@@ -857,16 +899,24 @@ export default function GreetingCardPage(): React.ReactElement {
           onSelectGradient={(gradient) => {
             setBgGradient(gradient)
             setBgUrl(null)
+            localStorage.setItem(`card-gradient-${eventId}`, gradient)
+            localStorage.removeItem(`card-bg-${eventId}`)
             setShowBgModal(false)
           }}
           onSelectSample={(sample) => {
             setBgUrl(sample.background_image_url)
             setBgGradient(GRADIENT_PRESETS[0]!)
-            if (sample.text_overlays && sample.text_overlays.length > 0) {
-              setTextBoxes(sample.text_overlays as TextBox[])
-            }
             localStorage.setItem(`card-bg-${eventId}`, sample.background_image_url)
+            localStorage.removeItem(`card-gradient-${eventId}`)
             setShowBgModal(false)
+            if (sample.text_overlays && sample.text_overlays.length > 0) {
+              if (userHasEditedText) {
+                setPendingSample(sample)
+              } else {
+                setTextBoxes(sample.text_overlays as TextBox[])
+                setUserHasEditedText(false)
+              }
+            }
           }}
         />
       )}

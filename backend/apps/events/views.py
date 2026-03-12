@@ -3815,12 +3815,11 @@ def _upload_greeting_card_to_s3(file):
         media_url = getattr(_s, 'MEDIA_URL', '/media/')
         return f"{media_url}greeting-cards/{content_hash}{ext}"
 
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region,
-    )
+    s3_kwargs = {'service_name': 's3', 'region_name': region}
+    if access_key and secret_key:
+        s3_kwargs['aws_access_key_id'] = access_key
+        s3_kwargs['aws_secret_access_key'] = secret_key
+    s3_client = boto3.client(**s3_kwargs)
     content_type = getattr(file, 'content_type', 'image/jpeg') or 'image/jpeg'
     s3_client.put_object(
         Bucket=bucket_name,

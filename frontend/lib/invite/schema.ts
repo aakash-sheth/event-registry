@@ -53,6 +53,7 @@ export interface ImageTileSettings {
   src?: string // Image URL or data URL
   fitMode?: 'fit-to-screen' | 'full-image'
   backgroundColor?: string // Background color if image doesn't fill
+  backgroundGradient?: string // CSS gradient string e.g. 'linear-gradient(135deg, #fce4ec, #f48fb1)' — used when no src image is set
   blur?: number // 0-100
   coverPosition?: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | { x: number; y: number } // Position for cover image mode (x, y are 0-100 percentages)
   // Shape and frame (for sleek invite look)

@@ -7,6 +7,16 @@ const nextConfig = {
     '@dnd-kit/utilities',
     'react-markdown',
   ],
+  // Proxy /media/ requests to Django backend in local dev
+  async rewrites() {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
+    return [
+      {
+        source: '/media/:path*',
+        destination: `${apiBase}/media/:path*`,
+      },
+    ]
+  },
   // Add cache headers for CloudFront caching
   async headers() {
     return [

@@ -1,6 +1,6 @@
 from django.contrib import admin
 from apps.users.admin import admin_site
-from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AnalyticsBatchRun
+from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AnalyticsBatchRun, GreetingCardSample
 
 
 class EventAdmin(admin.ModelAdmin):
@@ -97,6 +97,14 @@ class AnalyticsBatchRunAdmin(admin.ModelAdmin):
     )
 
 
+class GreetingCardSampleAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_active', 'sort_order', 'created_by', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name', 'description', 'tags')
+    readonly_fields = ('created_by', 'created_at', 'updated_at')
+    raw_id_fields = ('created_by',)
+
+
 # Register with custom admin site
 admin_site.register(Event, EventAdmin)
 admin_site.register(Guest, GuestAdmin)
@@ -106,4 +114,5 @@ admin_site.register(SubEvent, SubEventAdmin)
 admin_site.register(GuestSubEventInvite, GuestSubEventInviteAdmin)
 admin_site.register(MessageTemplate, MessageTemplateAdmin)
 admin_site.register(AnalyticsBatchRun, AnalyticsBatchRunAdmin)
+admin_site.register(GreetingCardSample, GreetingCardSampleAdmin)
 

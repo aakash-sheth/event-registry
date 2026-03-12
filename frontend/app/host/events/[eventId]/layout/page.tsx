@@ -38,7 +38,8 @@ interface EventData {
  */
 function applyCardDesignToConfig(
   config: InviteConfig,
-  bgUrl: string,
+  bgUrl: string | null,
+  bgGradient: string | null,
   textBoxes: TextOverlay[] | null,
 ): InviteConfig {
   if (!config.tiles) return config
@@ -48,7 +49,8 @@ function applyCardDesignToConfig(
           ...t,
           settings: {
             ...(t.settings as ImageTileSettings),
-            src: bgUrl,
+            src: bgUrl ?? undefined,
+            backgroundGradient: bgUrl ? undefined : (bgGradient ?? undefined),
             fitMode: 'full-image' as const,
             textOverlays: textBoxes ?? undefined,
           },
@@ -89,14 +91,15 @@ export default function LayoutSelectPage(): React.ReactElement {
     }).finally(() => setTemplatesLoading(false))
   }, [eventId])
 
-  function readCardDesignFromStorage(): { bgUrl: string | null; textBoxes: TextOverlay[] | null } {
+  function readCardDesignFromStorage(): { bgUrl: string | null; bgGradient: string | null; textBoxes: TextOverlay[] | null } {
     const bgUrl = localStorage.getItem(`card-bg-${eventId}`)
+    const bgGradient = localStorage.getItem(`card-gradient-${eventId}`)
     let textBoxes: TextOverlay[] | null = null
     try {
       const raw = localStorage.getItem(`card-textboxes-${eventId}`)
       if (raw) textBoxes = JSON.parse(raw) as TextOverlay[]
     } catch { /* ignore parse errors */ }
-    return { bgUrl, textBoxes }
+    return { bgUrl, bgGradient, textBoxes }
   }
 
   async function handleTemplateSelect(templateId: string): Promise<void> {
@@ -116,9 +119,9 @@ export default function LayoutSelectPage(): React.ReactElement {
       })
 
       // Apply card designer background + text overlays from step 2
-      const { bgUrl, textBoxes } = readCardDesignFromStorage()
-      if (bgUrl) {
-        appliedConfig = applyCardDesignToConfig(appliedConfig, bgUrl, textBoxes)
+      const { bgUrl, bgGradient, textBoxes } = readCardDesignFromStorage()
+      if (bgUrl || bgGradient) {
+        appliedConfig = applyCardDesignToConfig(appliedConfig, bgUrl, bgGradient, textBoxes)
       }
 
       // Save to Event.page_config so the design page reads the template + card bg
@@ -144,15 +147,15 @@ export default function LayoutSelectPage(): React.ReactElement {
   }
 
   async function handleBlankCanvas(): Promise<void> {
-    const { bgUrl, textBoxes } = readCardDesignFromStorage()
-    if (bgUrl) {
+    const { bgUrl, bgGradient, textBoxes } = readCardDesignFromStorage()
+    if (bgUrl || bgGradient) {
       setApplying(true)
       setApplyingId('blank')
       try {
         const existing = await getInvitePage(eventId)
         const baseConfig = existing?.config
         if (baseConfig) {
-          const updated = applyCardDesignToConfig(baseConfig, bgUrl, textBoxes)
+          const updated = applyCardDesignToConfig(baseConfig, bgUrl, bgGradient, textBoxes)
           await updateEventPageConfig(eventId, updated)
           await updateInvitePage(eventId, { config: updated })
         }

@@ -35,6 +35,44 @@ export default function ImageTile({ settings, preview = false }: ImageTileProps)
   }, [settings.src])
 
   if (!settings.src) {
+    if (settings.backgroundGradient) {
+      const hasGradientOverlays = settings.textOverlays && settings.textOverlays.length > 0
+      const textDecoration = (overlay: NonNullable<ImageTileSettings['textOverlays']>[number]) =>
+        [overlay.underline ? 'underline' : '', overlay.strikethrough ? 'line-through' : '']
+          .filter(Boolean).join(' ') || 'none'
+      return (
+        <div
+          className="relative w-full overflow-hidden"
+          style={{ background: settings.backgroundGradient, aspectRatio: '9 / 16' }}
+        >
+          {hasGradientOverlays && settings.textOverlays!.map((overlay) => (
+            <div
+              key={overlay.id}
+              style={{
+                position: 'absolute',
+                left: `${overlay.x}%`,
+                top: `${overlay.y}%`,
+                width: `${overlay.width}%`,
+                fontFamily: overlay.fontFamily,
+                fontSize: `${overlay.fontSize}px`,
+                color: overlay.color,
+                fontWeight: overlay.bold ? 700 : 400,
+                fontStyle: overlay.italic ? 'italic' : 'normal',
+                textDecoration: textDecoration(overlay),
+                textAlign: overlay.textAlign,
+                lineHeight: 1.3,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                pointerEvents: 'none',
+              }}
+            >
+              {overlay.text}
+            </div>
+          ))}
+        </div>
+      )
+    }
     if (preview) return null
     return (
       <div className="w-full h-48 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">

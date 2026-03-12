@@ -8,7 +8,7 @@ import Description from './Description'
 import TilePreview from '@/components/invite/tiles/TilePreview'
 import ScrollIndicator from '@/components/invite/ScrollIndicator'
 import TextureOverlay from './TextureOverlay'
-import PoweredByBranding from '@/components/invite/PoweredByBranding'
+
 
 interface LivingPosterPageProps {
   config: InviteConfig
@@ -166,7 +166,6 @@ function LivingPosterContent({
           </div>
         )}
         <ScrollIndicator />
-        <PoweredByBranding />
       </div>
     )
   }
@@ -194,7 +193,6 @@ function LivingPosterContent({
         <Description markdown={config.descriptionMarkdown} config={config} />
       )}
       <ScrollIndicator />
-      <PoweredByBranding />
     </div>
   )
 }
