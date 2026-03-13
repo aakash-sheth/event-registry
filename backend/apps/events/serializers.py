@@ -708,6 +708,9 @@ class InviteDesignTemplateSerializer(serializers.ModelSerializer):
     """Serializer for InviteDesignTemplate (Template Studio)."""
     created_by_name = serializers.CharField(source='created_by.name', read_only=True, allow_null=True)
     updated_by_name = serializers.CharField(source='updated_by.name', read_only=True, allow_null=True)
+    # Override URLField with CharField so relative paths (e.g. /invite-templates/minimal.svg)
+    # are accepted alongside absolute https:// URLs.
+    thumbnail = serializers.CharField(max_length=2000, allow_blank=True, required=False)
 
     class Meta:
         model = InviteDesignTemplate

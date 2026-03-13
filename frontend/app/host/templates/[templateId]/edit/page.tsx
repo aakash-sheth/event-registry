@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import api from '@/lib/api'
@@ -34,6 +34,8 @@ interface MeResponse {
   is_staff?: boolean
 }
 
+type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
 export default function EditTemplatePage() {
   const params = useParams()
   const router = useRouter()
@@ -49,6 +51,27 @@ export default function EditTemplatePage() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isStaff, setIsStaff] = useState<boolean | null>(null)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle')
+
+  // Tracks whether the user has made any edits since the page loaded.
+  // Prevents autosave from firing on the initial state population from the API.
+  const hasUserEditedRef = useRef(false)
+  // Mutex: prevents autosave and manual save from running concurrently.
+  const isSavingRef = useRef(false)
+  const previewWindowRef = useRef<Window | null>(null)
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null)
+
+  // Keep a persistent BroadcastChannel open for the lifetime of this page so
+  // postMessage() is never called on a channel that was immediately closed.
+  useEffect(() => {
+    if (!templateId || isNaN(templateId)) return
+    const ch = new BroadcastChannel(`template-preview-${templateId}`)
+    broadcastChannelRef.current = ch
+    return () => {
+      ch.close()
+      broadcastChannelRef.current = null
+    }
+  }, [templateId])
 
   useEffect(() => {
     if (!templateId || isNaN(templateId)) {
@@ -89,32 +112,101 @@ export default function EditTemplatePage() {
       .finally(() => setLoading(false))
   }, [templateId, router])
 
-  const handleSave = async () => {
+  // Broadcast config changes to the full-screen preview tab (debounced 500ms).
+  // Uses the persistent channel so the message is never dropped by a premature close().
+  useEffect(() => {
     if (!templateId || !config) return
+    const timer = setTimeout(() => {
+      broadcastChannelRef.current?.postMessage({ type: 'TEMPLATE_CONFIG_UPDATE', config })
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [config, templateId])
+
+  // Autosave: fires 2s after the last user-initiated change.
+  // Skipped on initial load (hasUserEditedRef stays false until user edits).
+  // isSavingRef prevents concurrent execution with the manual Save button.
+  useEffect(() => {
+    if (!hasUserEditedRef.current || !templateId || !config || !name.trim()) return
+    const timer = setTimeout(async () => {
+      if (isSavingRef.current) return
+      isSavingRef.current = true
+      setAutoSaveStatus('saving')
+      try {
+        await updateInviteDesignTemplate(templateId, {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          thumbnail: thumbnail.trim() || undefined,
+          preview_alt: previewAlt.trim() || undefined,
+          config: buildConfigToSave(config),
+          visibility,
+          status,
+        })
+        setAutoSaveStatus('saved')
+      } catch (e: any) {
+        logError('Autosave failed', e)
+        setAutoSaveStatus('error')
+      } finally {
+        isSavingRef.current = false
+      }
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [config, name, description, thumbnail, previewAlt, visibility, status, templateId])
+
+  // Auto-dismiss the "Saved ✓" indicator after 3s
+  useEffect(() => {
+    if (autoSaveStatus !== 'saved') return
+    const timer = setTimeout(() => setAutoSaveStatus('idle'), 3000)
+    return () => clearTimeout(timer)
+  }, [autoSaveStatus])
+
+  // Wrapper passed to TemplateStudioDesignCanvas so tile edits mark the page dirty.
+  const handleConfigChange = useCallback((action: React.SetStateAction<InviteConfig>) => {
+    hasUserEditedRef.current = true
+    setConfig((prev) => {
+      if (prev === null) return prev
+      return typeof action === 'function' ? action(prev) : action
+    })
+  }, [])
+
+  // Shared save logic used by both the manual Save button and the "← Templates" nav guard.
+  const performSave = async () => {
+    if (!templateId || !config || isSavingRef.current) return
     if (!name.trim()) {
       showToast('Template name is required.', 'error')
       return
     }
-    const toSave = buildConfigToSave(config)
+    isSavingRef.current = true
     setSaving(true)
+    setAutoSaveStatus('saving')
     try {
       await updateInviteDesignTemplate(templateId, {
         name: name.trim(),
         description: description.trim() || undefined,
         thumbnail: thumbnail.trim() || undefined,
         preview_alt: previewAlt.trim() || undefined,
-        config: toSave,
+        config: buildConfigToSave(config),
         visibility,
         status,
       })
-      showToast('Template updated.', 'success')
-      router.push('/host/templates')
+      setAutoSaveStatus('saved')
+      hasUserEditedRef.current = false
     } catch (e: any) {
       logError('Update template failed', e)
       showToast(getErrorMessage(e), 'error')
+      setAutoSaveStatus('error')
     } finally {
+      isSavingRef.current = false
       setSaving(false)
     }
+  }
+
+  // Explicit save button handler.
+  const handleSave = () => performSave()
+
+  // Navigation guard: flush any pending changes before leaving.
+  const handleNavigateBack = async () => {
+    if (hasUserEditedRef.current) await performSave()
+    router.push('/host/templates')
   }
 
   if (loading || isStaff === null) {
@@ -144,12 +236,60 @@ export default function EditTemplatePage() {
             <h1 className="text-2xl font-bold text-eco-green">Edit Template</h1>
             <p className="text-gray-600 mt-1 text-sm">Update template metadata and design.</p>
           </div>
-          <div className="flex gap-2">
-            <Link href="/host/templates">
-              <Button variant="outline">Cancel</Button>
-            </Link>
-            <Button onClick={handleSave} disabled={saving} className="bg-eco-green hover:bg-green-600 text-white">
-              {saving ? 'Saving…' : 'Save template'}
+          <div className="flex items-center gap-3">
+            {/* Autosave status indicator */}
+            <span className="text-xs min-w-[90px] text-right">
+              {autoSaveStatus === 'saving' && <span className="text-gray-400">Autosaving…</span>}
+              {autoSaveStatus === 'saved' && <span className="text-eco-green">Saved ✓</span>}
+              {autoSaveStatus === 'error' && (
+                <button
+                  onClick={handleSave}
+                  className="text-red-500 underline hover:text-red-700"
+                >
+                  Save failed — retry
+                </button>
+              )}
+            </span>
+
+            <Button variant="outline" onClick={handleNavigateBack}>
+              ← Templates
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const url = `/host/templates/${templateId}/preview`
+                if (config) {
+                  localStorage.setItem(`template-preview-config-${templateId}`, JSON.stringify(config))
+                }
+                if (previewWindowRef.current && !previewWindowRef.current.closed) {
+                  previewWindowRef.current.focus()
+                  broadcastChannelRef.current?.postMessage({ type: 'TEMPLATE_CONFIG_UPDATE', config })
+                } else {
+                  const win = window.open(url, `template-preview-${templateId}`)
+                  if (!win) {
+                    showToast('Popup blocked — please allow popups for this site to use preview.', 'error')
+                  } else {
+                    previewWindowRef.current = win
+                  }
+                }
+              }}
+              disabled={!templateId}
+            >
+              Preview
+            </Button>
+            {/* Publish / Unpublish — the only explicit action needed alongside autosave */}
+            <Button
+              onClick={async () => {
+                const newStatus = status === 'published' ? 'draft' : 'published'
+                hasUserEditedRef.current = true
+                setStatus(newStatus)
+              }}
+              disabled={autoSaveStatus === 'saving' || saving}
+              className={status === 'published'
+                ? 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300'
+                : 'bg-eco-green hover:bg-green-600 text-white'}
+            >
+              {status === 'published' ? 'Unpublish' : 'Publish'}
             </Button>
           </div>
         </div>
@@ -159,25 +299,41 @@ export default function EditTemplatePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Name *</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Classic" />
+              <Input
+                value={name}
+                onChange={(e) => { hasUserEditedRef.current = true; setName(e.target.value) }}
+                placeholder="e.g. Classic"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Description</label>
-              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description for library" />
+              <Input
+                value={description}
+                onChange={(e) => { hasUserEditedRef.current = true; setDescription(e.target.value) }}
+                placeholder="Short description for library"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Thumbnail URL</label>
-              <Input value={thumbnail} onChange={(e) => setThumbnail(e.target.value)} placeholder="https://…" />
+              <Input
+                value={thumbnail}
+                onChange={(e) => { hasUserEditedRef.current = true; setThumbnail(e.target.value) }}
+                placeholder="https://…"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Preview alt text</label>
-              <Input value={previewAlt} onChange={(e) => setPreviewAlt(e.target.value)} placeholder="Accessibility text for thumbnail" />
+              <Input
+                value={previewAlt}
+                onChange={(e) => { hasUserEditedRef.current = true; setPreviewAlt(e.target.value) }}
+                placeholder="Accessibility text for thumbnail"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Visibility</label>
               <select
                 value={visibility}
-                onChange={(e) => setVisibility(e.target.value)}
+                onChange={(e) => { hasUserEditedRef.current = true; setVisibility(e.target.value) }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
               >
                 <option value="internal">Internal</option>
@@ -185,23 +341,12 @@ export default function EditTemplatePage() {
                 <option value="premium">Premium</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
-              >
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-              </select>
-            </div>
           </div>
         </div>
 
         <TemplateStudioDesignCanvas
           config={config!}
-          setConfig={setConfig as React.Dispatch<React.SetStateAction<InviteConfig>>}
+          setConfig={handleConfigChange as React.Dispatch<React.SetStateAction<InviteConfig>>}
           eventLike={DUMMY_EVENT}
           eventIdForTiles={0}
         />

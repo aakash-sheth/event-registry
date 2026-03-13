@@ -6,7 +6,7 @@ import { getTheme } from '@/lib/invite/themes'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
 
 // Inviting sample copy for library previews so cards look like real invites, not placeholders
-const PREVIEW_SAMPLE = {
+export const PREVIEW_SAMPLE = {
   title: "You're Invited",
   eventTitle: 'Sarah & James',
   date: '2025-06-14', // Saturday, June 14, 2025
@@ -22,7 +22,12 @@ export interface TemplateCardPreviewProps {
   className?: string
 }
 
-function applyPreviewSample(config: InviteConfig): InviteConfig {
+/**
+ * Injects sample event data (title, date, location) into a config's tiles so
+ * previews look like real invites rather than blank placeholders.
+ * Pure function — never mutates the original config.
+ */
+export function enrichConfigWithSampleData(config: InviteConfig): InviteConfig {
   if (!config.tiles?.length) return config
   const tiles = config.tiles.map((tile: Tile) => {
     if (tile.type === 'title') {
@@ -48,7 +53,7 @@ function applyPreviewSample(config: InviteConfig): InviteConfig {
 export default function TemplateCardPreview({ config, className = '' }: TemplateCardPreviewProps): React.ReactElement {
   const theme = getTheme(config?.themeId ?? 'classic-noir')
   const backgroundColor = config?.customColors?.backgroundColor ?? theme.palette.bg
-  const previewConfig = useMemo(() => applyPreviewSample(config), [config])
+  const previewConfig = useMemo(() => enrichConfigWithSampleData(config), [config])
 
   return (
     <div

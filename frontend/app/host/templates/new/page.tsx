@@ -107,7 +107,7 @@ export default function NewTemplatePage() {
         status,
       })
       showToast('Template created.', 'success')
-      router.push('/host/templates')
+      router.push(`/host/templates/${created.id}/edit`)
     } catch (e: any) {
       logError('Create template failed', e)
       showToast(getErrorMessage(e), 'error')
