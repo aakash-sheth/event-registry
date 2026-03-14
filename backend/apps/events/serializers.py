@@ -731,6 +731,8 @@ class InviteDesignTemplateSerializer(serializers.ModelSerializer):
 class GreetingCardSampleSerializer(serializers.ModelSerializer):
     """Serializer for GreetingCardSample (staff-curated card backgrounds)."""
     created_by_name = serializers.CharField(source='created_by.name', read_only=True, allow_null=True)
+    # Use CharField so relative /media/ paths from local dev are accepted alongside absolute https:// URLs.
+    background_image_url = serializers.CharField(max_length=500)
 
     class Meta:
         model = GreetingCardSample

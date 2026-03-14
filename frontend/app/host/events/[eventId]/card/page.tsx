@@ -19,6 +19,7 @@ interface TextBox {
   x: number         // % from left of canvas (0–100)
   y: number         // % from top of canvas (0–100)
   width: number     // % of canvas width (default 80)
+  height: number | null  // % of canvas height, null = auto
   fontFamily: string
   fontSize: number  // px (default 32)
   color: string     // hex (default '#ffffff')
@@ -30,12 +31,19 @@ interface TextBox {
   verticalAlign: 'top' | 'middle' | 'bottom'
 }
 
+type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se'
+
 interface DragState {
+  mode: 'move' | 'resize'
+  resizeHandle: ResizeHandle | null
   boxId: string
   startPointerX: number
   startPointerY: number
   startBoxX: number
   startBoxY: number
+  startBoxWidth: number
+  startBoxHeight: number
+  snapshot: TextBox[]
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +100,7 @@ function buildInitialBoxes(title: string, eventType: string): TextBox[] {
       x: 10,
       y: 30,
       width: 80,
+      height: null,
       fontFamily: "'Playfair Display', serif",
       fontSize: 40,
       color: '#ffffff',
@@ -108,6 +117,7 @@ function buildInitialBoxes(title: string, eventType: string): TextBox[] {
       x: 10,
       y: 60,
       width: 80,
+      height: null,
       fontFamily: 'Georgia, serif',
       fontSize: 20,
       color: '#f0f0f0',
@@ -273,6 +283,15 @@ export default function GreetingCardPage(): React.ReactElement {
   const dragState = useRef<DragState | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Undo / redo
+  const undoStack = useRef<TextBox[][]>([])
+  const redoStack = useRef<TextBox[][]>([])
+  const textBoxesRef = useRef<TextBox[]>([])
+  const editStartSnapshotRef = useRef<TextBox[] | null>(null)
+
+  // Refs to each contentEditable div — keyed by box.id — for auto-focus
+  const contentEditableRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
   // State
   const [event, setEvent] = useState<{ title: string; event_type: string } | null>(null)
   const [bgUrl, setBgUrl] = useState<string | null>(null)
@@ -325,11 +344,59 @@ export default function GreetingCardPage(): React.ReactElement {
     }
   }, [eventId])
 
-  // Persist text boxes to localStorage whenever they change
+  // Persist text boxes to localStorage — debounced 500ms to avoid writing on every drag pixel
   useEffect(() => {
     if (!eventId || isNaN(eventId) || textBoxes.length === 0) return
-    localStorage.setItem(`card-textboxes-${eventId}`, JSON.stringify(textBoxes))
+    const timer = setTimeout(() => {
+      localStorage.setItem(`card-textboxes-${eventId}`, JSON.stringify(textBoxes))
+    }, 500)
+    return () => clearTimeout(timer)
   }, [textBoxes, eventId])
+
+  // Keep textBoxesRef in sync (used by undo/redo handlers in stable closures)
+  useEffect(() => { textBoxesRef.current = textBoxes }, [textBoxes])
+
+  // Auto-focus + populate the contentEditable div when editing starts
+  useEffect(() => {
+    if (!editingId) return
+    const el = contentEditableRefs.current.get(editingId)
+    if (!el) return
+    const text = textBoxesRef.current.find((b) => b.id === editingId)?.text ?? ''
+    el.innerText = text
+    el.focus()
+    // Move cursor to end
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+  }, [editingId])
+
+  // Keyboard undo / redo (Ctrl/Cmd+Z and Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement
+      if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        const prev = undoStack.current.pop()
+        if (prev !== undefined) {
+          redoStack.current.push([...textBoxesRef.current])
+          setTextBoxes(prev)
+        }
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault()
+        const next = redoStack.current.pop()
+        if (next !== undefined) {
+          undoStack.current.push([...textBoxesRef.current])
+          setTextBoxes(next)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // -------------------------------------------------------------------------
   // Text box helpers
@@ -337,32 +404,45 @@ export default function GreetingCardPage(): React.ReactElement {
 
   const selectedBox = textBoxes.find((b) => b.id === selectedId) ?? null
 
+  const pushHistory = useCallback((snapshot: TextBox[]): void => {
+    undoStack.current = [...undoStack.current, [...snapshot]].slice(-50)
+    redoStack.current = []
+  }, [])
+
   function updateBox<K extends keyof TextBox>(id: string, key: K, value: TextBox[K]): void {
-    if (key === 'text') setUserHasEditedText(true)
+    if (key === 'text') {
+      setUserHasEditedText(true)
+    } else {
+      pushHistory(textBoxesRef.current)
+    }
     setTextBoxes((prev) =>
       prev.map((b) => (b.id === id ? { ...b, [key]: value } : b))
     )
   }
 
   function toggleProp(id: string, key: 'bold' | 'italic' | 'underline' | 'strikethrough'): void {
+    pushHistory(textBoxesRef.current)
     setTextBoxes((prev) =>
       prev.map((b) => (b.id === id ? { ...b, [key]: !b[key] } : b))
     )
   }
 
   function deleteBox(id: string): void {
+    pushHistory(textBoxesRef.current)
     setTextBoxes((prev) => prev.filter((b) => b.id !== id))
     if (selectedId === id) setSelectedId(null)
     if (editingId === id) setEditingId(null)
   }
 
   function addTextBox(): void {
+    pushHistory(textBoxesRef.current)
     const newBox: TextBox = {
       id: makeId(),
       text: 'Add text here',
       x: 10,
       y: 20,
       width: 80,
+      height: null,
       fontFamily: "'Playfair Display', serif",
       fontSize: 32,
       color: '#ffffff',
@@ -384,24 +464,55 @@ export default function GreetingCardPage(): React.ReactElement {
   const handleCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragState.current || !canvasRef.current) return
     const rect = canvasRef.current.getBoundingClientRect()
-    const dx = ((e.clientX - dragState.current.startPointerX) / rect.width) * 100
-    const dy = ((e.clientY - dragState.current.startPointerY) / rect.height) * 100
-    const { boxId, startBoxX, startBoxY } = dragState.current
-    setTextBoxes((prev) =>
-      prev.map((b) => {
-        if (b.id !== boxId) return b
-        return {
+    const { mode, resizeHandle, boxId, startPointerX, startPointerY, startBoxX, startBoxY, startBoxWidth, startBoxHeight } = dragState.current
+    const dx = ((e.clientX - startPointerX) / rect.width) * 100
+    const dy = ((e.clientY - startPointerY) / rect.height) * 100
+    if (mode === 'resize') {
+      setTextBoxes((prev) =>
+        prev.map((b) => {
+          if (b.id !== boxId) return b
+          let newX = startBoxX, newY = startBoxY, newW = startBoxWidth, newH = startBoxHeight
+          if (resizeHandle === 'se') {
+            newW = clamp(startBoxWidth + dx, 10, 100 - startBoxX)
+            newH = clamp(startBoxHeight + dy, 5, 100 - startBoxY)
+          } else if (resizeHandle === 'sw') {
+            const deltaW = -dx
+            newW = clamp(startBoxWidth + deltaW, 10, startBoxX + startBoxWidth)
+            newX = startBoxX + startBoxWidth - newW
+            newH = clamp(startBoxHeight + dy, 5, 100 - startBoxY)
+          } else if (resizeHandle === 'ne') {
+            newW = clamp(startBoxWidth + dx, 10, 100 - startBoxX)
+            const deltaH = -dy
+            newH = clamp(startBoxHeight + deltaH, 5, startBoxY + startBoxHeight)
+            newY = startBoxY + startBoxHeight - newH
+          } else if (resizeHandle === 'nw') {
+            const deltaW = -dx
+            newW = clamp(startBoxWidth + deltaW, 10, startBoxX + startBoxWidth)
+            newX = startBoxX + startBoxWidth - newW
+            const deltaH = -dy
+            newH = clamp(startBoxHeight + deltaH, 5, startBoxY + startBoxHeight)
+            newY = startBoxY + startBoxHeight - newH
+          }
+          return { ...b, x: newX, y: newY, width: newW, height: newH }
+        })
+      )
+    } else {
+      setTextBoxes((prev) =>
+        prev.map((b) => b.id !== boxId ? b : {
           ...b,
           x: clamp(startBoxX + dx, 0, 100 - b.width),
           y: clamp(startBoxY + dy, 0, 95),
-        }
-      })
-    )
+        })
+      )
+    }
   }, [])
 
   const handleCanvasPointerUp = useCallback(() => {
-    dragState.current = null
-  }, [])
+    if (dragState.current) {
+      pushHistory(dragState.current.snapshot)
+      dragState.current = null
+    }
+  }, [pushHistory])
 
   // -------------------------------------------------------------------------
   // Upload handler
@@ -488,51 +599,177 @@ export default function GreetingCardPage(): React.ReactElement {
       <WizardProgress currentStep={2} eventId={eventId} />
 
       {/* ------------------------------------------------------------------ */}
-      {/* Top action bar                                                       */}
+      {/* Sticky header: background bar + always-visible text toolbar         */}
       {/* ------------------------------------------------------------------ */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
-        <button
-          onClick={() => setShowBgModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          <span>Select Background</span>
-        </button>
+      <div className="sticky top-0 z-20">
+        {/* Row 1: background controls */}
+        <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowBgModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Select Background
+          </button>
 
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-        >
-          {uploading ? 'Uploading…' : 'Upload Background'}
-        </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            {uploading ? 'Uploading…' : 'Upload Background'}
+          </button>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) void handleUpload(file)
-          }}
-        />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleUpload(file)
+            }}
+          />
 
-        <button
-          onClick={addTextBox}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-400 text-sm text-blue-600 hover:bg-blue-50 transition-colors font-medium"
-        >
-          + Add Text
-        </button>
+          {event && (
+            <span className="text-xs text-gray-500 truncate max-w-[180px]">{event.title}</span>
+          )}
 
-        {event && (
-          <span className="text-xs text-gray-500 truncate max-w-[180px]">{event.title}</span>
-        )}
+          {bgUrl && (
+            <span className="ml-auto text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
+              Custom image active
+            </span>
+          )}
+        </div>
 
-        {bgUrl && (
-          <span className="ml-auto text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
-            Custom image active
-          </span>
-        )}
+        {/* Row 2: text format toolbar — always visible */}
+        <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap overflow-x-auto">
+          {/* Add Text — always active */}
+          <button
+            onClick={addTextBox}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-400 text-sm text-blue-600 hover:bg-blue-50 transition-colors font-medium flex-none"
+          >
+            + Add Text
+          </button>
+
+          <div className="w-px h-5 bg-gray-200 flex-none" />
+
+          {/* Format controls — dimmed when no box selected */}
+          <div className={`flex items-center gap-2 flex-wrap transition-opacity ${selectedBox ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+            {/* Font family */}
+            <select
+              value={selectedBox?.fontFamily ?? FONT_OPTIONS[0]!.family}
+              onChange={(e) => selectedBox && updateBox(selectedBox.id, 'fontFamily', e.target.value)}
+              className="text-sm border border-gray-300 rounded px-2 py-1 bg-white max-w-[130px]"
+            >
+              {FONT_OPTIONS.map((f) => (
+                <option key={f.id} value={f.family}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Font size */}
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={8}
+                max={200}
+                value={selectedBox?.fontSize ?? 32}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10)
+                  if (!isNaN(v) && selectedBox) updateBox(selectedBox.id, 'fontSize', clamp(v, 8, 200))
+                }}
+                className="w-16 text-sm border border-gray-300 rounded px-2 py-1 text-center"
+              />
+              <span className="text-xs text-gray-500">px</span>
+            </div>
+
+            <div className="w-px h-5 bg-gray-200 flex-none" />
+
+            <button
+              onClick={() => selectedBox && toggleProp(selectedBox.id, 'bold')}
+              className={`px-2 py-1 rounded text-sm font-bold transition-colors ${selectedBox?.bold ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              title="Bold"
+            >B</button>
+
+            <button
+              onClick={() => selectedBox && toggleProp(selectedBox.id, 'italic')}
+              className={`px-2 py-1 rounded text-sm italic transition-colors ${selectedBox?.italic ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              title="Italic"
+            >I</button>
+
+            <button
+              onClick={() => selectedBox && toggleProp(selectedBox.id, 'underline')}
+              className={`px-2 py-1 rounded text-sm underline transition-colors ${selectedBox?.underline ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              title="Underline"
+            >U</button>
+
+            <button
+              onClick={() => selectedBox && toggleProp(selectedBox.id, 'strikethrough')}
+              className={`px-2 py-1 rounded text-sm line-through transition-colors ${selectedBox?.strikethrough ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              title="Strikethrough"
+            >S</button>
+
+            <div className="w-px h-5 bg-gray-200 flex-none" />
+
+            {(['left', 'center', 'right'] as const).map((align) => (
+              <button
+                key={align}
+                onClick={() => selectedBox && updateBox(selectedBox.id, 'textAlign', align)}
+                title={`Align ${align}`}
+                className={`px-2 py-1 rounded text-sm transition-colors ${selectedBox?.textAlign === align ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              >
+                {align === 'left' ? '←' : align === 'center' ? '↔' : '→'}
+              </button>
+            ))}
+
+            <div className="w-px h-5 bg-gray-200 flex-none" />
+
+            {(['top', 'middle', 'bottom'] as const).map((va) => (
+              <button
+                key={va}
+                onClick={() => selectedBox && updateBox(selectedBox.id, 'verticalAlign', va)}
+                title={`Vertical ${va}`}
+                className={`px-2 py-1 rounded text-sm transition-colors ${selectedBox?.verticalAlign === va ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              >
+                {va === 'top' ? '↑' : va === 'middle' ? '↕' : '↓'}
+              </button>
+            ))}
+
+            <div className="w-px h-5 bg-gray-200 flex-none" />
+
+            <div className="flex items-center gap-1">
+              <input
+                type="color"
+                value={selectedBox?.color ?? '#ffffff'}
+                onChange={(e) => selectedBox && updateBox(selectedBox.id, 'color', e.target.value)}
+                className="w-8 h-8 rounded border border-gray-300 cursor-pointer p-0.5"
+                title="Text color"
+              />
+              <input
+                type="text"
+                value={selectedBox?.color ?? '#ffffff'}
+                maxLength={7}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (/^#[0-9a-fA-F]{0,6}$/.test(v) && selectedBox) updateBox(selectedBox.id, 'color', v)
+                }}
+                className="w-24 text-xs border border-gray-300 rounded px-2 py-1 font-mono"
+                placeholder="#ffffff"
+              />
+            </div>
+
+            <div className="w-px h-5 bg-gray-200 flex-none" />
+
+            <button
+              onClick={() => selectedBox && deleteBox(selectedBox.id)}
+              className="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-sm transition-colors"
+              title="Delete text box"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -604,8 +841,9 @@ export default function GreetingCardPage(): React.ReactElement {
                     left: `${box.x}%`,
                     top: `${box.y}%`,
                     width: `${box.width}%`,
-                    // Give a reasonable min-height so small text is still draggable
-                    minHeight: `${box.fontSize * 1.6}px`,
+                    ...(box.height != null
+                      ? { height: `${box.height}%`, overflow: 'hidden' }
+                      : { minHeight: `${box.fontSize * 1.6}px` }),
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent,
@@ -623,11 +861,16 @@ export default function GreetingCardPage(): React.ReactElement {
                     setSelectedId(box.id)
                     if (!canvasRef.current) return
                     dragState.current = {
+                      mode: 'move',
+                      resizeHandle: null,
                       boxId: box.id,
                       startPointerX: e.clientX,
                       startPointerY: e.clientY,
                       startBoxX: box.x,
                       startBoxY: box.y,
+                      startBoxWidth: box.width,
+                      startBoxHeight: 0,
+                      snapshot: [...textBoxesRef.current],
                     }
                   }}
                   onClick={(e) => {
@@ -637,10 +880,15 @@ export default function GreetingCardPage(): React.ReactElement {
                   onDoubleClick={(e) => {
                     e.stopPropagation()
                     setSelectedId(box.id)
+                    editStartSnapshotRef.current = [...textBoxesRef.current]
                     setEditingId(box.id)
                   }}
                 >
                   <div
+                    ref={(el) => {
+                      if (el) contentEditableRefs.current.set(box.id, el)
+                      else contentEditableRefs.current.delete(box.id)
+                    }}
                     contentEditable={isEditing}
                     suppressContentEditableWarning
                     style={{
@@ -665,6 +913,10 @@ export default function GreetingCardPage(): React.ReactElement {
                       }
                     }}
                     onBlur={(e) => {
+                      if (editStartSnapshotRef.current) {
+                        pushHistory(editStartSnapshotRef.current)
+                        editStartSnapshotRef.current = null
+                      }
                       const newText = e.currentTarget.innerText
                       updateBox(box.id, 'text', newText)
                       setEditingId(null)
@@ -672,161 +924,61 @@ export default function GreetingCardPage(): React.ReactElement {
                   >
                     {isEditing ? undefined : box.text}
                   </div>
+
+                  {/* Corner resize handles — visible only when selected and not editing */}
+                  {isSelected && !isEditing && (
+                    (['nw', 'ne', 'sw', 'se'] as ResizeHandle[]).map((handle) => {
+                      const isTop = handle.startsWith('n')
+                      const isLeft = handle.endsWith('w')
+                      const cursor = handle === 'nw' || handle === 'se' ? 'nwse-resize' : 'nesw-resize'
+                      return (
+                        <div
+                          key={handle}
+                          style={{
+                            position: 'absolute',
+                            [isTop ? 'top' : 'bottom']: 3,
+                            [isLeft ? 'left' : 'right']: 3,
+                            width: 10,
+                            height: 10,
+                            background: '#ffffff',
+                            border: '2px solid #3b82f6',
+                            borderRadius: 2,
+                            cursor,
+                            zIndex: 20,
+                          }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.currentTarget.setPointerCapture(e.pointerId)
+                            const containerEl = e.currentTarget.parentElement
+                            const canvasEl = canvasRef.current
+                            const renderedHeightPct = containerEl && canvasEl
+                              ? (containerEl.offsetHeight / canvasEl.offsetHeight) * 100
+                              : 20
+                            dragState.current = {
+                              mode: 'resize',
+                              resizeHandle: handle,
+                              boxId: box.id,
+                              startPointerX: e.clientX,
+                              startPointerY: e.clientY,
+                              startBoxX: box.x,
+                              startBoxY: box.y,
+                              startBoxWidth: box.width,
+                              startBoxHeight: box.height ?? renderedHeightPct,
+                              snapshot: [...textBoxesRef.current],
+                            }
+                          }}
+                          onPointerMove={handleCanvasPointerMove}
+                          onPointerUp={handleCanvasPointerUp}
+                        />
+                      )
+                    })
+                  )}
                 </div>
               )
             })}
           </div>
         </div>
       </div>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Format toolbar — visible only when a text box is selected           */}
-      {/* ------------------------------------------------------------------ */}
-      {selectedBox && (
-        <div className="sticky bottom-14 z-20 bg-white border-t border-b border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap overflow-x-auto">
-          {/* Font family */}
-          <select
-            value={selectedBox.fontFamily}
-            onChange={(e) => updateBox(selectedBox.id, 'fontFamily', e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white max-w-[130px]"
-          >
-            {FONT_OPTIONS.map((f) => (
-              <option key={f.id} value={f.family}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Font size */}
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={8}
-              max={200}
-              value={selectedBox.fontSize}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10)
-                if (!isNaN(v)) updateBox(selectedBox.id, 'fontSize', clamp(v, 8, 200))
-              }}
-              className="w-16 text-sm border border-gray-300 rounded px-2 py-1 text-center"
-            />
-            <span className="text-xs text-gray-500">px</span>
-          </div>
-
-          <div className="w-px h-5 bg-gray-200 flex-none" />
-
-          {/* Bold */}
-          <button
-            onClick={() => toggleProp(selectedBox.id, 'bold')}
-            className={`px-2 py-1 rounded text-sm font-bold transition-colors ${
-              selectedBox.bold ? 'bg-gray-200' : 'hover:bg-gray-100'
-            }`}
-            title="Bold"
-          >
-            B
-          </button>
-
-          {/* Italic */}
-          <button
-            onClick={() => toggleProp(selectedBox.id, 'italic')}
-            className={`px-2 py-1 rounded text-sm italic transition-colors ${
-              selectedBox.italic ? 'bg-gray-200' : 'hover:bg-gray-100'
-            }`}
-            title="Italic"
-          >
-            I
-          </button>
-
-          {/* Underline */}
-          <button
-            onClick={() => toggleProp(selectedBox.id, 'underline')}
-            className={`px-2 py-1 rounded text-sm underline transition-colors ${
-              selectedBox.underline ? 'bg-gray-200' : 'hover:bg-gray-100'
-            }`}
-            title="Underline"
-          >
-            U
-          </button>
-
-          {/* Strikethrough */}
-          <button
-            onClick={() => toggleProp(selectedBox.id, 'strikethrough')}
-            className={`px-2 py-1 rounded text-sm line-through transition-colors ${
-              selectedBox.strikethrough ? 'bg-gray-200' : 'hover:bg-gray-100'
-            }`}
-            title="Strikethrough"
-          >
-            S
-          </button>
-
-          <div className="w-px h-5 bg-gray-200 flex-none" />
-
-          {/* H-Align */}
-          {(['left', 'center', 'right'] as const).map((align) => (
-            <button
-              key={align}
-              onClick={() => updateBox(selectedBox.id, 'textAlign', align)}
-              title={`Align ${align}`}
-              className={`px-2 py-1 rounded text-sm transition-colors ${
-                selectedBox.textAlign === align ? 'bg-gray-200' : 'hover:bg-gray-100'
-              }`}
-            >
-              {align === 'left' ? '←' : align === 'center' ? '↔' : '→'}
-            </button>
-          ))}
-
-          <div className="w-px h-5 bg-gray-200 flex-none" />
-
-          {/* V-Align */}
-          {(['top', 'middle', 'bottom'] as const).map((va) => (
-            <button
-              key={va}
-              onClick={() => updateBox(selectedBox.id, 'verticalAlign', va)}
-              title={`Vertical ${va}`}
-              className={`px-2 py-1 rounded text-sm transition-colors ${
-                selectedBox.verticalAlign === va ? 'bg-gray-200' : 'hover:bg-gray-100'
-              }`}
-            >
-              {va === 'top' ? '↑' : va === 'middle' ? '↕' : '↓'}
-            </button>
-          ))}
-
-          <div className="w-px h-5 bg-gray-200 flex-none" />
-
-          {/* Color */}
-          <div className="flex items-center gap-1">
-            <input
-              type="color"
-              value={selectedBox.color}
-              onChange={(e) => updateBox(selectedBox.id, 'color', e.target.value)}
-              className="w-8 h-8 rounded border border-gray-300 cursor-pointer p-0.5"
-              title="Text color"
-            />
-            <input
-              type="text"
-              value={selectedBox.color}
-              maxLength={7}
-              onChange={(e) => {
-                const v = e.target.value
-                if (/^#[0-9a-fA-F]{0,6}$/.test(v)) updateBox(selectedBox.id, 'color', v)
-              }}
-              className="w-24 text-xs border border-gray-300 rounded px-2 py-1 font-mono"
-              placeholder="#ffffff"
-            />
-          </div>
-
-          <div className="w-px h-5 bg-gray-200 flex-none" />
-
-          {/* Delete */}
-          <button
-            onClick={() => deleteBox(selectedBox.id)}
-            className="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-sm transition-colors"
-            title="Delete text box"
-          >
-            Delete
-          </button>
-        </div>
-      )}
 
       {/* ------------------------------------------------------------------ */}
       {/* Bottom navigation                                                    */}

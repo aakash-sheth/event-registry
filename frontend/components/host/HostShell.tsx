@@ -8,6 +8,7 @@ import {
   CalendarCheck,
   ChevronLeft,
   ChevronRight,
+  GalleryHorizontal,
   Gift,
   LayoutDashboard,
   Layers,
@@ -231,7 +232,7 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
                     href="/host/templates"
                     className={cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                      isActivePath(pathname, '/host/templates')
+                      isActivePath(pathname, '/host/templates') && !pathname.startsWith('/host/templates/greeting-cards')
                         ? 'bg-eco-green text-white'
                         : 'text-gray-700 hover:bg-eco-green-light',
                       isDesktopNavCollapsed && 'md:justify-center md:px-0'
@@ -247,6 +248,35 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
                     {link}
                     <TooltipContent side="right">
                       Template Studio
+                    </TooltipContent>
+                  </div>
+                ) : (
+                  link
+                )
+              })()}
+
+              {isStaff && (() => {
+                const link = (
+                  <Link
+                    href="/host/templates/greeting-cards"
+                    className={cn(
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      pathname.startsWith('/host/templates/greeting-cards')
+                        ? 'bg-eco-green text-white'
+                        : 'text-gray-700 hover:bg-eco-green-light',
+                      isDesktopNavCollapsed && 'md:justify-center md:px-0'
+                    )}
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                  >
+                    <GalleryHorizontal size={18} />
+                    <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>Greeting Card Studio</span>
+                  </Link>
+                )
+                return isDesktopNavCollapsed ? (
+                  <div className="group relative">
+                    {link}
+                    <TooltipContent side="right">
+                      Greeting Card Studio
                     </TooltipContent>
                   </div>
                 ) : (

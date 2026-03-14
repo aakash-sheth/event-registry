@@ -171,16 +171,6 @@ export default function TemplateStudioListPage() {
           </CardContent>
         </Card>
 
-        <div className="mt-6 border rounded-lg bg-white p-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-800">Greeting Card Samples</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Upload card backgrounds with placeholder text for hosts to use in the card designer.</p>
-          </div>
-          <Link href="/host/templates/greeting-cards">
-            <Button variant="outline">Manage samples</Button>
-          </Link>
-        </div>
-
         <div className="mt-4">
           <Link href="/host/dashboard">
             <Button variant="outline">Back to Dashboard</Button>
