@@ -5,6 +5,9 @@ import type { ImageTileSettings } from '@/lib/invite/schema'
 import { Button } from '@/components/ui/button'
 import { extractDominantColors, rgbToHex } from '@/lib/invite/imageAnalysis'
 import { uploadImage } from '@/lib/api'
+import type { TextOverlay } from '@/lib/invite/api'
+import GreetingCardMediaPicker from '@/components/invite/GreetingCardMediaPicker'
+import TextOverlayEditorModal from '@/components/invite/TextOverlayEditorModal'
 
 interface ImageTileSettingsProps {
   settings: ImageTileSettings
@@ -17,9 +20,19 @@ const IPHONE_ASPECT_RATIO = 1179 / 2556
 const ASPECT_RATIO_TOLERANCE = 0.01 // Allow small tolerance for floating point comparison
 
 export default function ImageTileSettings({ settings, onChange, eventId }: ImageTileSettingsProps) {
-  const cardDesignerUrl = `/host/events/${eventId}/card`
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [overlayEditorOpen, setOverlayEditorOpen] = useState(false)
+
+  const handleMediaSelect = (src: string, textOverlays: TextOverlay[]) => {
+    onChange({
+      ...settings,
+      src,
+      fitMode: 'full-image',
+      textOverlays: textOverlays.length > 0 ? textOverlays : settings.textOverlays,
+    })
+  }
 
   // Detect image aspect ratio when image loads
   useEffect(() => {
@@ -97,14 +110,15 @@ export default function ImageTileSettings({ settings, onChange, eventId }: Image
 
   return (
     <div className="space-y-4 w-full max-w-full overflow-x-hidden min-w-0">
-      {/* Link back to the greeting card designer (only when text overlays exist) */}
-      {settings.textOverlays && settings.textOverlays.length > 0 && (
-        <a
-          href={cardDesignerUrl}
+      {/* Open text overlay editor when an image is set */}
+      {settings.src && (
+        <button
+          type="button"
+          onClick={() => setOverlayEditorOpen(true)}
           className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors"
         >
           <span>Edit card design</span>
-        </a>
+        </button>
       )}
 
       <div>
@@ -120,6 +134,32 @@ export default function ImageTileSettings({ settings, onChange, eventId }: Image
           {uploading ? 'Uploading...' : 'Supported: JPG, PNG, WEBP (max 5MB)'}
         </p>
       </div>
+
+      <div>
+        <p className="text-xs text-gray-400 text-center mb-2">or</p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => setPickerOpen(true)}
+        >
+          Browse Media Library
+        </Button>
+      </div>
+
+      <GreetingCardMediaPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleMediaSelect}
+      />
+
+      <TextOverlayEditorModal
+        open={overlayEditorOpen}
+        bgSrc={settings.src}
+        initialOverlays={settings.textOverlays ?? []}
+        onSave={(overlays) => onChange({ ...settings, textOverlays: overlays })}
+        onClose={() => setOverlayEditorOpen(false)}
+      />
 
       {settings.src && (
         <>
@@ -138,64 +178,6 @@ export default function ImageTileSettings({ settings, onChange, eventId }: Image
               <strong>Fit to Screen:</strong> Shows entire image without cropping. 
               <strong> Cover Image:</strong> Fills container with position control.
             </p>
-          </div>
-
-          {/* Shape */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Shape</label>
-            <select
-              value={settings.shape || 'rectangle'}
-              onChange={(e) => onChange({ ...settings, shape: e.target.value as any })}
-              className="w-full text-sm border rounded px-3 py-2"
-            >
-              <option value="rectangle">Rectangle</option>
-              <option value="circle">Circle</option>
-              <option value="rounded">Rounded</option>
-            </select>
-          </div>
-
-          {/* Frame */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Frame</label>
-            <select
-              value={settings.frameStyle ?? 'none'}
-              onChange={(e) => onChange({ ...settings, frameStyle: e.target.value as any })}
-              className="w-full text-sm border rounded px-3 py-2"
-            >
-              <option value="none">None</option>
-              <option value="single">Single border</option>
-              <option value="double">Double border</option>
-            </select>
-            {(settings.frameStyle === 'single' || settings.frameStyle === 'double') && (
-              <div className="mt-2 space-y-2">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium">Color</label>
-                  <input
-                    type="color"
-                    value={settings.frameColor || '#D4AF37'}
-                    onChange={(e) => onChange({ ...settings, frameColor: e.target.value })}
-                    className="w-10 h-8 rounded border cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={settings.frameColor || '#D4AF37'}
-                    onChange={(e) => onChange({ ...settings, frameColor: e.target.value })}
-                    className="flex-1 text-sm border rounded px-2 py-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium">Width (px)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={8}
-                    value={settings.frameWidth ?? 2}
-                    onChange={(e) => onChange({ ...settings, frameWidth: parseInt(e.target.value, 10) || 2 })}
-                    className="w-full text-sm border rounded px-2 py-1"
-                  />
-                </div>
-              </div>
-            )}
           </div>
 
           {/* 3. Background Color */}
