@@ -785,8 +785,168 @@ class MessageTemplate(models.Model):
         
         for variable, value in replacements.items():
             message = message.replace(variable, value)
-        
+
         return message
+
+
+class MessageCampaign(models.Model):
+    """Bulk WhatsApp send campaign targeting a subset of event guests."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_SENDING = 'sending'
+    STATUS_COMPLETED = 'completed'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('sending', 'Sending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    MSG_MODE_FREEFORM = 'freeform'
+    MSG_MODE_TEMPLATE = 'approved_template'
+    MSG_MODE_CHOICES = [
+        ('freeform', 'Free-form text (24h window only)'),
+        ('approved_template', 'Meta pre-approved template'),
+    ]
+
+    FILTER_ALL = 'all'
+    FILTER_NOT_SENT = 'not_sent'
+    FILTER_RSVP_YES = 'rsvp_yes'
+    FILTER_RSVP_NO = 'rsvp_no'
+    FILTER_RSVP_MAYBE = 'rsvp_maybe'
+    FILTER_RSVP_PENDING = 'rsvp_pending'
+    FILTER_RELATIONSHIP = 'relationship'
+    FILTER_CUSTOM = 'custom_selection'
+    FILTER_CHOICES = [
+        ('all', 'All guests'),
+        ('not_sent', 'Not yet invited'),
+        ('rsvp_yes', 'RSVP confirmed'),
+        ('rsvp_no', 'RSVP declined'),
+        ('rsvp_maybe', 'RSVP maybe'),
+        ('rsvp_pending', 'No RSVP yet'),
+        ('relationship', 'By relationship group'),
+        ('custom_selection', 'Manually selected guests'),
+    ]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='campaigns')
+    name = models.CharField(max_length=200)
+    template = models.ForeignKey(
+        'MessageTemplate', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='campaigns'
+    )
+    message_mode = models.CharField(
+        max_length=30, choices=MSG_MODE_CHOICES, default=MSG_MODE_TEMPLATE
+    )
+    message_body = models.TextField(
+        help_text="Raw template text used for this campaign (variables resolved per-recipient at send time)"
+    )
+    meta_template_name = models.CharField(
+        max_length=200, blank=True,
+        help_text="Approved template name registered in Meta Business Manager"
+    )
+    meta_template_language = models.CharField(
+        max_length=20, blank=True, default='en',
+        help_text="Language code for the Meta approved template (e.g. en, hi)"
+    )
+    guest_filter = models.CharField(
+        max_length=30, choices=FILTER_CHOICES, default=FILTER_ALL
+    )
+    filter_relationship = models.CharField(
+        max_length=100, blank=True,
+        help_text="Only used when guest_filter = relationship"
+    )
+    custom_guest_ids = models.JSONField(
+        default=list, blank=True,
+        help_text="Guest PKs when guest_filter = custom_selection"
+    )
+    scheduled_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Future UTC datetime to start sending; null = send immediately on launch"
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    total_recipients = models.IntegerField(default=0)
+    sent_count = models.IntegerField(default=0)
+    delivered_count = models.IntegerField(default=0)
+    read_count = models.IntegerField(default=0)
+    failed_count = models.IntegerField(default=0)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_campaigns'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'message_campaigns'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['event', 'status'], name='campaigns_event_status_idx'),
+            models.Index(fields=['event', 'created_at'], name='campaigns_event_created_idx'),
+            models.Index(fields=['scheduled_at'], name='campaigns_scheduled_at_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.event.title}) - {self.status}"
+
+
+class CampaignRecipient(models.Model):
+    """One row per guest per campaign — tracks individual delivery state."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_SENT = 'sent'
+    STATUS_DELIVERED = 'delivered'
+    STATUS_READ = 'read'
+    STATUS_FAILED = 'failed'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('sent', 'Sent to Meta'),
+        ('delivered', 'Delivered to device'),
+        ('read', 'Read by recipient'),
+        ('failed', 'Failed'),
+        ('skipped', 'Skipped'),
+    ]
+
+    campaign = models.ForeignKey(
+        MessageCampaign, on_delete=models.CASCADE, related_name='recipients'
+    )
+    guest = models.ForeignKey(
+        'Guest', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='campaign_recipients'
+    )
+    phone = models.CharField(max_length=20)
+    resolved_message = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    whatsapp_message_id = models.CharField(
+        max_length=200, blank=True, db_index=True,
+        help_text="wamid returned by Meta Cloud API — used for webhook correlation"
+    )
+    error_message = models.TextField(blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'campaign_recipients'
+        unique_together = [['campaign', 'guest']]
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['campaign', 'status'], name='recipients_campaign_status_idx'),
+        ]
+
+    def __str__(self):
+        return f"Recipient {self.phone} in {self.campaign.name} - {self.status}"
 
 
 class InviteDesignTemplate(models.Model):

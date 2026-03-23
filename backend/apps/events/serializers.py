@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from django.conf import settings
+from django.utils import timezone
 from django.utils.text import slugify
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header
 import re
@@ -742,4 +743,95 @@ class GreetingCardSampleSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'created_by', 'created_by_name', 'created_at', 'updated_at')
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Campaign serializers
+# ---------------------------------------------------------------------------
+
+class CampaignRecipientSerializer(serializers.ModelSerializer):
+    guest_name = serializers.CharField(source='guest.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = CampaignRecipient
+        fields = (
+            'id', 'campaign', 'guest', 'guest_name', 'phone',
+            'resolved_message', 'status', 'whatsapp_message_id',
+            'error_message', 'sent_at', 'delivered_at', 'read_at',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class MessageCampaignSerializer(serializers.ModelSerializer):
+    recipient_summary = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MessageCampaign
+        fields = (
+            'id', 'event', 'name', 'template', 'message_mode',
+            'message_body', 'meta_template_name', 'meta_template_language',
+            'guest_filter', 'filter_relationship', 'custom_guest_ids',
+            'scheduled_at', 'status',
+            'total_recipients', 'sent_count', 'delivered_count',
+            'read_count', 'failed_count',
+            'started_at', 'completed_at',
+            'created_by', 'created_at', 'updated_at',
+            'recipient_summary',
+        )
+        read_only_fields = (
+            'id', 'status', 'total_recipients', 'sent_count', 'delivered_count',
+            'read_count', 'failed_count', 'started_at', 'completed_at',
+            'created_by', 'created_at', 'updated_at', 'recipient_summary',
+        )
+
+    def get_recipient_summary(self, obj):
+        return {
+            'total': obj.total_recipients,
+            'sent': obj.sent_count,
+            'delivered': obj.delivered_count,
+            'read': obj.read_count,
+            'failed': obj.failed_count,
+        }
+
+
+class MessageCampaignCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MessageCampaign
+        fields = (
+            'name', 'template', 'message_mode', 'message_body',
+            'meta_template_name', 'meta_template_language',
+            'guest_filter', 'filter_relationship', 'custom_guest_ids',
+            'scheduled_at',
+        )
+
+    def validate_message_body(self, value):
+        if len(value) > 1024:
+            raise serializers.ValidationError(
+                f'Message is too long ({len(value)} chars). Meta WhatsApp limit is 1024 characters.'
+            )
+        return value
+
+    def validate_scheduled_at(self, value):
+        if value and value <= timezone.now():
+            raise serializers.ValidationError('Scheduled time must be in the future.')
+        return value
+
+    def validate(self, attrs):
+        if attrs.get('message_mode') == MessageCampaign.MSG_MODE_TEMPLATE:
+            if not attrs.get('meta_template_name'):
+                raise serializers.ValidationError(
+                    {'meta_template_name': 'Required for approved_template mode.'}
+                )
+        if attrs.get('guest_filter') == MessageCampaign.FILTER_RELATIONSHIP:
+            if not attrs.get('filter_relationship'):
+                raise serializers.ValidationError(
+                    {'filter_relationship': 'Required when filtering by relationship.'}
+                )
+        if attrs.get('guest_filter') == MessageCampaign.FILTER_CUSTOM:
+            if not attrs.get('custom_guest_ids'):
+                raise serializers.ValidationError(
+                    {'custom_guest_ids': 'At least one guest ID required for custom selection.'}
+                )
+        return attrs
 

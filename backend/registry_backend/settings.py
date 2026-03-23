@@ -214,6 +214,11 @@ OTP_LENGTH = 6
 
 # Feature Flags
 WHATSAPP_ENABLED = os.environ.get('WHATSAPP_ENABLED', 'False') == 'True'
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
+WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
+WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN', 'change_me_in_production')
+WHATSAPP_SEND_DELAY_SECONDS = float(os.environ.get('WHATSAPP_SEND_DELAY_SECONDS', '0.2'))
 
 # Analytics Batch Collection Settings
 # Batch processing interval in minutes

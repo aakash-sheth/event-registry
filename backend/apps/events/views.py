@@ -1,12 +1,13 @@
 import logging
 
 from rest_framework import viewsets, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.exceptions import PermissionDenied, NotFound
+from rest_framework.exceptions import PermissionDenied, NotFound, ValidationError
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, Http404, HttpResponseRedirect
 from django.conf import settings
@@ -20,9 +21,11 @@ import hashlib
 from urllib.parse import quote
 from urllib.parse import urlencode
 from apps.common.email_backend import send_email
+from apps.common.whatsapp_backend import verify_webhook_signature
+from .tasks import dispatch_campaign
 
 logger = logging.getLogger(__name__)
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -34,6 +37,7 @@ from .serializers import (
     AttributionLinkSerializer,
     InviteDesignTemplateSerializer,
     GreetingCardSampleSerializer,
+    MessageCampaignSerializer, MessageCampaignCreateSerializer, CampaignRecipientSerializer,
 )
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
 from apps.items.models import RegistryItem
@@ -4123,6 +4127,301 @@ def get_overall_impact(request):
         'total_paper_saved_on_gifts': total_paper_saved_on_gifts,
         'expired_events_count': len(expired_events),
         'events': events_with_impact
+    })
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Campaign ViewSet
+# ---------------------------------------------------------------------------
+
+class _CampaignReportPagination(PageNumberPagination):
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
+
+class MessageCampaignViewSet(viewsets.ModelViewSet):
+    """
+    CRUD + launch/cancel/report/duplicate actions for WhatsApp campaigns.
+    All operations are scoped to the authenticated host's events.
+    """
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+    pagination_class = _CampaignReportPagination
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return MessageCampaignCreateSerializer
+        return MessageCampaignSerializer
+
+    def get_queryset(self):
+        qs = MessageCampaign.objects.filter(event__host=self.request.user)
+        event_id = self.kwargs.get('event_id')
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+        return qs.select_related('event', 'template', 'created_by')
+
+    def get_object(self):
+        obj = get_object_or_404(
+            MessageCampaign,
+            id=self.kwargs['id'],
+            event__host=self.request.user,
+        )
+        self.check_object_permissions(self.request, obj)
+        return obj
+
+    def perform_create(self, serializer):
+        event_id = self.kwargs.get('event_id')
+        try:
+            event = Event.objects.get(id=event_id, host=self.request.user)
+        except Event.DoesNotExist:
+            raise ValidationError({'event': 'Event not found.'})
+        serializer.save(event=event, created_by=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        campaign = self.get_object()
+        if campaign.status != MessageCampaign.STATUS_PENDING:
+            return Response(
+                {'error': 'Only pending campaigns can be edited.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        campaign = self.get_object()
+        if campaign.status != MessageCampaign.STATUS_PENDING:
+            return Response(
+                {'error': 'Only pending campaigns can be edited.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        campaign = self.get_object()
+        if campaign.status != MessageCampaign.STATUS_PENDING:
+            return Response(
+                {'error': 'Only pending campaigns can be deleted.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='launch')
+    def launch(self, request, event_id=None, id=None):
+        from .tasks import _build_guest_queryset
+        campaign = self.get_object()
+        if campaign.status != MessageCampaign.STATUS_PENDING:
+            return Response(
+                {'error': f'Campaign is already {campaign.status}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not getattr(settings, 'WHATSAPP_ENABLED', False):
+            return Response(
+                {'error': 'WhatsApp is not enabled on this server.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        # Fix 2: guard against 0 eligible recipients
+        if _build_guest_queryset(campaign).count() == 0:
+            return Response(
+                {'error': 'No eligible guests found for this campaign. Add guests with phone numbers or adjust the filter.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Fix 4: transition to SENDING atomically before queuing to prevent double-launch
+        campaign.status = MessageCampaign.STATUS_SENDING
+        campaign.started_at = timezone.now()
+        campaign.save(update_fields=['status', 'started_at', 'updated_at'])
+        # Fix 3: convert scheduled_at datetime to delay in seconds for django-background-tasks
+        if campaign.scheduled_at:
+            delay_seconds = max(0, (campaign.scheduled_at - timezone.now()).total_seconds())
+            dispatch_campaign(campaign.id, schedule=delay_seconds)
+        else:
+            dispatch_campaign(campaign.id)
+        campaign.refresh_from_db()
+        return Response(MessageCampaignSerializer(campaign).data)
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, event_id=None, id=None):
+        campaign = self.get_object()
+        if campaign.status not in (
+            MessageCampaign.STATUS_PENDING, MessageCampaign.STATUS_SENDING
+        ):
+            return Response(
+                {'error': 'Only pending or sending campaigns can be cancelled.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        campaign.status = MessageCampaign.STATUS_CANCELLED
+        campaign.save(update_fields=['status', 'updated_at'])
+        return Response(MessageCampaignSerializer(campaign).data)
+
+    @action(detail=True, methods=['get'], url_path='report')
+    def report(self, request, event_id=None, id=None):
+        campaign = self.get_object()
+        qs = CampaignRecipient.objects.filter(campaign=campaign).select_related('guest')
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(
+                CampaignRecipientSerializer(page, many=True).data
+            )
+        return Response(CampaignRecipientSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['get'], url_path='preview-recipients')
+    def preview_recipients(self, request, event_id=None, id=None):
+        from .tasks import _build_guest_queryset
+        campaign = self.get_object()
+        guests = _build_guest_queryset(campaign)
+        count = guests.count()
+        preview = guests[:20]
+        return Response({
+            'count': count,
+            'guests': GuestSerializer(preview, many=True).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='duplicate')
+    def duplicate(self, request, event_id=None, id=None):
+        campaign = self.get_object()
+        new_campaign = MessageCampaign.objects.create(
+            event=campaign.event,
+            name=f"Copy of {campaign.name}",
+            template=campaign.template,
+            message_mode=campaign.message_mode,
+            message_body=campaign.message_body,
+            meta_template_name=campaign.meta_template_name,
+            meta_template_language=campaign.meta_template_language,
+            guest_filter=campaign.guest_filter,
+            filter_relationship=campaign.filter_relationship,
+            custom_guest_ids=[],   # Reset — custom selections are per-send
+            scheduled_at=None,  # Reset schedule on duplicate
+            status=MessageCampaign.STATUS_PENDING,
+            created_by=request.user,
+        )
+        return Response(
+            MessageCampaignSerializer(new_campaign).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp webhook + status endpoints
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def whatsapp_webhook(request):
+    """
+    Meta Cloud API webhook endpoint.
+    GET  - Verification handshake (hub.challenge)
+    POST - Delivery status updates (delivered, read, failed)
+    """
+    if request.method == 'GET':
+        mode = request.query_params.get('hub.mode')
+        token = request.query_params.get('hub.verify_token')
+        challenge = request.query_params.get('hub.challenge')
+        expected_token = getattr(settings, 'WHATSAPP_WEBHOOK_VERIFY_TOKEN', '')
+        if mode == 'subscribe' and token == expected_token:
+            return HttpResponse(challenge, content_type='text/plain', status=200)
+        return Response({'error': 'Verification failed'}, status=403)
+
+    # POST — verify signature first
+    raw_body = request.body
+    sig_header = request.META.get('HTTP_X_HUB_SIGNATURE_256', '')
+    if not verify_webhook_signature(raw_body, sig_header):
+        logger.warning('[WhatsApp Webhook] Invalid signature from %s', request.META.get('REMOTE_ADDR'))
+        return Response({'error': 'Invalid signature'}, status=403)
+
+    try:
+        _process_whatsapp_webhook(request.data)
+    except Exception as e:
+        logger.error('[WhatsApp Webhook] Error processing payload: %s', e)
+    # Always return 200 — Meta retries if it gets non-2xx
+    return Response({'status': 'ok'})
+
+
+def _process_whatsapp_webhook(data):
+    """Parse Meta delivery status webhook and update CampaignRecipient rows."""
+    entries = data.get('entry', [])
+    for entry in entries:
+        for change in entry.get('changes', []):
+            value = change.get('value', {})
+            for status_obj in value.get('statuses', []):
+                wamid = status_obj.get('id', '')
+                raw_status = status_obj.get('status', '')
+                ts_epoch = status_obj.get('timestamp', '')
+
+                if not wamid or not raw_status:
+                    continue
+
+                ts = None
+                if ts_epoch:
+                    try:
+                        from django.utils.timezone import datetime as tz_datetime
+                        import datetime
+                        ts = tz_datetime.fromtimestamp(int(ts_epoch), tz=datetime.timezone.utc)
+                    except (ValueError, OSError):
+                        pass
+
+                _update_recipient_from_webhook(wamid, raw_status, ts)
+
+
+def _update_recipient_from_webhook(wamid, meta_status, ts):
+    """Map Meta status to CampaignRecipient status and persist."""
+    status_map = {
+        'sent': CampaignRecipient.STATUS_SENT,
+        'delivered': CampaignRecipient.STATUS_DELIVERED,
+        'read': CampaignRecipient.STATUS_READ,
+        'failed': CampaignRecipient.STATUS_FAILED,
+    }
+    new_status = status_map.get(meta_status)
+    if not new_status:
+        return
+
+    try:
+        recipient = CampaignRecipient.objects.select_related('campaign').get(
+            whatsapp_message_id=wamid
+        )
+    except CampaignRecipient.DoesNotExist:
+        logger.debug('[Webhook] No recipient for wamid %s', wamid)
+        return
+    except CampaignRecipient.MultipleObjectsReturned:
+        logger.warning('[Webhook] Multiple recipients for wamid %s', wamid)
+        return
+
+    update_fields = ['status', 'updated_at']
+    recipient.status = new_status
+
+    if new_status == CampaignRecipient.STATUS_DELIVERED and ts:
+        recipient.delivered_at = ts
+        update_fields.append('delivered_at')
+    elif new_status == CampaignRecipient.STATUS_READ and ts:
+        recipient.read_at = ts
+        update_fields.append('read_at')
+
+    recipient.save(update_fields=update_fields)
+
+    # Roll up delivery counts on the campaign
+    if new_status in (CampaignRecipient.STATUS_DELIVERED, CampaignRecipient.STATUS_READ):
+        campaign = recipient.campaign
+        campaign.delivered_count = CampaignRecipient.objects.filter(
+            campaign=campaign,
+            status__in=[CampaignRecipient.STATUS_DELIVERED, CampaignRecipient.STATUS_READ],
+        ).count()
+        campaign.read_count = CampaignRecipient.objects.filter(
+            campaign=campaign, status=CampaignRecipient.STATUS_READ
+        ).count()
+        campaign.save(update_fields=['delivered_count', 'read_count', 'updated_at'])
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def whatsapp_status(request):
+    """Returns {enabled, configured} for the setup banner."""
+    return Response({
+        'enabled': getattr(settings, 'WHATSAPP_ENABLED', False),
+        'configured': bool(
+            getattr(settings, 'WHATSAPP_PHONE_NUMBER_ID', '') and
+            getattr(settings, 'WHATSAPP_ACCESS_TOKEN', '')
+        ),
     })
 
 

@@ -147,7 +147,7 @@ def notify_staff_on_signup(sender, instance, created, **kwargs):
         f"A new user just signed up on Ekfern.\n\n"
         f"Name:   {getattr(instance, 'name', None) or '(not set)'}\n"
         f"Email:  {instance.email}\n"
-        f"Joined: {instance.date_joined.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+        f"Joined: {instance.created_at.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
         f"View in admin: {frontend}/api/admin/users/customuser/{instance.pk}/change/"
     )
     for recipient in recipients:

@@ -12,6 +12,7 @@ from .views import (
     get_event_impact, get_overall_impact,
     invite_page_by_event, attribution_redirect,
     RecordRegistryView,
+    MessageCampaignViewSet, whatsapp_webhook, whatsapp_status,
 )
 
 router = DefaultRouter()
@@ -74,5 +75,30 @@ urlpatterns = [
     path('whatsapp-templates/<int:id>/set-default/', whatsapp_template_set_default, name='whatsapp-template-set-default'),
     # Detail route (must come after action routes)
     path('whatsapp-templates/<int:id>/', MessageTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='whatsapp-template-detail'),
+    # Campaign routes
+    path('<int:event_id>/campaigns/',
+         MessageCampaignViewSet.as_view({'get': 'list', 'post': 'create'}),
+         name='event-campaigns'),
+    path('<int:event_id>/campaigns/<int:id>/',
+         MessageCampaignViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
+         name='event-campaign-detail'),
+    path('<int:event_id>/campaigns/<int:id>/launch/',
+         MessageCampaignViewSet.as_view({'post': 'launch'}),
+         name='event-campaign-launch'),
+    path('<int:event_id>/campaigns/<int:id>/cancel/',
+         MessageCampaignViewSet.as_view({'post': 'cancel'}),
+         name='event-campaign-cancel'),
+    path('<int:event_id>/campaigns/<int:id>/duplicate/',
+         MessageCampaignViewSet.as_view({'post': 'duplicate'}),
+         name='event-campaign-duplicate'),
+    path('<int:event_id>/campaigns/<int:id>/report/',
+         MessageCampaignViewSet.as_view({'get': 'report'}),
+         name='event-campaign-report'),
+    path('<int:event_id>/campaigns/<int:id>/preview-recipients/',
+         MessageCampaignViewSet.as_view({'get': 'preview_recipients'}),
+         name='event-campaign-preview-recipients'),
+    # WhatsApp global endpoints
+    path('whatsapp/webhook/', whatsapp_webhook, name='whatsapp-webhook'),
+    path('whatsapp/status/', whatsapp_status, name='whatsapp-status'),
     path('', include(router.urls)),
 ]

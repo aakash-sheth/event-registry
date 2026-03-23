@@ -635,3 +635,113 @@ export async function createAttributionLink(eventId: number, payload: CreateAttr
   const response = await api.post(`/api/events/${eventId}/attribution-links/`, payload)
   return response.data
 }
+
+// --- Campaign Types ---
+export type CampaignStatus = 'pending' | 'sending' | 'completed' | 'failed' | 'cancelled'
+export type CampaignGuestFilter =
+  | 'all' | 'not_sent' | 'rsvp_yes' | 'rsvp_no' | 'rsvp_maybe'
+  | 'rsvp_pending' | 'relationship' | 'custom_selection'
+export type CampaignMessageMode = 'freeform' | 'approved_template'
+export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped'
+
+export interface MessageCampaign {
+  id: number
+  event: number
+  name: string
+  template: number | null
+  message_mode: CampaignMessageMode
+  message_body: string
+  meta_template_name: string
+  meta_template_language: string
+  guest_filter: CampaignGuestFilter
+  filter_relationship: string
+  custom_guest_ids: number[]
+  scheduled_at: string | null
+  status: CampaignStatus
+  total_recipients: number
+  sent_count: number
+  delivered_count: number
+  read_count: number
+  failed_count: number
+  started_at: string | null
+  completed_at: string | null
+  created_by: number | null
+  created_at: string
+  updated_at: string
+  recipient_summary: {
+    total: number; sent: number; delivered: number; read: number; failed: number
+  }
+}
+
+export interface CampaignRecipient {
+  id: number
+  campaign: number
+  guest: number | null
+  guest_name: string | null
+  phone: string
+  resolved_message: string
+  status: RecipientStatus
+  whatsapp_message_id: string
+  error_message: string
+  sent_at: string | null
+  delivered_at: string | null
+  read_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WhatsAppStatusResponse {
+  enabled: boolean
+  configured: boolean
+}
+
+// --- Campaign API ---
+export async function getCampaigns(eventId: number): Promise<MessageCampaign[]> {
+  const r = await api.get(`/api/events/${eventId}/campaigns/`)
+  return r.data.results ?? r.data ?? []
+}
+
+export async function createCampaign(eventId: number, data: Partial<MessageCampaign>): Promise<MessageCampaign> {
+  return (await api.post(`/api/events/${eventId}/campaigns/`, data)).data
+}
+
+export async function updateCampaign(eventId: number, campaignId: number, data: Partial<MessageCampaign>): Promise<MessageCampaign> {
+  return (await api.patch(`/api/events/${eventId}/campaigns/${campaignId}/`, data)).data
+}
+
+export async function deleteCampaign(eventId: number, campaignId: number): Promise<void> {
+  await api.delete(`/api/events/${eventId}/campaigns/${campaignId}/`)
+}
+
+export async function launchCampaign(eventId: number, campaignId: number): Promise<MessageCampaign> {
+  return (await api.post(`/api/events/${eventId}/campaigns/${campaignId}/launch/`)).data
+}
+
+export async function cancelCampaign(eventId: number, campaignId: number): Promise<MessageCampaign> {
+  return (await api.post(`/api/events/${eventId}/campaigns/${campaignId}/cancel/`)).data
+}
+
+export async function duplicateCampaign(eventId: number, campaignId: number): Promise<MessageCampaign> {
+  return (await api.post(`/api/events/${eventId}/campaigns/${campaignId}/duplicate/`)).data
+}
+
+export async function getCampaignReport(
+  eventId: number,
+  campaignId: number,
+  statusFilter?: RecipientStatus
+): Promise<{ results: CampaignRecipient[]; count: number }> {
+  const params = statusFilter ? `?status=${statusFilter}` : ''
+  const r = await api.get(`/api/events/${eventId}/campaigns/${campaignId}/report/${params}`)
+  return { results: r.data.results ?? r.data ?? [], count: r.data.count ?? 0 }
+}
+
+export async function previewCampaignRecipients(
+  eventId: number,
+  campaignId: number
+): Promise<{ count: number; guests: any[] }> {
+  return (await api.get(`/api/events/${eventId}/campaigns/${campaignId}/preview-recipients/`)).data
+}
+
+export async function getWhatsAppStatus(): Promise<WhatsAppStatusResponse> {
+  return (await api.get('/api/events/whatsapp/status/')).data
+}

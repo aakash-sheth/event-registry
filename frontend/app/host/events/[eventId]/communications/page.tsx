@@ -3,19 +3,45 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate } from '@/lib/api'
+import dynamic from 'next/dynamic'
+import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate, MessageCampaign } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { logError } from '@/lib/error-handler'
 import TemplateList from '@/components/communications/TemplateList'
 import TemplateEditor from '@/components/communications/TemplateEditor'
+import WhatsAppSetupBanner from '@/components/communications/WhatsAppSetupBanner'
+
+const CampaignList = dynamic(
+  () => import('@/components/communications/CampaignList'),
+  { ssr: false }
+)
+const CampaignWizard = dynamic(
+  () => import('@/components/communications/CampaignWizard'),
+  { ssr: false }
+)
+const CampaignReport = dynamic(
+  () => import('@/components/communications/CampaignReport'),
+  { ssr: false }
+)
 
 export default function CommunicationsPage() {
   const params = useParams()
   const router = useRouter()
   const eventId = parseInt(params.eventId as string)
   const { showToast } = useToast()
+
+  // Tab state — 'templates' (existing) or 'campaigns' (new)
+  const [activeTab, setActiveTab] = useState<'templates' | 'campaigns'>('templates')
+
+  // Campaign modal state
+  const [showWizard, setShowWizard] = useState(false)
+  const [reportCampaign, setReportCampaign] = useState<MessageCampaign | null>(null)
+  const [editingCampaign, setEditingCampaign] = useState<MessageCampaign | null>(null)
+  const [campaignListKey, setCampaignListKey] = useState(0)
+
+  // Template state (unchanged)
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
   const [systemDefaultTemplate, setSystemDefaultTemplate] = useState<WhatsAppTemplate | null>(null)
   const [loading, setLoading] = useState(true)
@@ -266,159 +292,238 @@ export default function CommunicationsPage() {
                 </Button>
               </Link>
             </div>
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              <Button
-                onClick={() => setShowVariablesPanel(!showVariablesPanel)}
-                variant="outline"
-                size="sm"
-                className="border-eco-green text-eco-green hover:bg-eco-green-light"
-              >
-                {showVariablesPanel ? 'Hide' : 'Show'} Variables
-              </Button>
-              <Button
-                onClick={handleCreateTemplate}
-                size="sm"
-                className="bg-eco-green hover:bg-green-600 text-white whitespace-nowrap"
-              >
-                + Create Template
-              </Button>
-            </div>
+            {activeTab === 'templates' && (
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <Button
+                  onClick={() => setShowVariablesPanel(!showVariablesPanel)}
+                  variant="outline"
+                  size="sm"
+                  className="border-eco-green text-eco-green hover:bg-eco-green-light"
+                >
+                  {showVariablesPanel ? 'Hide' : 'Show'} Variables
+                </Button>
+                <Button
+                  onClick={handleCreateTemplate}
+                  size="sm"
+                  className="bg-eco-green hover:bg-green-600 text-white whitespace-nowrap"
+                >
+                  + Create Template
+                </Button>
+              </div>
+            )}
+            {activeTab === 'campaigns' && (
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <Button
+                  onClick={() => setShowWizard(true)}
+                  size="sm"
+                  className="bg-eco-green hover:bg-green-600 text-white whitespace-nowrap"
+                >
+                  + New Campaign
+                </Button>
+              </div>
+            )}
           </div>
           <div>
-            <h1 className="text-3xl font-bold mb-2 text-eco-green">WhatsApp Templates</h1>
+            <h1 className="text-3xl font-bold mb-2 text-eco-green">Communications</h1>
             <p className="text-gray-600">
-              {event && `Manage message templates for ${event.title}`}
+              {event && `Manage WhatsApp templates and campaigns for ${event.title}`}
             </p>
           </div>
         </div>
 
-        {/* Filters and Actions */}
-        <Card className="bg-white border-2 border-eco-green-light mb-6">
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(messageTypeLabels).map(([value, label]) => (
-                  <Button
-                    key={value}
-                    variant={filterType === value ? 'default' : 'outline'}
-                    onClick={() => setFilterType(value)}
-                    className={
-                      filterType === value
-                        ? 'bg-eco-green hover:bg-green-600 text-white'
-                        : 'border-eco-green text-eco-green hover:bg-eco-green-light'
-                    }
-                    size="sm"
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-                <input
-                  type="text"
-                  placeholder="Search templates..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="flex-1 md:w-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Tab navigation */}
+        <div className="flex gap-2 mb-6">
+          {(['templates', 'campaigns'] as const).map(tab => (
+            <Button
+              key={tab}
+              size="sm"
+              variant={activeTab === tab ? 'default' : 'outline'}
+              onClick={() => setActiveTab(tab)}
+              className={
+                activeTab === tab
+                  ? 'bg-eco-green hover:bg-green-600 text-white'
+                  : 'border-eco-green text-eco-green hover:bg-eco-green-light'
+              }
+            >
+              {tab === 'templates' ? 'Templates' : 'Campaigns'}
+            </Button>
+          ))}
+        </div>
 
-        {/* Available Variables Panel */}
-        {showVariablesPanel && (
-          <Card className="bg-white border-2 border-eco-green-light mb-6">
-            <CardHeader>
-              <CardTitle className="text-eco-green">Available Variables</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {availableVariables.length === 0 ? (
-                <p className="text-gray-500">Loading variables...</p>
-              ) : (
-                <div className="space-y-4">
-                  {/* Default Variables */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">Default Variables</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {availableVariables.filter(v => !v.is_custom).map((variable) => (
-                        <div key={variable.key} className="bg-gray-50 p-2 rounded text-sm">
-                          <code className="bg-white px-1 py-0.5 rounded text-eco-green font-mono">{variable.key}</code>
-                          <span className="ml-2 text-gray-700">{variable.label}</span>
-                          {variable.description && (
-                            <p className="text-xs text-gray-500 mt-1">{variable.description}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+        {/* ─── TEMPLATES TAB ─── */}
+        {activeTab === 'templates' && (
+          <>
+            {/* Filters and Actions */}
+            <Card className="bg-white border-2 border-eco-green-light mb-6">
+              <CardContent className="p-4">
+                <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(messageTypeLabels).map(([value, label]) => (
+                      <Button
+                        key={value}
+                        variant={filterType === value ? 'default' : 'outline'}
+                        onClick={() => setFilterType(value)}
+                        className={
+                          filterType === value
+                            ? 'bg-eco-green hover:bg-green-600 text-white'
+                            : 'border-eco-green text-eco-green hover:bg-eco-green-light'
+                        }
+                        size="sm"
+                      >
+                        {label}
+                      </Button>
+                    ))}
                   </div>
-                  
-                  {/* Custom Variables */}
-                  {availableVariables.filter(v => v.is_custom).length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2">Custom Variables (from CSV)</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {availableVariables.filter(v => v.is_custom).map((variable) => (
-                          <div key={variable.key} className="bg-blue-50 p-2 rounded text-sm">
-                            <code className="bg-white px-1 py-0.5 rounded text-blue-600 font-mono">{variable.key}</code>
-                            <span className="ml-2 text-gray-700">{variable.label}</span>
-                            {variable.example && variable.example !== '—' && (
-                              <p className="text-xs text-gray-500 mt-1">Example: {variable.example}</p>
-                            )}
-                          </div>
-                        ))}
+                  <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                    <input
+                      type="text"
+                      placeholder="Search templates..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1 md:w-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Available Variables Panel */}
+            {showVariablesPanel && (
+              <Card className="bg-white border-2 border-eco-green-light mb-6">
+                <CardHeader>
+                  <CardTitle className="text-eco-green">Available Variables</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {availableVariables.length === 0 ? (
+                    <p className="text-gray-500">Loading variables...</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Default Variables */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">Default Variables</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {availableVariables.filter(v => !v.is_custom).map((variable) => (
+                            <div key={variable.key} className="bg-gray-50 p-2 rounded text-sm">
+                              <code className="bg-white px-1 py-0.5 rounded text-eco-green font-mono">{variable.key}</code>
+                              <span className="ml-2 text-gray-700">{variable.label}</span>
+                              {variable.description && (
+                                <p className="text-xs text-gray-500 mt-1">{variable.description}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
+
+                      {/* Custom Variables */}
+                      {availableVariables.filter(v => v.is_custom).length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">Custom Variables (from CSV)</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {availableVariables.filter(v => v.is_custom).map((variable) => (
+                              <div key={variable.key} className="bg-blue-50 p-2 rounded text-sm">
+                                <code className="bg-white px-1 py-0.5 rounded text-blue-600 font-mono">{variable.key}</code>
+                                <span className="ml-2 text-gray-700">{variable.label}</span>
+                                {variable.example && variable.example !== '—' && (
+                                  <p className="text-xs text-gray-500 mt-1">Example: {variable.example}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Template Editor Modal */}
+            {showEditor && (
+              <TemplateEditor
+                eventId={eventId}
+                template={editingTemplate}
+                onSave={handleSaveTemplate}
+                onCancel={handleCancelEditor}
+              />
+            )}
+
+            {/* Template List */}
+            {filteredTemplates.length === 0 ? (
+              <Card className="bg-white border-2 border-eco-green-light">
+                <CardContent className="text-center py-16">
+                  <div className="text-6xl mb-4">📱</div>
+                  <h3 className="text-xl font-semibold mb-2 text-eco-green">No templates found</h3>
+                  <p className="text-gray-600 mb-6">
+                    {searchQuery
+                      ? 'Try adjusting your search query'
+                      : filterType === 'invitation'
+                      ? 'No custom invitation templates found. The system default invitation template is always available when filtering by "All Templates".'
+                      : filterType !== 'all'
+                      ? 'Try adjusting your filters'
+                      : 'Create your first WhatsApp template to start sending personalized messages'}
+                  </p>
+                  {!searchQuery && filterType === 'all' && (
+                    <Button
+                      onClick={handleCreateTemplate}
+                      className="bg-eco-green hover:bg-green-600 text-white"
+                    >
+                      Create Your First Template
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <TemplateList
+                templates={filteredTemplates}
+                onEdit={handleEditTemplate}
+                onDelete={handleDeleteTemplate}
+                onArchive={handleArchiveTemplate}
+                onSetDefault={handleSetDefault}
+              />
+            )}
+          </>
         )}
 
-        {/* Template Editor Modal */}
-        {showEditor && (
-          <TemplateEditor
-            eventId={eventId}
-            template={editingTemplate}
-            onSave={handleSaveTemplate}
-            onCancel={handleCancelEditor}
-          />
-        )}
+        {/* ─── CAMPAIGNS TAB ─── */}
+        {activeTab === 'campaigns' && (
+          <>
+            <WhatsAppSetupBanner />
 
-        {/* Template List */}
-        {filteredTemplates.length === 0 ? (
-          <Card className="bg-white border-2 border-eco-green-light">
-            <CardContent className="text-center py-16">
-              <div className="text-6xl mb-4">📱</div>
-              <h3 className="text-xl font-semibold mb-2 text-eco-green">No templates found</h3>
-              <p className="text-gray-600 mb-6">
-                {searchQuery
-                  ? 'Try adjusting your search query'
-                  : filterType === 'invitation'
-                  ? 'No custom invitation templates found. The system default invitation template is always available when filtering by "All Templates".'
-                  : filterType !== 'all'
-                  ? 'Try adjusting your filters'
-                  : 'Create your first WhatsApp template to start sending personalized messages'}
-              </p>
-              {!searchQuery && filterType === 'all' && (
-                <Button
-                  onClick={handleCreateTemplate}
-                  className="bg-eco-green hover:bg-green-600 text-white"
-                >
-                  Create Your First Template
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <TemplateList
-            templates={filteredTemplates}
-            onEdit={handleEditTemplate}
-            onDelete={handleDeleteTemplate}
-            onArchive={handleArchiveTemplate}
-            onSetDefault={handleSetDefault}
-          />
+            <CampaignList
+              key={campaignListKey}
+              eventId={eventId}
+              onNewCampaign={() => setShowWizard(true)}
+              onViewReport={(c) => setReportCampaign(c)}
+              onEdit={(c) => {
+                setEditingCampaign(c)
+                setShowWizard(true)
+              }}
+            />
+
+            {showWizard && (
+              <CampaignWizard
+                eventId={eventId}
+                onClose={() => {
+                  setShowWizard(false)
+                  setEditingCampaign(null)
+                }}
+                onCreated={() => {
+                  setShowWizard(false)
+                  setEditingCampaign(null)
+                  // Remount CampaignList to pick up the new/updated campaign
+                  setCampaignListKey(k => k + 1)
+                }}
+              />
+            )}
+
+            {reportCampaign && (
+              <CampaignReport
+                eventId={eventId}
+                campaign={reportCampaign}
+                onClose={() => setReportCampaign(null)}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
