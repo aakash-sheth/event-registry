@@ -11,6 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import User
+from apps.notifications.models import NotificationLog
 
 
 class CustomAdminAuthenticationForm(AuthenticationForm):
@@ -576,6 +577,39 @@ class UserAdmin(admin.ModelAdmin):
     search_fields = ('email', 'name')
     list_filter = ('is_active', 'is_staff', 'is_superuser', 'created_at')
     readonly_fields = ('created_at',)
+    actions = ['admin_send_otp', 'admin_unlock_account']
+
+    def admin_send_otp(self, request, queryset):
+        from .views import _send_otp
+        sent = 0
+        for user in queryset:
+            NotificationLog.objects.create(
+                channel='email',
+                to=user.email,
+                template='staff_otp_send',
+                payload_json={'triggered_by': request.user.email},
+                status='sent',
+            )
+            _send_otp(user)
+            sent += 1
+        self.message_user(request, f'OTP login email sent to {sent} user(s).')
+    admin_send_otp.short_description = 'Send OTP login email'
+
+    def admin_unlock_account(self, request, queryset):
+        unlocked = 0
+        for user in queryset:
+            if user.is_account_locked():
+                user.clear_failed_password_attempts()
+                NotificationLog.objects.create(
+                    channel='email',
+                    to=user.email,
+                    template='staff_account_unlock',
+                    payload_json={'unlocked_by': request.user.email},
+                    status='sent',
+                )
+                unlocked += 1
+        self.message_user(request, f'{unlocked} account(s) unlocked.')
+    admin_unlock_account.short_description = 'Unlock account (clear password lockout)'
 
 # Register explicitly to avoid decorator issues during autodiscover
 admin_site.register(User, UserAdmin)

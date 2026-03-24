@@ -1,6 +1,6 @@
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
@@ -14,8 +14,10 @@ from .serializers import (
     OTPSendSerializer, OTPVerifySerializer, UserSerializer,
     PasswordCheckSerializer, PasswordLoginSerializer, SetPasswordSerializer,
     ChangePasswordSerializer, DisablePasswordSerializer,
-    ForgotPasswordSerializer, ResetPasswordSerializer
+    ForgotPasswordSerializer, ResetPasswordSerializer,
+    StaffUserLookupSerializer, StaffSetActiveSerializer, StaffExtendExpirySerializer,
 )
+from apps.notifications.models import NotificationLog
 from apps.common.email_backend import send_email
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.decorators import throttle_classes
@@ -509,3 +511,191 @@ def reset_password(request):
         'message': 'Password reset successfully. You can now login with your new password.'
     }, status=status.HTTP_200_OK)
 
+
+# ---------------------------------------------------------------------------
+# Staff / Customer Support Endpoints
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def staff_send_otp(request):
+    """Staff: send OTP login email to any user to help them access their account."""
+    serializer = OTPSendSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    email = serializer.validated_data['email']
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
+
+    NotificationLog.objects.create(
+        channel='email',
+        to=email,
+        template='staff_otp_send',
+        payload_json={'triggered_by': request.user.email},
+        status='sent',
+    )
+    return _send_otp(user)
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def staff_user_lookup(request):
+    """Staff: get account snapshot for a user by email."""
+    email = request.query_params.get('email', '').strip()
+    if not email:
+        return Response({'error': 'email query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.prefetch_related('events').get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response(StaffUserLookupSerializer(user).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def staff_unlock_account(request):
+    """Staff: clear password lockout for a user."""
+    serializer = OTPSendSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    email = serializer.validated_data['email']
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not user.is_account_locked():
+        return Response({'message': 'Account is not locked.'}, status=status.HTTP_200_OK)
+
+    user.clear_failed_password_attempts()
+
+    NotificationLog.objects.create(
+        channel='email',
+        to=email,
+        template='staff_account_unlock',
+        payload_json={'unlocked_by': request.user.email},
+        status='sent',
+    )
+    return Response({'message': f'Account unlocked for {email}.'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def staff_set_account_active(request):
+    """Staff: activate or deactivate a user account."""
+    serializer = StaffSetActiveSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    email = serializer.validated_data['email']
+    is_active = serializer.validated_data['is_active']
+    reason = serializer.validated_data.get('reason', '')
+
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.is_staff and not request.user.is_superuser:
+        return Response(
+            {'error': 'Only superusers can modify staff accounts.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    user.is_active = is_active
+    user.save(update_fields=['is_active'])
+
+    action_label = 'activated' if is_active else 'deactivated'
+    NotificationLog.objects.create(
+        channel='email',
+        to=email,
+        template=f'staff_account_{action_label}',
+        payload_json={'by': request.user.email, 'reason': reason},
+        status='sent',
+    )
+    return Response({'message': f'Account {action_label} for {email}.'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def staff_extend_event_expiry(request):
+    """Staff: extend an event's expiry date."""
+    serializer = StaffExtendExpirySerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    slug = serializer.validated_data['event_slug']
+    days = serializer.validated_data['extend_days']
+
+    from apps.events.models import Event
+    from datetime import date, timedelta
+
+    try:
+        event = Event.objects.select_related('host').get(slug=slug)
+    except Event.DoesNotExist:
+        return Response({'error': 'Event not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    base_date = max(event.expiry_date or event.date or date.today(), date.today())
+    event.expiry_date = base_date + timedelta(days=days)
+    event.save()
+
+    NotificationLog.objects.create(
+        channel='email',
+        to=event.host.email,
+        template='staff_event_expiry_extended',
+        payload_json={
+            'by': request.user.email,
+            'event_slug': slug,
+            'new_expiry': event.expiry_date.isoformat(),
+            'extend_days': days,
+        },
+        status='sent',
+    )
+    return Response({
+        'message': f'Event "{event.title}" expiry extended by {days} day(s).',
+        'new_expiry_date': event.expiry_date.isoformat(),
+        'host_email': event.host.email,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def staff_order_lookup(request):
+    """Staff: find all orders for a buyer email address."""
+    buyer_email = request.query_params.get('buyer_email', '').strip()
+    if not buyer_email:
+        return Response({'error': 'buyer_email query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from apps.orders.models import Order
+
+    orders = (
+        Order.objects.filter(buyer_email__iexact=buyer_email)
+        .select_related('event', 'item')
+        .order_by('-created_at')[:50]
+    )
+
+    results = [
+        {
+            'id': o.id,
+            'status': o.status,
+            'amount_inr': o.amount_inr,
+            'amount_rupees': round(o.amount_inr / 100, 2),
+            'buyer_name': o.buyer_name,
+            'buyer_email': o.buyer_email,
+            'buyer_phone': o.buyer_phone,
+            'event_slug': o.event.slug,
+            'event_title': o.event.title,
+            'item_name': o.item.name if o.item else None,
+            'rzp_order_id': o.rzp_order_id,
+            'rzp_payment_id': o.rzp_payment_id,
+            'created_at': o.created_at.isoformat(),
+        }
+        for o in orders
+    ]
+    return Response({'results': results, 'count': len(results)})
