@@ -108,7 +108,54 @@ To open the verification page, use this link:
 If you didn't request this, you can safely ignore this email.
 
 — Team EkFern"""
-    
+
+    html_message = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f0;font-family:Georgia,serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f0;padding:40px 0;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+        <tr>
+          <td style="background:#2d5a27;padding:28px 40px;text-align:center;">
+            <span style="font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:1px;">EkFern</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px 40px 24px;">
+            <p style="margin:0 0 8px;font-size:16px;color:#333;">Hi {greeting_name},</p>
+            <p style="margin:0 0 28px;font-size:15px;color:#555;line-height:1.6;">
+              Use the verification code below to sign in to your EkFern account.
+            </p>
+            <div style="text-align:center;margin:0 0 28px;">
+              <span style="display:inline-block;background:#f5f5f0;border:2px solid #2d5a27;border-radius:8px;padding:16px 40px;font-size:32px;font-weight:bold;letter-spacing:8px;color:#2d5a27;font-family:monospace;">{otp_code}</span>
+            </div>
+            <p style="margin:0 0 8px;font-size:13px;color:#888;text-align:center;">
+              This code expires in <strong>15 minutes</strong>. Do not share it with anyone.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 40px 28px;text-align:center;">
+            <a href="{login_url}" style="display:inline-block;background:#2d5a27;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:6px;font-size:15px;font-weight:bold;">
+              Open verification page →
+            </a>
+          </td>
+        </tr>
+        <tr>
+          <td style="border-top:1px solid #eee;padding:20px 40px;text-align:center;">
+            <p style="margin:0;font-size:12px;color:#aaa;">
+              If you didn't request this, you can safely ignore this email.<br>
+              &copy; EkFern · <a href="https://ekfern.com" style="color:#aaa;">ekfern.com</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
     # Send email via SES
     # Log failures but don't expose to user for security
     email_sent = False
@@ -117,6 +164,7 @@ If you didn't request this, you can safely ignore this email.
             to_email=email,
             subject=subject,
             body_text=message,
+            body_html=html_message,
         )
         email_sent = True
     except Exception as e:
