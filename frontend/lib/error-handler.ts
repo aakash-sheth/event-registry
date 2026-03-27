@@ -45,14 +45,14 @@ export function getErrorMessage(error: any): string {
   const errorData = error.response?.data
 
   if (status === 400) {
-    // Bad request - validation errors
+    // Bad request - could be validation error or infrastructure rejection (ALB/WAF)
     if (errorData?.error) {
       return errorData.error
     }
     if (errorData?.detail) {
       return errorData.detail
     }
-    if (typeof errorData === 'object' && Object.keys(errorData).length > 0) {
+    if (typeof errorData === 'object' && errorData !== null && Object.keys(errorData).length > 0) {
       // Return first validation error message
       const firstError = Object.values(errorData)[0]
       if (Array.isArray(firstError)) {
@@ -60,7 +60,9 @@ export function getErrorMessage(error: any): string {
       }
       return String(firstError)
     }
-    return 'Please check your input and try again.'
+    // No structured error body — likely an infrastructure-level rejection (ALB/proxy),
+    // not a user input error. Don't blame the user's input.
+    return 'Unable to connect to our servers. Please try again, or switch to mobile data if the issue persists.'
   }
 
   if (status === 401) {

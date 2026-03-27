@@ -24,6 +24,7 @@ interface Event {
   page_config?: InviteConfig
   has_rsvp?: boolean
   has_registry?: boolean
+  show_branding?: boolean
   country?: string
   timezone?: string
   rsvp_count?: number
@@ -805,7 +806,7 @@ export default function InvitePageClient({
               rsvpCount={event?.rsvp_count}
             />
             {/* Branding component at the bottom */}
-            <PoweredByBranding />
+            {(event?.show_branding ?? true) && <PoweredByBranding />}
           </div>
         </div>
       ) : (
@@ -845,7 +846,7 @@ export default function InvitePageClient({
             rsvpCount={event?.rsvp_count}
           />
           {/* Branding component at the bottom */}
-          <PoweredByBranding />
+          {(event?.show_branding ?? true) && <PoweredByBranding />}
         </div>
       )}
     </EnvelopeAnimation>

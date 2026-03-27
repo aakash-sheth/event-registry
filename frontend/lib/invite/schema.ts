@@ -319,6 +319,7 @@ export interface InvitePage {
   background_url: string
   config: InviteConfig
   is_published: boolean
+  show_branding?: boolean
   rsvp_count?: number
   created_at: string
   updated_at: string

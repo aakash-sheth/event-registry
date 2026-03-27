@@ -107,6 +107,7 @@ class Event(models.Model):
     # Feature toggles
     has_rsvp = models.BooleanField(default=True, help_text="Enable RSVP functionality for this event")
     has_registry = models.BooleanField(default=True, help_text="Enable Gift Registry functionality for this event")
+    show_branding = models.BooleanField(default=True, help_text="Show 'Powered by EkFern' branding on public invite pages (disable for paid plans)")
     
     # Event page customization
     banner_image = models.TextField(blank=True, help_text="Banner image URL or data URL for public invitation page (deprecated - use page_config)")

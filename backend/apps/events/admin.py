@@ -4,10 +4,21 @@ from .models import Event, Guest, RSVP, InvitePage, SubEvent, GuestSubEventInvit
 
 
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('title', 'slug', 'host', 'event_type', 'date', 'is_public', 'created_at')
-    list_filter = ('event_type', 'is_public', 'created_at')
+    list_display = ('title', 'slug', 'host', 'event_type', 'date', 'is_public', 'show_branding', 'created_at')
+    list_filter = ('event_type', 'is_public', 'show_branding', 'created_at')
     search_fields = ('title', 'slug', 'city')
     readonly_fields = ('created_at', 'updated_at')
+
+    def save_model(self, request, obj, form, change):
+        old_show_branding = None
+        if change and obj.pk:
+            old_show_branding = Event.objects.filter(pk=obj.pk).values_list('show_branding', flat=True).first()
+        super().save_model(request, obj, form, change)
+        if change and old_show_branding is not None and old_show_branding != obj.show_branding:
+            if hasattr(obj, 'invite_page') and obj.invite_page:
+                from .views import invalidate_invite_page_cache, invalidate_cloudfront_cache_immediate
+                invalidate_invite_page_cache(obj.invite_page.slug)
+                invalidate_cloudfront_cache_immediate(obj.invite_page.slug)
 
 
 class GuestAdmin(admin.ModelAdmin):

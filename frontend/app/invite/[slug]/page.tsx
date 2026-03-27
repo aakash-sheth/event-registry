@@ -90,6 +90,7 @@ interface Event {
   page_config?: InviteConfig
   has_rsvp?: boolean
   has_registry?: boolean
+  show_branding?: boolean
   country?: string
   timezone?: string
   rsvp_count?: number
