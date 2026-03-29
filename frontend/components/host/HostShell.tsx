@@ -10,6 +10,7 @@ import {
   ChevronRight,
   GalleryHorizontal,
   Gift,
+  HelpCircle,
   LayoutDashboard,
   Layers,
   Menu,
@@ -331,6 +332,33 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
               )}
             </TooltipProvider>
           </nav>
+
+          {/* Pinned bottom — Help & Support */}
+          <div className="border-t border-eco-green-light p-3">
+            <TooltipProvider delayDuration={400}>
+              {isDesktopNavCollapsed ? (
+                <div className="group relative">
+                  <Link
+                    href="/contact"
+                    className="flex items-center justify-center rounded-md px-0 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-eco-green-light hover:text-eco-green"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                  >
+                    <HelpCircle size={18} />
+                  </Link>
+                  <TooltipContent side="right">Help &amp; Support</TooltipContent>
+                </div>
+              ) : (
+                <Link
+                  href="/contact"
+                  className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-eco-green-light hover:text-eco-green"
+                  onClick={() => setIsMobileDrawerOpen(false)}
+                >
+                  <HelpCircle size={18} />
+                  <span>Help &amp; Support</span>
+                </Link>
+              )}
+            </TooltipProvider>
+          </div>
         </div>
       </aside>
 

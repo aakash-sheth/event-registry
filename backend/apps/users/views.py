@@ -747,3 +747,64 @@ def staff_order_lookup(request):
         for o in orders
     ]
     return Response({'results': results, 'count': len(results)})
+
+
+import logging as _logging
+_contact_logger = _logging.getLogger(__name__)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([UserRateThrottle])
+def contact_form(request):
+    """
+    Public contact form endpoint.
+    Accepts name, email, subject, message and forwards to support inbox via SES.
+    """
+    name = request.data.get('name', '').strip()
+    email = request.data.get('email', '').strip()
+    subject = request.data.get('subject', '').strip()
+    message = request.data.get('message', '').strip()
+
+    if not email or not message:
+        return Response(
+            {'error': 'Email and message are required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if '@' not in email or '.' not in email.split('@')[-1]:
+        return Response(
+            {'error': 'Please provide a valid email address.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    subject_line = f"Contact Form: {subject}" if subject else "Contact Form Submission"
+    plain_text = f"Name: {name}\nEmail: {email}\n\nMessage:\n{message}"
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:0 auto;padding:24px;">
+  <h2 style="color:#0d9488;">New Contact Form Message</h2>
+  <table style="width:100%;border-collapse:collapse;">
+    <tr><td style="padding:6px 0;font-weight:bold;width:80px;">Name</td><td style="padding:6px 0;">{name or '—'}</td></tr>
+    <tr><td style="padding:6px 0;font-weight:bold;">Email</td><td style="padding:6px 0;"><a href="mailto:{email}">{email}</a></td></tr>
+    <tr><td style="padding:6px 0;font-weight:bold;">Subject</td><td style="padding:6px 0;">{subject or '—'}</td></tr>
+  </table>
+  <hr style="margin:16px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="white-space:pre-wrap;">{message}</p>
+</body>
+</html>"""
+
+    support_email = getattr(settings, 'SUPPORT_EMAIL', 'support@ekfern.com')
+    try:
+        send_email(
+            to_email=support_email,
+            subject=subject_line,
+            body_text=plain_text,
+            body_html=html_body,
+        )
+    except Exception as exc:
+        _contact_logger.error('contact_form: failed to send email from %s: %s', email, exc)
+
+    return Response(
+        {'message': "Thank you! We'll get back to you within 24-48 hours."},
+        status=status.HTTP_200_OK,
+    )

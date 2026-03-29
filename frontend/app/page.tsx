@@ -59,7 +59,10 @@ export default function LandingPage() {
             iconClassName="text-bright-teal"
             textClassName="text-bright-teal"
           />
-          <div className="flex gap-4">
+          <div className="flex gap-4 items-center">
+            <Link href="/contact" className="text-sm font-medium text-bright-teal hover:text-forest-green transition-colors hidden sm:block">
+              Contact
+            </Link>
             <Link href="/host/login">
               <Button variant="ghost" className="text-bright-teal">Host Login</Button>
             </Link>

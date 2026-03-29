@@ -7,6 +7,7 @@ from .views import (
     forgot_password, reset_password,
     staff_send_otp, staff_user_lookup, staff_unlock_account,
     staff_set_account_active, staff_extend_event_expiry, staff_order_lookup,
+    contact_form,
 )
 
 urlpatterns = [
@@ -31,5 +32,6 @@ urlpatterns = [
     path('staff/set-account-active/', staff_set_account_active, name='staff_set_account_active'),
     path('staff/extend-event-expiry/', staff_extend_event_expiry, name='staff_extend_event_expiry'),
     path('staff/order-lookup/', staff_order_lookup, name='staff_order_lookup'),
+    path('contact/', contact_form, name='contact_form'),
 ]
 

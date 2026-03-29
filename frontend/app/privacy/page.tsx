@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import Logo from '@/components/Logo'
-import { BRAND_NAME } from '@/lib/brand_utility'
+import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand_utility'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -203,10 +203,10 @@ export default function PrivacyPolicyPage() {
                 <p className="mb-2">
                   <strong className="text-forest-green">Email:</strong>{' '}
                   <a 
-                    href="mailto:support@ekfern.com" 
+                    href={`mailto:${SUPPORT_EMAIL}`}
                     className="text-bright-teal hover:underline"
                   >
-                    support@ekfern.com
+                    {SUPPORT_EMAIL}
                   </a>
                 </p>
                 <p>

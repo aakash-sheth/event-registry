@@ -2,8 +2,9 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import Logo from '@/components/Logo'
-import { BRAND_NAME } from '@/lib/brand_utility'
-import { Mail, Globe, MessageCircle, Phone, MapPin } from 'lucide-react'
+import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand_utility'
+import { Mail, Phone, MapPin } from 'lucide-react'
+import ContactForm from '@/components/ContactForm'
 
 export const metadata: Metadata = {
   title: 'Contact Us',
@@ -16,7 +17,7 @@ export default function ContactPage() {
       {/* Navigation Bar */}
       <nav className="bg-white border-b border-pastel-green sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Logo 
+          <Logo
             href="/"
             iconClassName="text-bright-teal"
             textClassName="text-bright-teal"
@@ -32,106 +33,83 @@ export default function ContactPage() {
         </div>
       </nav>
 
-      <main className="container mx-auto px-4 py-12 max-w-4xl">
-        <div className="bg-white rounded-lg shadow-lg p-8 md:p-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-bright-teal mb-4">
-            Contact Us
-          </h1>
-          <p className="text-lg text-earth-brown mb-8 leading-relaxed">
-            We&apos;d love to hear from you! Whether you have questions, feedback, or need assistance, our team is here to help.
+      <main className="container mx-auto px-4 py-12 max-w-5xl">
+        <div className="mb-10">
+          <h1 className="text-4xl md:text-5xl font-bold text-bright-teal mb-3">Contact Us</h1>
+          <p className="text-lg text-earth-brown">
+            We&apos;d love to hear from you. Fill in the form and we&apos;ll get back to you within 24–48 hours.
           </p>
+        </div>
 
-          {/* Contact Information Box */}
-          <div className="bg-gradient-to-br from-pastel-cream via-pastel-blue to-pastel-cream p-8 rounded-lg mb-8 border border-pastel-green">
-            <div className="flex items-start mb-6">
-              <MessageCircle className="w-8 h-8 text-bright-teal mr-4 flex-shrink-0 mt-1" />
-              <div>
-                <h2 className="text-2xl font-bold text-bright-teal mb-4">
-                  How Can We Help?
-                </h2>
-                <p className="text-earth-brown mb-4 leading-relaxed">
-                  Our support team is available to assist you with:
-                </p>
-                <ul className="list-disc pl-6 text-earth-brown space-y-2 mb-6">
-                  <li>Technical support and troubleshooting</li>
-                  <li>Account and billing questions</li>
-                  <li>Feature requests and feedback</li>
-                  <li>Event planning assistance</li>
-                  <li>Privacy and data protection inquiries</li>
-                </ul>
-                <p className="text-earth-brown font-semibold">
-                  We typically respond within 24-48 hours.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Direct Contact Card */}
-          <div className="bg-white border-l-4 border-l-bright-teal shadow-md p-8 rounded-lg">
-            <h3 className="text-xl font-bold text-bright-teal mb-4">Get in Touch</h3>
-            <div className="space-y-4">
-              <div className="flex items-center">
-                <Mail className="w-5 h-5 text-bright-teal mr-3" />
-                <div>
-                  <p className="text-sm text-earth-brown">Email</p>
-                  <a 
-                    href="mailto:support@ekfern.com" 
-                    className="text-bright-teal hover:text-forest-green font-semibold hover:underline"
-                  >
-                    support@ekfern.com
-                  </a>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-10">
+          {/* Left — contact details */}
+          <div className="md:col-span-2 space-y-8">
+            <div className="bg-gradient-to-br from-pastel-cream via-pastel-blue to-pastel-cream rounded-lg p-6 border border-pastel-green">
+              <h2 className="text-lg font-bold text-bright-teal mb-5">Get in Touch</h2>
+              <div className="space-y-5">
+                <div className="flex items-start gap-3">
+                  <Mail className="w-5 h-5 text-bright-teal mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-earth-brown mb-0.5">Email</p>
+                    <a
+                      href={`mailto:${SUPPORT_EMAIL}`}
+                      className="text-sm font-semibold text-bright-teal hover:text-forest-green hover:underline"
+                    >
+                      {SUPPORT_EMAIL}
+                    </a>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center">
-                <Phone className="w-5 h-5 text-bright-teal mr-3" />
-                <div>
-                  <p className="text-sm text-earth-brown">Phone</p>
-                  <a 
-                    href="tel:+918275045199" 
-                    className="text-bright-teal hover:text-forest-green font-semibold hover:underline"
-                  >
-                    +91 8275045199
-                  </a>
+                <div className="flex items-start gap-3">
+                  <Phone className="w-5 h-5 text-bright-teal mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-earth-brown mb-0.5">Phone</p>
+                    <a
+                      href="tel:+918275045199"
+                      className="text-sm font-semibold text-bright-teal hover:text-forest-green hover:underline"
+                    >
+                      +91 82750 45199
+                    </a>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center">
-                <MapPin className="w-5 h-5 text-bright-teal mr-3" />
-                <div>
-                  <p className="text-sm text-earth-brown">Address</p>
-                  <p className="text-bright-teal font-semibold">
-                    EkFern · Mumbai, India
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center">
-                <Globe className="w-5 h-5 text-bright-teal mr-3" />
-                <div>
-                  <p className="text-sm text-earth-brown">Website</p>
-                  <a 
-                    href="https://ekfern.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-bright-teal hover:text-forest-green font-semibold hover:underline"
-                  >
-                    https://ekfern.com
-                  </a>
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-5 h-5 text-bright-teal mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-earth-brown mb-0.5">Location</p>
+                    <p className="text-sm font-semibold text-bright-teal">Mumbai, India</p>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <div className="text-sm text-earth-brown space-y-1.5">
+              <p className="font-semibold text-bright-teal mb-2">We can help with:</p>
+              <p>· Technical support &amp; troubleshooting</p>
+              <p>· Account and billing questions</p>
+              <p>· Feature requests and feedback</p>
+              <p>· Event planning assistance</p>
+              <p>· Invite design help</p>
+              <p>· Privacy and data inquiries</p>
+            </div>
           </div>
 
-          <div className="mt-12 pt-8 border-t border-pastel-green flex gap-4">
-            <Link href="/">
-              <Button variant="outline" className="border-2 border-bright-teal text-bright-teal hover:bg-bright-teal hover:text-white">
-                ← Back to Home
-              </Button>
-            </Link>
-            <Link href="/privacy">
-              <Button variant="ghost" className="text-bright-teal hover:text-forest-green">
-                Privacy Policy
-              </Button>
-            </Link>
+          {/* Right — form */}
+          <div className="md:col-span-3 bg-white rounded-lg shadow-md border border-gray-100 p-8">
+            <h2 className="text-lg font-bold text-bright-teal mb-6">Send us a message</h2>
+            <ContactForm />
           </div>
+        </div>
+
+        <div className="mt-10 pt-8 border-t border-pastel-green flex gap-4">
+          <Link href="/">
+            <Button variant="outline" className="border-2 border-bright-teal text-bright-teal hover:bg-bright-teal hover:text-white">
+              ← Back to Home
+            </Button>
+          </Link>
+          <Link href="/privacy">
+            <Button variant="ghost" className="text-bright-teal hover:text-forest-green">
+              Privacy Policy
+            </Button>
+          </Link>
         </div>
       </main>
 
