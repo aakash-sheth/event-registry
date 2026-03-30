@@ -1136,6 +1136,7 @@ export default function DesignInvitationPage(): JSX.Element {
     const defaultSettings: Record<TileType, object> = {
       'title':           { text: 'Event Title' },
       'image':           { src: '', fitMode: 'fit-to-screen' },
+      'greeting-card':   { backgroundGradient: 'linear-gradient(135deg, #fce4ec, #f48fb1)', textOverlays: [] },
       'timer':           {},
       'event-details':   { location: '', date: new Date().toISOString().split('T')[0] },
       'description':     { content: '' },

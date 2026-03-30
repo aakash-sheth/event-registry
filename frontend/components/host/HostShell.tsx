@@ -65,6 +65,12 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
   const [isDesktopNavCollapsed, setIsDesktopNavCollapsed] = useState(false)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+
+  // Sync collapsed state from localStorage after mount to avoid SSR/client mismatch
+  useEffect(() => {
+    const stored = localStorage.getItem('host-nav-collapsed')
+    if (stored === 'true') setIsDesktopNavCollapsed(true)
+  }, [])
   const [eventSettings, setEventSettings] = useState<{
     has_rsvp: boolean
     has_registry: boolean
@@ -189,7 +195,11 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
               type="button"
               className="hidden rounded-md p-1 text-eco-green hover:bg-eco-green-light md:inline-flex"
               aria-label={isDesktopNavCollapsed ? 'Expand navigation panel' : 'Collapse navigation panel'}
-              onClick={() => setIsDesktopNavCollapsed((previous) => !previous)}
+              onClick={() => setIsDesktopNavCollapsed((previous) => {
+                const next = !previous
+                localStorage.setItem('host-nav-collapsed', String(next))
+                return next
+              })}
             >
               {isDesktopNavCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
             </button>

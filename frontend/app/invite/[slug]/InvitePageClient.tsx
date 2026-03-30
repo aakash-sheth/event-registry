@@ -239,7 +239,7 @@ export default function InvitePageClient({
         }
         
         // Debug: Log image tile settings when loading public page
-        const imageTile = configWithCustomColors.tiles?.find((t: any) => t.type === 'image')
+        const imageTile = configWithCustomColors.tiles?.find((t: any) => t.type === 'image' || t.type === 'greeting-card')
         if (imageTile) {
           logDebug('[Public Invite Page] Image tile loaded')
         }
@@ -628,8 +628,8 @@ export default function InvitePageClient({
   const configForClient = heroSSR ? {
     ...config,
     tiles: config.tiles?.filter((tile) => {
-      // Skip image tile if heroSSR is provided
-      if (heroSSR && tile.type === 'image') {
+      // Skip image/greeting-card tile if heroSSR is provided
+      if (heroSSR && (tile.type === 'image' || tile.type === 'greeting-card')) {
         return false
       }
       // Skip title tile if it's overlaying on image (heroSSR handles it)
@@ -656,7 +656,7 @@ export default function InvitePageClient({
         order: t.order,
       })),
       removedTiles: config.tiles?.filter(t => {
-        if (heroSSR && t.type === 'image') return true
+        if (heroSSR && (t.type === 'image' || t.type === 'greeting-card')) return true
         if (heroSSR && t.type === 'title' && t.overlayTargetId) return true
         if (titleSSR && t.type === 'title' && !t.overlayTargetId) return true
         if (eventDetailsSSR && t.type === 'event-details') return true
@@ -666,7 +666,7 @@ export default function InvitePageClient({
         type: t.type,
         enabled: t.enabled,
         order: t.order,
-        reason: heroSSR && t.type === 'image' ? 'heroSSR' :
+        reason: heroSSR && (t.type === 'image' || t.type === 'greeting-card') ? 'heroSSR' :
                 heroSSR && t.type === 'title' && t.overlayTargetId ? 'overlayTitleSSR' :
                 titleSSR && t.type === 'title' && !t.overlayTargetId ? 'titleSSR' :
                 eventDetailsSSR && t.type === 'event-details' ? 'eventDetailsSSR' : 'unknown'

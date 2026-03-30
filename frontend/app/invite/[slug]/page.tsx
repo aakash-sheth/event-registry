@@ -6,6 +6,7 @@ import { InviteConfig, Tile } from '@/lib/invite/schema'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
 import { getTheme } from '@/lib/invite/themes'
 import ImageTileSSR from '@/components/invite/tiles/ImageTileSSR'
+import GreetingCardTileSSR from '@/components/invite/tiles/GreetingCardTileSSR'
 import TitleTileSSR from '@/components/invite/tiles/TitleTileSSR'
 import EventDetailsTileSSR from '@/components/invite/tiles/EventDetailsTileSSR'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
@@ -740,7 +741,7 @@ export async function generateMetadata({
   if (!bannerImage && inviteData.config?.tiles) {
     // Find first enabled image tile with a source
     const imageTile = inviteData.config.tiles.find(
-      (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
+      (tile: any) => (tile.type === 'image' || tile.type === 'greeting-card') && tile.enabled !== false && tile.settings?.src
     ) as any
     if (imageTile?.settings?.src) {
       bannerImage = imageTile.settings.src
@@ -1183,9 +1184,9 @@ export default async function InvitePage({
   const backgroundColor = initialConfig?.customColors?.backgroundColor ?? theme.palette.bg
 
   if (initialConfig?.tiles && initialConfig.tiles.length > 0) {
-    // Find image tile (first enabled image tile)
+    // Find image or greeting-card tile (first enabled tile with a src)
     const imageTile = initialConfig.tiles.find(
-      (t: Tile) => t.type === 'image' && t.enabled !== false && (t.settings as any)?.src
+      (t: Tile) => (t.type === 'image' || t.type === 'greeting-card') && t.enabled !== false && (t.settings as any)?.src
     ) as Tile | undefined
 
     // Find title tile that overlays on image
@@ -1203,15 +1204,22 @@ export default async function InvitePage({
       (t: Tile) => t.type === 'event-details' && t.enabled
     ) as Tile | undefined
 
-    // Render hero section server-side (image with overlay title)
+    // Render hero section server-side (image or greeting-card with overlay title)
     if (imageTile) {
       const imageSettings = imageTile.settings as any
       heroSSR = (
         <div className="w-full relative">
-          <ImageTileSSR 
-            settings={imageSettings} 
-            hasTitleOverlay={!!overlayTitleTile} 
-          />
+          {imageTile.type === 'greeting-card' ? (
+            <GreetingCardTileSSR
+              settings={imageSettings}
+              hasTitleOverlay={!!overlayTitleTile}
+            />
+          ) : (
+            <ImageTileSSR
+              settings={imageSettings}
+              hasTitleOverlay={!!overlayTitleTile}
+            />
+          )}
           {overlayTitleTile && (
             <TitleTileSSR settings={overlayTitleTile.settings as any} overlayMode={true} />
           )}
