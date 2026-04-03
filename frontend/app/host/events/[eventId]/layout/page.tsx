@@ -15,7 +15,7 @@ import {
 } from '@/lib/invite/api'
 import { applyTemplate } from '@/lib/invite/applyTemplate'
 import type { InviteTemplate } from '@/lib/invite/templates'
-import type { ImageTileSettings, TextOverlay, InviteConfig } from '@/lib/invite/schema'
+import type { ImageTileSettings, GreetingCardTileSettings, TextOverlay, InviteConfig } from '@/lib/invite/schema'
 import { updateEventPageConfig } from '@/lib/event/api'
 import api from '@/lib/api'
 
@@ -43,20 +43,36 @@ function applyCardDesignToConfig(
   textBoxes: TextOverlay[] | null,
 ): InviteConfig {
   if (!config.tiles) return config
-  const updatedTiles = config.tiles.map((t) =>
-    t.type === 'image'
-      ? {
-          ...t,
-          settings: {
-            ...(t.settings as ImageTileSettings),
-            src: bgUrl ?? undefined,
-            backgroundGradient: bgUrl ? undefined : (bgGradient ?? undefined),
-            fitMode: 'full-image' as const,
-            textOverlays: textBoxes ?? undefined,
-          },
-        }
-      : t
-  )
+
+  const hasGreetingCardTiles = config.tiles.some((t) => t.type === 'greeting-card')
+  const updatedTiles = config.tiles.map((t) => {
+    // Prefer the dedicated greeting-card tile type when present.
+    if (hasGreetingCardTiles) {
+      if (t.type !== 'greeting-card') return t
+      return {
+        ...t,
+        settings: {
+          ...(t.settings as GreetingCardTileSettings),
+          src: bgUrl ?? undefined,
+          backgroundGradient: bgUrl ? undefined : (bgGradient ?? undefined),
+          textOverlays: textBoxes ?? undefined,
+        },
+      }
+    }
+
+    // Backwards-compat: if a template only has `image` tiles, preserve the legacy behavior.
+    if (t.type !== 'image') return t
+    return {
+      ...t,
+      settings: {
+        ...(t.settings as ImageTileSettings),
+        src: bgUrl ?? undefined,
+        backgroundGradient: bgUrl ? undefined : (bgGradient ?? undefined),
+        fitMode: 'full-image' as const,
+        textOverlays: textBoxes ?? undefined,
+      },
+    }
+  })
   return { ...config, tiles: updatedTiles }
 }
 

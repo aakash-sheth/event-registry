@@ -150,6 +150,7 @@ export interface TextOverlay {
   x: number
   y: number
   width: number
+  height?: number | null
   fontFamily: string
   fontSize: number
   color: string

@@ -395,6 +395,38 @@ export default function DesignInvitationPage(): JSX.Element {
         }
       }
       
+      // Hydrate greeting-card tiles with saved card-studio work from localStorage.
+      // This covers the case where a template (or a freshly-added tile) initialises
+      // the tile with empty textOverlays — the user's card-studio edits should win.
+      if (finalConfig?.tiles) {
+        const bgUrl = localStorage.getItem(`card-bg-${eventId}`)
+        const bgGradient = localStorage.getItem(`card-gradient-${eventId}`)
+        const rawBoxes = localStorage.getItem(`card-textboxes-${eventId}`)
+        const savedOverlays = rawBoxes ? (() => { try { return JSON.parse(rawBoxes) } catch { return null } })() : null
+
+        if (bgUrl || bgGradient || (savedOverlays && savedOverlays.length > 0)) {
+          finalConfig = {
+            ...finalConfig,
+            tiles: finalConfig.tiles.map((tile) => {
+              if (tile.type !== 'greeting-card') return tile
+              const s = tile.settings as import('@/lib/invite/schema').GreetingCardTileSettings
+              // Only restore from localStorage if the tile has no meaningful content yet
+              const tileHasContent = !!s.src || (s.textOverlays && s.textOverlays.length > 0)
+              if (tileHasContent) return tile
+              return {
+                ...tile,
+                settings: {
+                  ...s,
+                  src: bgUrl ?? undefined,
+                  backgroundGradient: bgUrl ? undefined : (bgGradient ?? s.backgroundGradient),
+                  textOverlays: savedOverlays ?? s.textOverlays ?? [],
+                },
+              }
+            }),
+          }
+        }
+      }
+
       // Set the final config
       if (finalConfig) {
         setConfig(finalConfig)
@@ -1132,11 +1164,59 @@ export default function DesignInvitationPage(): JSX.Element {
     }
   }
 
-  const handleAddTile = (type: TileType) => {
+  const handleAddTile = async (type: TileType) => {
+    // For greeting-card tiles, restore saved work from the card studio.
+    // Priority: backend saved tile (device-independent) > localStorage > defaults.
+    let savedGreetingCardSettings: { src?: string; backgroundGradient?: string; textOverlays: unknown[] } | null = null
+    if (type === 'greeting-card' && eventId) {
+      try {
+        // Fetch backend first — this is the source of truth after auto-save
+        const page = await getInvitePage(eventId)
+        const gcTile = page?.config?.tiles?.find((t: { type: string }) => t.type === 'greeting-card')
+        const gcSettings = gcTile?.settings as { src?: string; backgroundGradient?: string; textOverlays?: unknown[] } | undefined
+        const hasBackendContent = !!gcSettings?.src || (gcSettings?.textOverlays?.length ?? 0) > 0
+        if (hasBackendContent) {
+          savedGreetingCardSettings = {
+            src: gcSettings!.src,
+            backgroundGradient: gcSettings!.backgroundGradient,
+            textOverlays: gcSettings!.textOverlays ?? [],
+          }
+        } else {
+          // Fall back to localStorage
+          const bgUrl = localStorage.getItem(`card-bg-${eventId}`)
+          const bgGradient = localStorage.getItem(`card-gradient-${eventId}`)
+          const rawBoxes = localStorage.getItem(`card-textboxes-${eventId}`)
+          const textOverlays = rawBoxes ? JSON.parse(rawBoxes) : []
+          if (bgUrl || bgGradient || textOverlays.length > 0) {
+            savedGreetingCardSettings = {
+              src: bgUrl ?? undefined,
+              backgroundGradient: bgUrl ? undefined : (bgGradient ?? 'linear-gradient(135deg, #fce4ec, #f48fb1)'),
+              textOverlays,
+            }
+          }
+        }
+      } catch {
+        // Network failure — try localStorage as last resort
+        try {
+          const bgUrl = localStorage.getItem(`card-bg-${eventId}`)
+          const bgGradient = localStorage.getItem(`card-gradient-${eventId}`)
+          const rawBoxes = localStorage.getItem(`card-textboxes-${eventId}`)
+          const textOverlays = rawBoxes ? JSON.parse(rawBoxes) : []
+          if (bgUrl || bgGradient || textOverlays.length > 0) {
+            savedGreetingCardSettings = {
+              src: bgUrl ?? undefined,
+              backgroundGradient: bgUrl ? undefined : (bgGradient ?? 'linear-gradient(135deg, #fce4ec, #f48fb1)'),
+              textOverlays,
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
     const defaultSettings: Record<TileType, object> = {
       'title':           { text: 'Event Title' },
       'image':           { src: '', fitMode: 'fit-to-screen' },
-      'greeting-card':   { backgroundGradient: 'linear-gradient(135deg, #fce4ec, #f48fb1)', textOverlays: [] },
+      'greeting-card':   savedGreetingCardSettings ?? { backgroundGradient: 'linear-gradient(135deg, #fce4ec, #f48fb1)', textOverlays: [] },
       'timer':           {},
       'event-details':   { location: '', date: new Date().toISOString().split('T')[0] },
       'description':     { content: '' },

@@ -38,6 +38,7 @@ export interface TextOverlay {
   x: number         // % from left edge of 9:16 container (card designer coordinate)
   y: number         // % from top edge of 9:16 container (card designer coordinate)
   width: number     // % of container width
+  height?: number | null  // % of container height, null/undefined = auto
   fontFamily: string
   fontSize: number  // px
   color: string

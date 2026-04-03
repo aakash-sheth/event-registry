@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import api, { uploadImage } from '@/lib/api'
 import { getInvitePage, updateInvitePage, getGreetingCardSamples, type GreetingCardSample } from '@/lib/invite/api'
-import type { ImageTileSettings } from '@/lib/invite/schema'
+import type { ImageTileSettings, GreetingCardTileSettings } from '@/lib/invite/schema'
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import WizardProgress from '@/components/host/WizardProgress'
 import { logError } from '@/lib/error-handler'
@@ -302,46 +302,63 @@ export default function GreetingCardPage(): React.ReactElement {
   const [showBgModal, setShowBgModal] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [userHasEditedText, setUserHasEditedText] = useState(false)
   const [pendingSample, setPendingSample] = useState<GreetingCardSample | null>(null)
 
-  // Load event + restore saved state from localStorage
+  // Refs for auto-save concurrency control
+  const isSavingRef = useRef(false)
+  const hasUserEditedRef = useRef(false) // prevents auto-save firing on initial load
+
+  // Load event + restore state — backend tile takes priority over localStorage (device-independent)
   useEffect(() => {
     if (!eventId || isNaN(eventId)) return
-    api
-      .get<{ id: number; title: string; event_type: string }>(`/api/events/${eventId}/`)
-      .then((res) => {
-        const data = res.data
-        setEvent(data)
-        // Restore saved text boxes (card designer work) or fall back to event-based defaults
-        const savedBoxes = localStorage.getItem(`card-textboxes-${eventId}`)
-        if (savedBoxes) {
-          try {
-            setTextBoxes(JSON.parse(savedBoxes) as TextBox[])
-            setUserHasEditedText(true)
-          } catch {
-            setTextBoxes(buildInitialBoxes(data.title, data.event_type))
-          }
-        } else {
+    Promise.all([
+      api.get<{ id: number; title: string; event_type: string }>(`/api/events/${eventId}/`),
+      getInvitePage(eventId).catch(() => null),
+    ]).then(([eventRes, page]) => {
+      const data = eventRes.data
+      setEvent(data)
+
+      // Check if backend already has greeting-card content (e.g. saved from another device)
+      const gcTile = page?.config?.tiles?.find((t) => t.type === 'greeting-card')
+      const gcSettings = gcTile?.settings as GreetingCardTileSettings | undefined
+      const hasBackendContent = !!gcSettings?.src || (gcSettings?.textOverlays?.length ?? 0) > 0
+
+      if (hasBackendContent) {
+        // Backend is authoritative — use it regardless of localStorage
+        setBgUrl(gcSettings!.src ?? null)
+        setBgGradient(gcSettings!.backgroundGradient ?? GRADIENT_PRESETS[0]!)
+        setTextBoxes((gcSettings!.textOverlays ?? []) as TextBox[])
+        setUserHasEditedText(true)
+        return
+      }
+
+      // Fall back to localStorage (same-device fast restore)
+      const savedBg = localStorage.getItem(`card-bg-${eventId}`)
+      const savedGradient = localStorage.getItem(`card-gradient-${eventId}`)
+      const savedBoxes = localStorage.getItem(`card-textboxes-${eventId}`)
+
+      if (savedBg) {
+        setBgUrl(savedBg)
+        setBgGradient(GRADIENT_PRESETS[0]!)
+      } else if (savedGradient) {
+        setBgGradient(savedGradient)
+      }
+
+      if (savedBoxes) {
+        try {
+          setTextBoxes(JSON.parse(savedBoxes) as TextBox[])
+          setUserHasEditedText(true)
+        } catch {
           setTextBoxes(buildInitialBoxes(data.title, data.event_type))
         }
-      })
-      .catch((err: unknown) => {
-        logError('GreetingCardPage: failed to load event', err)
-      })
-  }, [eventId])
-
-  // Restore saved background from localStorage
-  useEffect(() => {
-    if (!eventId || isNaN(eventId)) return
-    const saved = localStorage.getItem(`card-bg-${eventId}`)
-    if (saved) {
-      setBgUrl(saved)
-      setBgGradient(GRADIENT_PRESETS[0]!)
-    } else {
-      const savedGradient = localStorage.getItem(`card-gradient-${eventId}`)
-      if (savedGradient) setBgGradient(savedGradient)
-    }
+      } else {
+        setTextBoxes(buildInitialBoxes(data.title, data.event_type))
+      }
+    }).catch((err: unknown) => {
+      logError('GreetingCardPage: failed to load', err)
+    })
   }, [eventId])
 
   // Persist text boxes to localStorage — debounced 500ms to avoid writing on every drag pixel
@@ -410,6 +427,7 @@ export default function GreetingCardPage(): React.ReactElement {
   }, [])
 
   function updateBox<K extends keyof TextBox>(id: string, key: K, value: TextBox[K]): void {
+    hasUserEditedRef.current = true
     if (key === 'text') {
       setUserHasEditedText(true)
     } else {
@@ -421,6 +439,7 @@ export default function GreetingCardPage(): React.ReactElement {
   }
 
   function toggleProp(id: string, key: 'bold' | 'italic' | 'underline' | 'strikethrough'): void {
+    hasUserEditedRef.current = true
     pushHistory(textBoxesRef.current)
     setTextBoxes((prev) =>
       prev.map((b) => (b.id === id ? { ...b, [key]: !b[key] } : b))
@@ -428,6 +447,7 @@ export default function GreetingCardPage(): React.ReactElement {
   }
 
   function deleteBox(id: string): void {
+    hasUserEditedRef.current = true
     pushHistory(textBoxesRef.current)
     setTextBoxes((prev) => prev.filter((b) => b.id !== id))
     if (selectedId === id) setSelectedId(null)
@@ -435,6 +455,7 @@ export default function GreetingCardPage(): React.ReactElement {
   }
 
   function addTextBox(): void {
+    hasUserEditedRef.current = true
     pushHistory(textBoxesRef.current)
     const newBox: TextBox = {
       id: makeId(),
@@ -526,6 +547,7 @@ export default function GreetingCardPage(): React.ReactElement {
     setUploading(true)
     try {
       const url = await uploadImage(file, eventId)
+      hasUserEditedRef.current = true
       setBgUrl(url)
       setBgGradient(GRADIENT_PRESETS[0]!)
       localStorage.setItem(`card-bg-${eventId}`, url)
@@ -540,37 +562,100 @@ export default function GreetingCardPage(): React.ReactElement {
   }
 
   // -------------------------------------------------------------------------
+  // Auto-save helpers
+  // -------------------------------------------------------------------------
+
+  // Builds the updated tiles array with current card settings patched in.
+  // Shared by auto-save and handleNext to avoid duplication.
+  function buildUpdatedTiles(
+    tiles: import('@/lib/invite/schema').Tile[],
+    currentBgUrl: string | null,
+    currentBgGradient: string,
+    currentTextBoxes: TextBox[],
+  ): import('@/lib/invite/schema').Tile[] {
+    const cardSettings: GreetingCardTileSettings = {
+      src: currentBgUrl ?? undefined,
+      backgroundGradient: currentBgUrl ? undefined : currentBgGradient,
+      textOverlays: currentTextBoxes,
+    }
+    const hasGreetingCardTiles = tiles.some((t) => t.type === 'greeting-card')
+    const hasImageTiles = tiles.some((t) => t.type === 'image')
+
+    let updated = tiles.map((t) => {
+      if (hasGreetingCardTiles) {
+        if (t.type !== 'greeting-card') return t
+        return { ...t, settings: { ...(t.settings as GreetingCardTileSettings), ...cardSettings } }
+      }
+      if (!hasImageTiles || t.type !== 'image') return t
+      return {
+        ...t,
+        settings: { ...(t.settings as ImageTileSettings), ...cardSettings, fitMode: 'full-image' as const },
+      }
+    })
+
+    if (!hasGreetingCardTiles && !hasImageTiles) {
+      const maxOrder = Math.max(...tiles.map((t) => t.order ?? 0), 0)
+      updated = [
+        ...updated,
+        {
+          id: `tile-greeting-card-${Date.now().toString(36)}`,
+          type: 'greeting-card' as const,
+          enabled: false,
+          order: maxOrder + 1,
+          settings: cardSettings,
+        },
+      ]
+    }
+    return updated
+  }
+
+  async function performSave(): Promise<void> {
+    if (isSavingRef.current) return
+    isSavingRef.current = true
+    setAutoSaveStatus('saving')
+    try {
+      const existing = await getInvitePage(eventId)
+      if (existing) {
+        const updatedTiles = buildUpdatedTiles(existing.config.tiles ?? [], bgUrl, bgGradient, textBoxes)
+        await updateInvitePage(eventId, { config: { ...existing.config, tiles: updatedTiles } })
+      }
+      setAutoSaveStatus('saved')
+    } catch (err) {
+      logError('GreetingCardPage: auto-save failed', err)
+      setAutoSaveStatus('error')
+    } finally {
+      isSavingRef.current = false
+    }
+  }
+
+  // Debounced auto-save — fires 2s after any state change the user caused
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!hasUserEditedRef.current || !eventId || isNaN(eventId)) return
+    const timer = setTimeout(() => { void performSave() }, 2000)
+    return () => clearTimeout(timer)
+  }, [bgUrl, bgGradient, textBoxes, eventId])
+
+  // Auto-dismiss "Saved ✓" indicator after 3s
+  useEffect(() => {
+    if (autoSaveStatus !== 'saved') return
+    const t = setTimeout(() => setAutoSaveStatus('idle'), 3000)
+    return () => clearTimeout(t)
+  }, [autoSaveStatus])
+
+  // -------------------------------------------------------------------------
   // Next step
   // -------------------------------------------------------------------------
 
   async function handleNext(): Promise<void> {
-    const hasExplicitSelection = !!bgUrl || !!localStorage.getItem(`card-gradient-${eventId}`)
-    if (hasExplicitSelection) {
-      setSaving(true)
-      try {
-        const existing = await getInvitePage(eventId)
-        if (existing) {
-          const updatedTiles = (existing.config.tiles ?? []).map((t) =>
-            t.type === 'image'
-              ? {
-                  ...t,
-                  settings: {
-                    ...(t.settings as ImageTileSettings),
-                    src: bgUrl ?? undefined,
-                    backgroundGradient: bgUrl ? undefined : bgGradient,
-                    fitMode: 'full-image' as const,
-                    textOverlays: textBoxes,
-                  },
-                }
-              : t
-          )
-          await updateInvitePage(eventId, { config: { ...existing.config, tiles: updatedTiles } })
-        }
-      } catch {
-        // Non-fatal: layout step reads from localStorage as fallback
-      } finally {
-        setSaving(false)
-      }
+    // Flush any pending auto-save immediately before navigating
+    setSaving(true)
+    try {
+      await performSave()
+    } catch {
+      // Non-fatal: layout step can read from localStorage as fallback
+    } finally {
+      setSaving(false)
     }
     router.push(`/host/events/${eventId}/layout`)
   }
@@ -634,11 +719,25 @@ export default function GreetingCardPage(): React.ReactElement {
             <span className="text-xs text-gray-500 truncate max-w-[180px]">{event.title}</span>
           )}
 
-          {bgUrl && (
-            <span className="ml-auto text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
-              Custom image active
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-3">
+            {autoSaveStatus === 'saving' && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
+                Autosaving…
+              </span>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <span className="text-xs text-green-600">Saved ✓</span>
+            )}
+            {autoSaveStatus === 'error' && (
+              <span className="text-xs text-red-500">Save failed</span>
+            )}
+            {bgUrl && (
+              <span className="text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
+                Custom image active
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Row 2: text format toolbar — always visible */}
@@ -1049,6 +1148,7 @@ export default function GreetingCardPage(): React.ReactElement {
         <BgModal
           onClose={() => setShowBgModal(false)}
           onSelectGradient={(gradient) => {
+            hasUserEditedRef.current = true
             setBgGradient(gradient)
             setBgUrl(null)
             localStorage.setItem(`card-gradient-${eventId}`, gradient)
@@ -1056,6 +1156,7 @@ export default function GreetingCardPage(): React.ReactElement {
             setShowBgModal(false)
           }}
           onSelectSample={(sample) => {
+            hasUserEditedRef.current = true
             setBgUrl(sample.background_image_url)
             setBgGradient(GRADIENT_PRESETS[0]!)
             localStorage.setItem(`card-bg-${eventId}`, sample.background_image_url)

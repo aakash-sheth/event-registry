@@ -43,6 +43,7 @@ interface DragState {
 export interface Props {
   open: boolean
   bgSrc: string | undefined
+  bgGradient?: string
   initialOverlays: TextOverlay[]
   onSave: (overlays: TextOverlay[]) => void
   onClose: () => void
@@ -77,6 +78,7 @@ function overlayToTextBox(overlay: TextOverlay): TextBox {
 export default function TextOverlayEditorModal({
   open,
   bgSrc,
+  bgGradient,
   initialOverlays,
   onSave,
   onClose,
@@ -214,7 +216,7 @@ export default function TextOverlayEditorModal({
   // ------------------------------------------------------------------
 
   function handleSave(): void {
-    const overlays: TextOverlay[] = textBoxes.map(({ height: _height, ...rest }) => rest)
+    const overlays: TextOverlay[] = textBoxes.map((box) => ({ ...box }))
     onSave(overlays)
     onClose()
   }
@@ -390,16 +392,16 @@ export default function TextOverlayEditorModal({
 
           {/* Canvas area */}
           <div className="flex-1 flex flex-col items-center justify-start px-4 py-6 bg-gray-100 overflow-auto min-h-0">
-            {!bgSrc ? (
+            {!bgSrc && !bgGradient ? (
               <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-                <p className="text-sm">No image set — upload an image first, then re-open this editor.</p>
+                <p className="text-sm">No background set — set a background image or gradient first.</p>
               </div>
             ) : (
               <div style={{ height: '62vh', aspectRatio: '9 / 16' }} className="relative select-none">
                 <div
                   ref={canvasRef}
                   className="relative overflow-hidden rounded-2xl shadow-2xl"
-                  style={{ width: '100%', height: '100%' }}
+                  style={{ width: '100%', height: '100%', background: !bgSrc && bgGradient ? bgGradient : undefined }}
                   onPointerMove={handleCanvasPointerMove}
                   onPointerUp={handleCanvasPointerUp}
                   onPointerLeave={handleCanvasPointerUp}
@@ -410,12 +412,14 @@ export default function TextOverlayEditorModal({
                     }
                   }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={bgSrc}
-                    alt="Background"
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                  />
+                  {bgSrc && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={bgSrc}
+                      alt="Background"
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    />
+                  )}
 
                   {textBoxes.map((box) => {
                     const isSelected = selectedId === box.id
