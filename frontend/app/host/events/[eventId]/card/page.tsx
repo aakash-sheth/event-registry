@@ -50,23 +50,22 @@ interface DragState {
 // Constants
 // ---------------------------------------------------------------------------
 
-const GRADIENT_PRESETS: string[] = [
-  'linear-gradient(135deg, #fce4ec 0%, #f48fb1 100%)',
-  'linear-gradient(135deg, #e8f5e9 0%, #66bb6a 100%)',
-  'linear-gradient(135deg, #ede7f6 0%, #9575cd 100%)',
-  'linear-gradient(135deg, #fff8e1 0%, #ffb300 100%)',
-  'linear-gradient(135deg, #e3f2fd 0%, #42a5f5 100%)',
-  'linear-gradient(135deg, #fce4ec 0%, #e91e63 100%)',
-  'linear-gradient(135deg, #f1f8e9 0%, #8bc34a 100%)',
-  'linear-gradient(135deg, #eceff1 0%, #607d8b 100%)',
-  'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)',
-  'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
-  'linear-gradient(135deg, #2c3e50 0%, #3498db 100%)',
-  'linear-gradient(135deg, #000000 0%, #434343 100%)',
-  'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)',
-  'linear-gradient(135deg, #134e5e 0%, #71b280 100%)',
-  'linear-gradient(135deg, #ee0979 0%, #ff6a00 100%)',
-  'linear-gradient(135deg, #c94b4b 0%, #4b134f 100%)',
+const GRADIENT_PRESETS: { label: string; value: string }[] = [
+  { label: 'Rose Blush',  value: 'linear-gradient(135deg, #fce4ec, #f48fb1)' },
+  { label: 'Sage Mist',   value: 'linear-gradient(135deg, #e8f5e9, #81c784)' },
+  { label: 'Dusk Blue',   value: 'linear-gradient(135deg, #e3f2fd, #64b5f6)' },
+  { label: 'Golden Hour', value: 'linear-gradient(135deg, #fff8e1, #ffca28)' },
+  { label: 'Lavender',    value: 'linear-gradient(135deg, #f3e5f5, #ce93d8)' },
+  { label: 'Peach Cream', value: 'linear-gradient(135deg, #fff3e0, #ffb74d)' },
+  { label: 'Midnight',    value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
+  { label: 'Forest',      value: 'linear-gradient(135deg, #1b4332, #40916c)' },
+]
+
+const GRADIENT_DIRECTIONS = [
+  { label: '↘ Diagonal', value: '135deg' },
+  { label: '↓ Down',     value: '180deg' },
+  { label: '→ Right',    value: '90deg'  },
+  { label: '↗ Up-right', value: '45deg'  },
 ]
 
 const SUBTITLE_MAP: Record<string, string> = {
@@ -135,16 +134,35 @@ function buildInitialBoxes(title: string, eventType: string): TextBox[] {
 // Sub-component: Background Library Modal
 // ---------------------------------------------------------------------------
 
+function parseLinearGradient(css: string): { angle: string; color1: string; color2: string } {
+  const defaults = { angle: '135deg', color1: '#fce4ec', color2: '#f48fb1' }
+  if (!css) return defaults
+  const m = css.match(/linear-gradient\(\s*([^,]+),\s*(#[0-9a-fA-F]{3,6})[^,]*,\s*(#[0-9a-fA-F]{3,6})/)
+  if (!m) return defaults
+  return { angle: m[1]!.trim(), color1: m[2]!, color2: m[3]! }
+}
+
 interface BgModalProps {
   onClose: () => void
   onSelectGradient: (gradient: string) => void
   onSelectSample: (sample: GreetingCardSample) => void
+  currentGradient: string
+  onUploadClick: () => void
 }
 
-function BgModal({ onClose, onSelectGradient, onSelectSample }: BgModalProps): React.ReactElement {
+function BgModal({ onClose, onSelectGradient, onSelectSample, currentGradient, onUploadClick }: BgModalProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<'samples' | 'gradients' | 'gifs'>('samples')
   const [samples, setSamples] = useState<GreetingCardSample[]>([])
   const [loadingSamples, setLoadingSamples] = useState(false)
+
+  const parsedGrad = React.useMemo(() => parseLinearGradient(currentGradient), [currentGradient])
+  const [gradAngle, setGradAngle] = useState(parsedGrad.angle)
+  const [gradColor1, setGradColor1] = useState(parsedGrad.color1)
+  const [gradColor2, setGradColor2] = useState(parsedGrad.color2)
+
+  function applyCustomGradient(angle: string, c1: string, c2: string) {
+    onSelectGradient(`linear-gradient(${angle}, ${c1}, ${c2})`)
+  }
 
   // Fetch samples when tab is shown
   React.useEffect(() => {
@@ -243,24 +261,78 @@ function BgModal({ onClose, onSelectGradient, onSelectSample }: BgModalProps): R
           )}
 
           {activeTab === 'gradients' && (
-            <div className="grid grid-cols-4 gap-3">
-              {GRADIENT_PRESETS.map((gradient, i) => (
-                <button
-                  key={i}
-                  aria-label={`Gradient preset ${i + 1}`}
-                  onClick={() => onSelectGradient(gradient)}
-                  className="h-20 rounded-xl border-2 border-transparent hover:border-blue-400 transition-all hover:scale-105"
-                  style={{ background: gradient }}
-                />
-              ))}
+            <div className="space-y-4">
+              {/* Preset swatches */}
+              <div className="grid grid-cols-4 gap-3">
+                {GRADIENT_PRESETS.map((g) => (
+                  <button
+                    key={g.value}
+                    aria-label={g.label}
+                    title={g.label}
+                    onClick={() => onSelectGradient(g.value)}
+                    className="h-20 rounded-xl border-2 border-transparent hover:border-blue-400 transition-all hover:scale-105"
+                    style={{ background: g.value }}
+                  />
+                ))}
+              </div>
+
+              {/* Custom gradient builder */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+                <p className="text-xs font-medium text-gray-600">Custom gradient</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={gradColor1}
+                    onChange={(e) => {
+                      setGradColor1(e.target.value)
+                      applyCustomGradient(gradAngle, e.target.value, gradColor2)
+                    }}
+                    className="w-9 h-9 rounded border border-gray-300 cursor-pointer p-0.5 flex-none"
+                    title="Start color"
+                  />
+                  <div
+                    className="flex-1 h-9 rounded-md border border-gray-200"
+                    style={{ background: `linear-gradient(90deg, ${gradColor1}, ${gradColor2})` }}
+                  />
+                  <input
+                    type="color"
+                    value={gradColor2}
+                    onChange={(e) => {
+                      setGradColor2(e.target.value)
+                      applyCustomGradient(gradAngle, gradColor1, e.target.value)
+                    }}
+                    className="w-9 h-9 rounded border border-gray-300 cursor-pointer p-0.5 flex-none"
+                    title="End color"
+                  />
+                </div>
+                <select
+                  value={gradAngle}
+                  onChange={(e) => {
+                    setGradAngle(e.target.value)
+                    applyCustomGradient(e.target.value, gradColor1, gradColor2)
+                  }}
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
+                >
+                  {GRADIENT_DIRECTIONS.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
           {activeTab === 'gifs' && (
-            <div className="flex items-center justify-center h-40 text-center">
+            <div className="flex flex-col items-center justify-center h-40 text-center gap-3">
               <p className="text-gray-500 text-sm leading-relaxed">
-                GIF library coming soon — upload your own GIF using &quot;Upload Background&quot;
+                No GIF library yet — but you can upload any GIF as your background.
               </p>
+              <button
+                type="button"
+                onClick={() => { onClose(); onUploadClick() }}
+                className="text-sm text-blue-600 underline hover:text-blue-800"
+              >
+                Upload a GIF
+              </button>
             </div>
           )}
         </div>
@@ -295,7 +367,7 @@ export default function GreetingCardPage(): React.ReactElement {
   // State
   const [event, setEvent] = useState<{ title: string; event_type: string } | null>(null)
   const [bgUrl, setBgUrl] = useState<string | null>(null)
-  const [bgGradient, setBgGradient] = useState<string>(GRADIENT_PRESETS[0]!)
+  const [bgGradient, setBgGradient] = useState<string>(GRADIENT_PRESETS[0]!.value)
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -328,7 +400,7 @@ export default function GreetingCardPage(): React.ReactElement {
       if (hasBackendContent) {
         // Backend is authoritative — use it regardless of localStorage
         setBgUrl(gcSettings!.src ?? null)
-        setBgGradient(gcSettings!.backgroundGradient ?? GRADIENT_PRESETS[0]!)
+        setBgGradient(gcSettings!.backgroundGradient ?? GRADIENT_PRESETS[0]!.value)
         setTextBoxes((gcSettings!.textOverlays ?? []) as TextBox[])
         setUserHasEditedText(true)
         return
@@ -341,7 +413,7 @@ export default function GreetingCardPage(): React.ReactElement {
 
       if (savedBg) {
         setBgUrl(savedBg)
-        setBgGradient(GRADIENT_PRESETS[0]!)
+        setBgGradient(GRADIENT_PRESETS[0]!.value)
       } else if (savedGradient) {
         setBgGradient(savedGradient)
       }
@@ -549,7 +621,7 @@ export default function GreetingCardPage(): React.ReactElement {
       const url = await uploadImage(file, eventId)
       hasUserEditedRef.current = true
       setBgUrl(url)
-      setBgGradient(GRADIENT_PRESETS[0]!)
+      setBgGradient(GRADIENT_PRESETS[0]!.value)
       localStorage.setItem(`card-bg-${eventId}`, url)
       localStorage.removeItem(`card-gradient-${eventId}`)
     } catch (err: unknown) {
@@ -1147,6 +1219,8 @@ export default function GreetingCardPage(): React.ReactElement {
       {showBgModal && (
         <BgModal
           onClose={() => setShowBgModal(false)}
+          currentGradient={bgGradient}
+          onUploadClick={() => fileInputRef.current?.click()}
           onSelectGradient={(gradient) => {
             hasUserEditedRef.current = true
             setBgGradient(gradient)
@@ -1158,7 +1232,7 @@ export default function GreetingCardPage(): React.ReactElement {
           onSelectSample={(sample) => {
             hasUserEditedRef.current = true
             setBgUrl(sample.background_image_url)
-            setBgGradient(GRADIENT_PRESETS[0]!)
+            setBgGradient(GRADIENT_PRESETS[0]!.value)
             localStorage.setItem(`card-bg-${eventId}`, sample.background_image_url)
             localStorage.removeItem(`card-gradient-${eventId}`)
             setShowBgModal(false)

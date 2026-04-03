@@ -1,5 +1,6 @@
 import React from 'react'
 import { GreetingCardTileSettings } from '@/lib/invite/schema'
+import { convertToCloudFrontUrl } from '@/lib/image-utils'
 
 interface GreetingCardTileSSRProps {
   settings: GreetingCardTileSettings
@@ -85,7 +86,7 @@ export default function GreetingCardTileSSR({ settings }: GreetingCardTileSSRPro
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={settings.src}
+          src={convertToCloudFrontUrl(settings.src!)}
           alt="Greeting card"
           loading="eager"
           decoding="async"

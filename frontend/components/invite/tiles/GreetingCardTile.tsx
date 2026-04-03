@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { GreetingCardTileSettings } from '@/lib/invite/schema'
+import { convertToCloudFrontUrl } from '@/lib/image-utils'
 
 export interface GreetingCardTileProps {
   settings: GreetingCardTileSettings
@@ -90,7 +91,7 @@ export default function GreetingCardTile({ settings, preview = false }: Greeting
         style={{ aspectRatio: '9 / 16' }}
       >
         <img
-          src={settings.src}
+          src={convertToCloudFrontUrl(settings.src!)}
           alt="Greeting card"
           loading="eager"
           decoding="async"

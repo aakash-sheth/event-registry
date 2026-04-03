@@ -1,6 +1,7 @@
 import React from 'react'
 import { ImageTileSettings } from '@/lib/invite/schema'
 import { cn } from '@/lib/utils'
+import { convertToCloudFrontUrl } from '@/lib/image-utils'
 
 interface ImageTileSSRProps {
   settings: ImageTileSettings
@@ -106,7 +107,7 @@ export default function ImageTileSSR({ settings, hasTitleOverlay = false }: Imag
         }}
       >
         <img 
-          src={settings.src} 
+          src={convertToCloudFrontUrl(settings.src)}
           alt="Event"
           loading="eager"
           decoding="async"

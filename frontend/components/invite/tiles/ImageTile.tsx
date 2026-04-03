@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { ImageTileSettings } from '@/lib/invite/schema'
 import { cn } from '@/lib/utils'
+import { convertToCloudFrontUrl } from '@/lib/image-utils'
 
 export interface ImageTileProps {
   settings: ImageTileSettings
@@ -263,7 +264,7 @@ export default function ImageTile({ settings, preview = false }: ImageTileProps)
       // Uses adaptive viewport height: 100dvh for modern mobile browsers, 100vh fallback for others
       const imgEl = (
         <img
-          src={settings.src}
+          src={convertToCloudFrontUrl(settings.src ?? '')}
           alt="Event"
           loading="eager"
           decoding="async"
@@ -316,7 +317,7 @@ export default function ImageTile({ settings, preview = false }: ImageTileProps)
           style={{ aspectRatio: '9 / 16' }}
         >
           <img
-            src={settings.src}
+            src={convertToCloudFrontUrl(settings.src ?? '')}
             alt="Event"
             loading="eager"
             decoding="async"
@@ -341,7 +342,7 @@ export default function ImageTile({ settings, preview = false }: ImageTileProps)
 
     const coverImgEl = (
       <img
-        src={settings.src}
+        src={convertToCloudFrontUrl(settings.src ?? '')}
         alt="Event"
         loading="eager"
         decoding="async"
@@ -382,7 +383,7 @@ export default function ImageTile({ settings, preview = false }: ImageTileProps)
 
   const editorImg = (
     <img
-      src={settings.src}
+      src={convertToCloudFrontUrl(settings.src ?? '')}
       alt="Preview"
       className={cn(
         'w-full object-cover',
