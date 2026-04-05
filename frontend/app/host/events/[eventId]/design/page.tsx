@@ -427,6 +427,10 @@ export default function DesignInvitationPage(): JSX.Element {
         }
       }
 
+      // If user clicked Next in card studio, the layout page already wrote the GC tile
+      // as enabled:true into event.page_config. If for any reason it's still disabled
+      // or missing (e.g. user navigated directly to design page with ?gc=committed),
+      // enable/inject it now synchronously — no network call, no race condition.
       // Set the final config
       if (finalConfig) {
         setConfig(finalConfig)
@@ -1386,18 +1390,30 @@ export default function DesignInvitationPage(): JSX.Element {
               ) : (
                 <TemplateLibrary
                   templates={apiTemplates}
-                  onSelect={(templateId) => {
+                  onSelect={async (templateId) => {
                     const t = getTemplateFromList(templateId)
                     if (!t) {
                       showToast('Template no longer available.', 'error')
                       return
                     }
                     if (event) {
-                      const next = applyTemplate(t.config, {
+                      const templateHasGC = t.config?.tiles?.some((tile: { type: string }) => tile.type === 'greeting-card')
+
+                      // Warn if the current config has an enabled GC tile but the new template doesn't
+                      const currentHasEnabledGC = config.tiles?.some(tile => tile.type === 'greeting-card' && tile.enabled)
+                      if (currentHasEnabledGC && !templateHasGC) {
+                        const confirmed = confirm(
+                          "This template doesn't include a greeting card. Your greeting card will be disabled — you can re-enable it manually from Tile Settings."
+                        )
+                        if (!confirmed) return
+                      }
+
+                      let next = applyTemplate(t.config, {
                         title: event.title,
                         date: event.date,
                         city: event.city,
                       })
+
                       setConfig(next)
                       if (next.tiles?.length) {
                         const order = new Map<string, number>()

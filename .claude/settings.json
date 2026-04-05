@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"applyTemplate\" /Users/aakashsheth/Wedding registry code/frontend/app/host/events/[eventId]/design/page.tsx)"
+    ]
+  }
+}

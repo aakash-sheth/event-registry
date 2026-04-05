@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import api, { uploadImage } from '@/lib/api'
-import { getInvitePage, updateInvitePage, getGreetingCardSamples, type GreetingCardSample } from '@/lib/invite/api'
+import { getInvitePage, updateInvitePage, createInvitePage, getGreetingCardSamples, type GreetingCardSample } from '@/lib/invite/api'
+import { getEventPageConfig, updateEventPageConfig } from '@/lib/event/api'
 import type { ImageTileSettings, GreetingCardTileSettings } from '@/lib/invite/schema'
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import WizardProgress from '@/components/host/WizardProgress'
@@ -644,6 +645,7 @@ export default function GreetingCardPage(): React.ReactElement {
     currentBgUrl: string | null,
     currentBgGradient: string,
     currentTextBoxes: TextBox[],
+    enableTile = false,
   ): import('@/lib/invite/schema').Tile[] {
     const cardSettings: GreetingCardTileSettings = {
       src: currentBgUrl ?? undefined,
@@ -656,7 +658,7 @@ export default function GreetingCardPage(): React.ReactElement {
     let updated = tiles.map((t) => {
       if (hasGreetingCardTiles) {
         if (t.type !== 'greeting-card') return t
-        return { ...t, settings: { ...(t.settings as GreetingCardTileSettings), ...cardSettings } }
+        return { ...t, enabled: enableTile ? true : t.enabled, settings: { ...(t.settings as GreetingCardTileSettings), ...cardSettings } }
       }
       if (!hasImageTiles || t.type !== 'image') return t
       return {
@@ -672,7 +674,7 @@ export default function GreetingCardPage(): React.ReactElement {
         {
           id: `tile-greeting-card-${Date.now().toString(36)}`,
           type: 'greeting-card' as const,
-          enabled: false,
+          enabled: enableTile,
           order: maxOrder + 1,
           settings: cardSettings,
         },
@@ -681,15 +683,20 @@ export default function GreetingCardPage(): React.ReactElement {
     return updated
   }
 
-  async function performSave(): Promise<void> {
+  async function performSave(enableTile = false): Promise<void> {
     if (isSavingRef.current) return
     isSavingRef.current = true
     setAutoSaveStatus('saving')
     try {
       const existing = await getInvitePage(eventId)
       if (existing) {
-        const updatedTiles = buildUpdatedTiles(existing.config.tiles ?? [], bgUrl, bgGradient, textBoxes)
+        const updatedTiles = buildUpdatedTiles(existing.config.tiles ?? [], bgUrl, bgGradient, textBoxes, enableTile)
         await updateInvitePage(eventId, { config: { ...existing.config, tiles: updatedTiles } })
+      } else {
+        // No InvitePage yet — create one with just the GC tile.
+        // The design page will merge this into the full config on load.
+        const gcTile = buildUpdatedTiles([], bgUrl, bgGradient, textBoxes, enableTile)
+        await createInvitePage(eventId, { config: { themeId: 'classic-noir', tiles: gcTile } })
       }
       setAutoSaveStatus('saved')
     } catch (err) {
@@ -720,12 +727,37 @@ export default function GreetingCardPage(): React.ReactElement {
   // -------------------------------------------------------------------------
 
   async function handleNext(): Promise<void> {
-    // Flush any pending auto-save immediately before navigating
     setSaving(true)
     try {
-      await performSave()
-    } catch {
-      // Non-fatal: layout step can read from localStorage as fallback
+      // Write the GC tile as enabled:true directly into event.page_config.
+      // This is the same store the design page reads on load — no race, no separate fetch.
+      const pageConfig = await getEventPageConfig(eventId)
+      const existingConfig = pageConfig?.page_config
+      const cardSettings: GreetingCardTileSettings = {
+        src: bgUrl ?? undefined,
+        backgroundGradient: bgUrl ? undefined : bgGradient,
+        textOverlays: textBoxes,
+      }
+
+      const baseConfig = existingConfig ?? { themeId: 'classic-noir', tiles: [] }
+      const hasGC = baseConfig.tiles?.some(t => t.type === 'greeting-card')
+      let updatedTiles
+      if (hasGC) {
+        updatedTiles = baseConfig.tiles!.map(t =>
+          t.type === 'greeting-card'
+            ? { ...t, enabled: true, settings: { ...(t.settings as GreetingCardTileSettings), ...cardSettings } }
+            : t
+        )
+      } else {
+        const maxOrder = Math.max(...(baseConfig.tiles?.map(t => t.order ?? 0) ?? [0]), 0)
+        updatedTiles = [
+          ...(baseConfig.tiles ?? []),
+          { id: `tile-greeting-card-${Date.now().toString(36)}`, type: 'greeting-card' as const, enabled: true, order: maxOrder + 1, settings: cardSettings },
+        ]
+      }
+      await updateEventPageConfig(eventId, { ...baseConfig, tiles: updatedTiles })
+    } catch (err) {
+      logError('GreetingCardPage: handleNext save failed', err)
     } finally {
       setSaving(false)
     }
