@@ -40,6 +40,12 @@ from .serializers import (
     MessageCampaignSerializer, MessageCampaignCreateSerializer, CampaignRecipientSerializer,
 )
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
+from .guest_import import (
+    MAX_JSON_IMPORT_GUESTS,
+    STANDARD_FIELDS as GUEST_IMPORT_STANDARD_FIELDS,
+    parse_vcf_bytes,
+    process_guest_import_rows,
+)
 from apps.items.models import RegistryItem
 from apps.items.serializers import RegistryItemSerializer
 from django.core.cache import cache
@@ -848,28 +854,28 @@ class EventViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='guests/import')
     def import_guests(self, request, id=None):
-        """Import guests from CSV, TXT, or Excel file"""
+        """Import guests from CSV, TXT, Excel, or vCard (.vcf) file."""
         event = self.get_object()
         self._verify_event_ownership(event)
-        
+
         if 'file' not in request.FILES:
             return Response(
                 {'error': 'No file provided'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        file = request.FILES['file']
-        file_extension = file.name.split('.')[-1].lower()
-        
-        if file_extension not in ['csv', 'txt', 'xlsx', 'xls']:
+
+        upload = request.FILES['file']
+        file_extension = upload.name.split('.')[-1].lower()
+
+        if file_extension not in ['csv', 'txt', 'xlsx', 'xls', 'vcf', 'vcard']:
             return Response(
-                {'error': 'Invalid file type. Please upload a CSV, TXT, or Excel file.'},
+                {
+                    'error': 'Invalid file type. Please upload a CSV, TXT, Excel, or vCard (.vcf) file.'
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        created = 0
-        errors = []
-        event_country_code = get_country_code(event.country)
+
+        errors: list = []
         CUSTOM_FIELDS_MAX = 50
         CUSTOM_FIELD_KEY_RE = re.compile(r'^[a-z0-9_]{1,50}$')
 
@@ -877,16 +883,11 @@ class EventViewSet(viewsets.ModelViewSet):
             s = (s or '').strip()
             if not s:
                 return ''
-            # Normalize separators to spaces for nicer labels
             s = re.sub(r'[_\-]+', ' ', s)
             s = re.sub(r'\s+', ' ', s).strip()
             return s.title()[:80]
 
         def _normalize_custom_fields_metadata(meta):
-            """
-            Normalize custom_fields_metadata to dict[str, dict] while preserving backward compatibility:
-            - Old format: {key: "Label"} becomes {key: {display_label: "Label", active: True}}
-            """
             if not isinstance(meta, dict):
                 return {}
             normalized = {}
@@ -904,55 +905,57 @@ class EventViewSet(viewsets.ModelViewSet):
                         'active': True,
                     }
             return normalized
-        
-        try:
-            custom_headers_to_upsert = []  # list[tuple[normalized_key, display_label]]
 
-            # Parse file based on extension
+        try:
+            if file_extension in ('vcf', 'vcard'):
+                raw_bytes = upload.read()
+                try:
+                    labeled_rows = parse_vcf_bytes(raw_bytes)
+                except ValueError as e:
+                    return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                created, row_errors = process_guest_import_rows(event, labeled_rows)
+                response_data = {'created': created}
+                if row_errors:
+                    response_data['errors'] = row_errors
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            custom_headers_to_upsert = []
+
             if file_extension in ['csv', 'txt']:
                 import io
                 import csv as csv_module
-                
-                # Read CSV/TXT file
-                file_content = file.read().decode('utf-8-sig')  # Handle BOM
-                
-                # Try to detect delimiter (comma or tab)
-                # Check first line for tabs vs commas
+
+                file_content = upload.read().decode('utf-8-sig')
                 first_line = file_content.split('\n')[0] if '\n' in file_content else file_content
                 delimiter = '\t' if '\t' in first_line else ','
-                
+
                 csv_reader = csv_module.DictReader(io.StringIO(file_content), delimiter=delimiter)
                 rows = list(csv_reader)
                 raw_headers = csv_reader.fieldnames or []
             else:
-                # Excel file
                 from openpyxl import load_workbook
-                
-                workbook = load_workbook(file, read_only=True, data_only=True)
+
+                workbook = load_workbook(upload, read_only=True, data_only=True)
                 sheet = workbook.active
-                
-                # Get headers from first row
+
                 headers = []
                 for cell in sheet[1]:
                     headers.append(str(cell.value).strip() if cell.value else '')
                 raw_headers = headers
-                
-                # Read data rows
+
                 rows = []
                 for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
                     row_dict = {}
                     for idx, header in enumerate(headers):
-                        if header:  # Only add non-empty headers
+                        if header:
                             value = row[idx] if idx < len(row) else None
                             row_dict[header] = str(value).strip() if value is not None else ''
-                    if any(row_dict.values()):  # Only add non-empty rows
+                    if any(row_dict.values()):
                         rows.append((row_num, row_dict))
-                
+
                 workbook.close()
 
-            # Upsert custom field schema at event level (so empty values can be filled later and manual adds see fields)
-            # Standard fields are excluded; everything else is a custom field candidate.
-            standard_fields = {'name', 'phone', 'email', 'relationship', 'notes', 'country_code', 'country_iso'}
+            standard_fields = set(GUEST_IMPORT_STANDARD_FIELDS)
             for raw_header in raw_headers:
                 if not raw_header:
                     continue
@@ -960,9 +963,10 @@ class EventViewSet(viewsets.ModelViewSet):
                 if not normalized_key or normalized_key in standard_fields:
                     continue
                 if not CUSTOM_FIELD_KEY_RE.match(normalized_key):
-                    # Ignore invalid keys rather than failing entire import
                     continue
-                custom_headers_to_upsert.append((normalized_key, _title_case_label(str(raw_header)) or normalized_key))
+                custom_headers_to_upsert.append(
+                    (normalized_key, _title_case_label(str(raw_header)) or normalized_key)
+                )
 
             if custom_headers_to_upsert:
                 meta = _normalize_custom_fields_metadata(getattr(event, 'custom_fields_metadata', {}) or {})
@@ -974,8 +978,8 @@ class EventViewSet(viewsets.ModelViewSet):
                     if existing_count >= CUSTOM_FIELDS_MAX:
                         if not any('Too many custom fields' in e for e in errors):
                             errors.append(
-                                f"Too many custom columns detected. Max allowed is {CUSTOM_FIELDS_MAX}. "
-                                f"Extra custom columns will be ignored."
+                                f'Too many custom columns detected. Max allowed is {CUSTOM_FIELDS_MAX}. '
+                                f'Extra custom columns will be ignored.'
                             )
                         break
                     meta[normalized_key] = {
@@ -988,112 +992,98 @@ class EventViewSet(viewsets.ModelViewSet):
 
                 if changed:
                     event.custom_fields_metadata = meta
-                    # Include updated_at so the auto_now field updates even when using update_fields
                     event.save(update_fields=['custom_fields_metadata', 'updated_at'])
-            
-            # Process each row
-            for idx, row in enumerate(rows, start=2):  # Start at 2 (1 is header)
-                # Handle Excel format (tuple with row_num) vs CSV format (dict)
+
+            labeled_rows = []
+            for idx, row in enumerate(rows, start=2):
                 if isinstance(row, tuple):
                     row_num, row_dict = row
                     idx = row_num
                     row = row_dict
-                
-                # Normalize keys (handle case-insensitive, spaces, etc.)
+
                 normalized_row = {}
                 for key, value in row.items():
                     if key:
-                        normalized_key = normalize_csv_header(str(key))
-                        normalized_row[normalized_key] = str(value).strip() if value else ''
-                
-                # Extract required fields
-                name = normalized_row.get('name', '').strip()
-                phone = normalized_row.get('phone', '').strip()
-                
-                # Validate required fields
-                if not name:
-                    errors.append(f"Row {idx}: Name is required")
-                    continue
-                
-                if not phone:
-                    errors.append(f"Row {idx}: Phone is required")
-                    continue
-                
-                # Handle country code and country_iso
-                # Priority: country_iso > country_code > event country
-                country_iso = normalized_row.get('country_iso', '').strip().upper() or ''
-                country_code_from_csv = normalized_row.get('country_code', '').strip()
-                
-                # If country_iso is provided, use it to get the correct country code
-                if country_iso:
-                    # Validate country_iso (should be 2 characters)
-                    if len(country_iso) == 2:
-                        country_code = get_country_code(country_iso)
-                    else:
-                        errors.append(f"Row {idx}: Invalid country_iso format (must be 2 characters): {country_iso}")
-                        continue
-                elif country_code_from_csv:
-                    # If country_code is provided but not country_iso, use the provided country_code
-                    country_code = country_code_from_csv
-                    if not country_code.startswith('+'):
-                        country_code = '+' + country_code.lstrip('+')
-                else:
-                    # Default to event's country code
-                    country_code = event_country_code
-                
-                # Format phone with country code
-                if not phone.startswith('+'):
-                    phone = format_phone_with_country_code(phone, country_code)
-                
-                # Validate phone format (should start with + and have digits)
-                if not phone.startswith('+') or len(phone.replace('+', '')) < 10:
-                    errors.append(f"Row {idx}: Invalid phone number format: {phone}")
-                    continue
-                
-                # Check for duplicate phone
-                if Guest.objects.filter(event=event, phone=phone).exists():
-                    errors.append(f"Row {idx}: Phone {phone} already exists")
-                    continue
-                
-                # Extract optional fields
-                email = normalized_row.get('email', '').strip() or None
-                relationship = normalized_row.get('relationship', '').strip() or ''
-                notes = normalized_row.get('notes', '').strip() or ''
-                
-                # Store custom fields (all fields except standard ones)
-                custom_fields = {}
-                for key, value in normalized_row.items():
-                    if key not in standard_fields and value:
-                        custom_fields[key] = value
-                
-                # Create guest
-                try:
-                    guest = Guest.objects.create(
-                        event=event,
-                        name=name,
-                        phone=phone,
-                        email=email,
-                        relationship=relationship,
-                        notes=notes,
-                        country_iso=country_iso[:2] if country_iso else '',  # Limit to 2 chars
-                        custom_fields=custom_fields
-                    )
-                    created += 1
-                except Exception as e:
-                    errors.append(f"Row {idx}: Failed to create guest - {str(e)}")
-                    continue
-            
+                        nk = normalize_csv_header(str(key))
+                        normalized_row[nk] = str(value).strip() if value else ''
+
+                labeled_rows.append((f'Row {idx}', normalized_row))
+
+            created, row_errors = process_guest_import_rows(event, labeled_rows)
+            all_errors = errors + row_errors
             response_data = {'created': created}
-            if errors:
-                response_data['errors'] = errors
-            
+            if all_errors:
+                response_data['errors'] = all_errors
             return Response(response_data, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             return Response(
                 {'error': f'Failed to process file: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+            )
+
+    @action(detail=True, methods=['post'], url_path='guests/import-json')
+    def import_guests_json(self, request, id=None):
+        """Bulk-import guests from JSON (e.g. Contact Picker). Body: {\"guests\": [{name, phone, email}]}"""
+        event = self.get_object()
+        self._verify_event_ownership(event)
+
+        guests = request.data.get('guests')
+        if guests is None:
+            return Response(
+                {'error': 'Missing required field: guests'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not isinstance(guests, list):
+            return Response(
+                {'error': 'guests must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(guests) == 0:
+            return Response(
+                {'error': 'No guests to import'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(guests) > MAX_JSON_IMPORT_GUESTS:
+            return Response(
+                {
+                    'error': f'Too many guests in one request. Maximum is {MAX_JSON_IMPORT_GUESTS}.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        labeled_rows = []
+        for i, item in enumerate(guests):
+            label = f'Entry {i + 1}'
+            if not isinstance(item, dict):
+                labeled_rows.append((label, {'name': '', 'phone': '', 'email': ''}))
+                continue
+            phone_raw = item.get('phone')
+            if phone_raw is None:
+                phone_s = ''
+            elif isinstance(phone_raw, (int, float)):
+                if isinstance(phone_raw, float) and phone_raw != int(phone_raw):
+                    phone_s = str(phone_raw).strip()
+                else:
+                    phone_s = str(int(phone_raw))
+            else:
+                phone_s = str(phone_raw).strip()
+
+            name_raw = item.get('name')
+            name_s = '' if name_raw is None else str(name_raw).strip()
+
+            email_raw = item.get('email')
+            email_s = '' if email_raw is None else str(email_raw).strip()
+
+            labeled_rows.append(
+                (label, {'name': name_s, 'phone': phone_s, 'email': email_s})
+            )
+
+        created, row_errors = process_guest_import_rows(event, labeled_rows)
+        response_data = {'created': created}
+        if row_errors:
+            response_data['errors'] = row_errors
+        return Response(response_data, status=status.HTTP_200_OK)
 
     # -------------------------
     # DESIGN / PAGE CONFIG
@@ -2039,44 +2029,66 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
 
         return response
 
-    @action(detail=True, methods=['get'], url_path='guests.csv')
-    def guests_csv(self, request, id=None):
-        """Export guest list (RSVPs) as CSV - host only, privacy protected"""
-        event = self.get_object()
-        self._verify_event_ownership(event)  # Explicit ownership check
 
-        # Get all RSVPs for this event
-        rsvps = RSVP.objects.filter(event=event).order_by('-created_at')
+class EventGuestsCSVExportView(APIView):
+    """
+    Standalone CSV download (not a ViewSet @action) so DRF does not run response
+    rendering that can break plain HttpResponse / file downloads.
+    """
 
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="guest_list_{event.slug}.csv"'
+    permission_classes = [IsAuthenticated]
 
-        writer = csv.writer(response)
-        writer.writerow([
-            'Name',
-            'Phone',
-            'Email',
-            'Will Attend',
-            'Guests Count',
-            'Source Channel',
-            'Notes',
-            'RSVP Date',
-            'Is Removed'
-        ])
+    def get(self, request, id):
+        event = get_object_or_404(Event, id=id, host=request.user)
 
-        for rsvp in rsvps:
-            writer.writerow([
-                rsvp.name,
-                rsvp.phone,
-                rsvp.email or '',
-                rsvp.get_will_attend_display(),
-                rsvp.guests_count,
-                rsvp.get_source_channel_display(),
-                rsvp.notes or '',
-                rsvp.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'Yes' if rsvp.is_removed else 'No',
-            ])
+        guests_list = list(
+            Guest.objects.filter(event=event, is_removed=False).order_by('name')
+        )
 
+        meta = getattr(event, 'custom_fields_metadata', None) or {}
+        custom_keys = []
+        if isinstance(meta, dict):
+            custom_keys = sorted(meta.keys(), key=str)
+        seen = set(custom_keys)
+        for g in guests_list:
+            cf = g.custom_fields if isinstance(g.custom_fields, dict) else {}
+            for k in sorted(cf.keys(), key=str):
+                if k not in seen:
+                    seen.add(k)
+                    custom_keys.append(k)
+
+        import io
+
+        buffer = io.StringIO()
+        buffer.write('\ufeff')
+        writer = csv.writer(buffer)
+        base_headers = ['name', 'phone', 'email', 'relationship', 'notes', 'country_iso']
+        writer.writerow(base_headers + custom_keys)
+
+        for g in guests_list:
+            cf = g.custom_fields if isinstance(g.custom_fields, dict) else {}
+            row = [
+                g.name,
+                g.phone,
+                g.email or '',
+                g.relationship or '',
+                g.notes or '',
+                g.country_iso or '',
+            ]
+            for k in custom_keys:
+                v = cf.get(k, '')
+                row.append('' if v is None else str(v))
+            writer.writerow(row)
+
+        slug_raw = (event.slug or '').strip()
+        slug_safe = re.sub(r'[^A-Za-z0-9_.-]', '_', slug_raw) or f'event_{event.id}'
+        filename = f'guest_list_{slug_safe}.csv'
+
+        response = HttpResponse(
+            buffer.getvalue().encode('utf-8'),
+            content_type='text/csv; charset=utf-8',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
 
@@ -3733,6 +3745,8 @@ class InviteDesignTemplateViewSet(viewsets.ModelViewSet):
     List: hosts see published+public; staff see all (optional ?mine=1).
     Create/Update/Delete: staff only. created_by/updated_by set from request.user.
     """
+    # Full list for host library + staff search (global PAGE_SIZE=20 would truncate).
+    pagination_class = None
     serializer_class = InviteDesignTemplateSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
@@ -3861,6 +3875,8 @@ class GreetingCardSampleViewSet(viewsets.ModelViewSet):
     List/retrieve: all authenticated users (active only for non-staff).
     Create/update/delete: staff only.
     """
+    # Curated list is small; disable global PageNumberPagination (PAGE_SIZE=20) so hosts see all active samples.
+    pagination_class = None
     serializer_class = GreetingCardSampleSerializer
     permission_classes = [IsAuthenticated]
 

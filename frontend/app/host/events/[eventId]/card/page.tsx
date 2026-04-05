@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Search } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import api, { uploadImage } from '@/lib/api'
 import { getInvitePage, updateInvitePage, createInvitePage, getGreetingCardSamples, type GreetingCardSample } from '@/lib/invite/api'
@@ -9,6 +10,8 @@ import type { ImageTileSettings, GreetingCardTileSettings } from '@/lib/invite/s
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import WizardProgress from '@/components/host/WizardProgress'
 import { logError } from '@/lib/error-handler'
+import { Input } from '@/components/ui/input'
+import { fuzzyFilter } from '@/lib/fuzzyFilter'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,6 +158,7 @@ function BgModal({ onClose, onSelectGradient, onSelectSample, currentGradient, o
   const [activeTab, setActiveTab] = useState<'samples' | 'gradients' | 'gifs'>('samples')
   const [samples, setSamples] = useState<GreetingCardSample[]>([])
   const [loadingSamples, setLoadingSamples] = useState(false)
+  const [sampleSearch, setSampleSearch] = useState('')
 
   const parsedGrad = React.useMemo(() => parseLinearGradient(currentGradient), [currentGradient])
   const [gradAngle, setGradAngle] = useState(parsedGrad.angle)
@@ -173,6 +177,11 @@ function BgModal({ onClose, onSelectGradient, onSelectSample, currentGradient, o
       .then(setSamples)
       .finally(() => setLoadingSamples(false))
   }, [activeTab])
+
+  const filteredSamples = useMemo(
+    () => fuzzyFilter(samples, sampleSearch, ['name', 'description', 'tags']),
+    [samples, sampleSearch]
+  )
 
   const TABS = [
     { id: 'samples' as const, label: 'Samples' },
@@ -233,8 +242,23 @@ function BgModal({ onClose, onSelectGradient, onSelectSample, currentGradient, o
                 </p>
               </div>
             ) : (
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
+                  <Input
+                    type="search"
+                    value={sampleSearch}
+                    onChange={(e) => setSampleSearch(e.target.value)}
+                    placeholder="Search samples (typos OK)"
+                    className="pl-9 h-9 text-sm"
+                    aria-label="Search background samples"
+                  />
+                </div>
+                {filteredSamples.length === 0 ? (
+                  <p className="text-center text-gray-500 text-sm py-6">No samples match your search.</p>
+                ) : (
               <div className="grid grid-cols-2 gap-4">
-                {samples.map((sample) => (
+                {filteredSamples.map((sample) => (
                   <button
                     key={sample.id}
                     onClick={() => onSelectSample(sample)}
@@ -257,6 +281,8 @@ function BgModal({ onClose, onSelectGradient, onSelectSample, currentGradient, o
                     </div>
                   </button>
                 ))}
+              </div>
+                )}
               </div>
             )
           )}

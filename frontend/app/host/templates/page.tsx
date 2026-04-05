@@ -1,13 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
+import { Search } from 'lucide-react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { fuzzyFilter } from '@/lib/fuzzyFilter'
 import {
   getInviteDesignTemplatesForStudio,
   type InviteDesignTemplateResponse,
@@ -26,6 +29,20 @@ export default function TemplateStudioListPage() {
   const [templates, setTemplates] = useState<InviteDesignTemplateResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [isStaff, setIsStaff] = useState<boolean | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredTemplates = useMemo(
+    () =>
+      fuzzyFilter(templates, searchQuery, [
+        'name',
+        'description',
+        'preview_alt',
+        'created_by_name',
+        'visibility',
+        'status',
+      ]),
+    [templates, searchQuery]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -98,10 +115,25 @@ export default function TemplateStudioListPage() {
             <CardDescription>All invite design templates. Edit or create new ones.</CardDescription>
           </CardHeader>
           <CardContent>
+            {templates.length > 0 && (
+              <div className="relative mb-4 max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
+                <Input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search templates (typos OK)"
+                  className="pl-9"
+                  aria-label="Search templates"
+                />
+              </div>
+            )}
             {templates.length === 0 ? (
               <p className="text-gray-500 py-8 text-center">
                 No templates yet. Create one with &quot;New template&quot;.
               </p>
+            ) : filteredTemplates.length === 0 ? (
+              <p className="text-gray-500 py-8 text-center">No templates match your search.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -117,7 +149,7 @@ export default function TemplateStudioListPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {templates.map((t) => (
+                    {filteredTemplates.map((t) => (
                       <tr key={t.id} className="border-b">
                         <td className="py-3 pr-4">
                           {t.thumbnail ? (

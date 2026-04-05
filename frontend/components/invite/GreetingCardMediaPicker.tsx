@@ -1,7 +1,10 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { fuzzyFilter } from '@/lib/fuzzyFilter'
 import { getGreetingCardSamples, type GreetingCardSample, type TextOverlay } from '@/lib/invite/api'
 
 interface Props {
@@ -14,9 +17,11 @@ export default function GreetingCardMediaPicker({ open, onClose, onSelect }: Pro
   const [cards, setCards] = useState<GreetingCardSample[]>([])
   const [loading, setLoading] = useState(false)
   const [activeTag, setActiveTag] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     if (!open) return
+    setSearchQuery('')
     setLoading(true)
     getGreetingCardSamples()
       .then(setCards)
@@ -26,7 +31,14 @@ export default function GreetingCardMediaPicker({ open, onClose, onSelect }: Pro
   if (!open) return null
 
   const allTags = Array.from(new Set(cards.flatMap((c) => c.tags))).sort()
-  const filtered = activeTag ? cards.filter((c) => c.tags.includes(activeTag)) : cards
+  const tagFiltered = useMemo(
+    () => (activeTag ? cards.filter((c) => c.tags.includes(activeTag)) : cards),
+    [cards, activeTag]
+  )
+  const filtered = useMemo(
+    () => fuzzyFilter(tagFiltered, searchQuery, ['name', 'description', 'tags']),
+    [tagFiltered, searchQuery]
+  )
 
   return (
     <div
@@ -44,6 +56,20 @@ export default function GreetingCardMediaPicker({ open, onClose, onSelect }: Pro
           >
             ✕
           </button>
+        </div>
+
+        <div className="px-5 py-3 border-b shrink-0">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, tags… (typos OK)"
+              className="pl-9"
+              aria-label="Search greeting card backgrounds"
+            />
+          </div>
         </div>
 
         {/* Tag filters */}
@@ -84,8 +110,10 @@ export default function GreetingCardMediaPicker({ open, onClose, onSelect }: Pro
           )}
 
           {!loading && filtered.length === 0 && (
-            <div className="flex items-center justify-center h-40 text-gray-500 text-sm">
-              No greeting cards found.
+            <div className="flex items-center justify-center h-40 text-gray-500 text-sm text-center px-4">
+              {cards.length === 0
+                ? 'No greeting cards found.'
+                : 'No cards match this search or tag. Try other words or clear filters.'}
             </div>
           )}
 

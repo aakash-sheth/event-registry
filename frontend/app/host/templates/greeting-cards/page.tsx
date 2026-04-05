@@ -1,12 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Search } from 'lucide-react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { fuzzyFilter } from '@/lib/fuzzyFilter'
 import { getGreetingCardSamplesForStudio, type GreetingCardSample } from '@/lib/invite/api'
 import { logError } from '@/lib/error-handler'
 
@@ -22,6 +25,13 @@ export default function GreetingCardSamplesPage() {
   const [samples, setSamples] = useState<GreetingCardSample[]>([])
   const [loading, setLoading] = useState(true)
   const [isStaff, setIsStaff] = useState<boolean | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredSamples = useMemo(
+    () =>
+      fuzzyFilter(samples, searchQuery, ['name', 'description', 'tags', 'created_by_name']),
+    [samples, searchQuery]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -79,10 +89,25 @@ export default function GreetingCardSamplesPage() {
             <CardDescription>All greeting card samples. Hosts see only active ones.</CardDescription>
           </CardHeader>
           <CardContent>
+            {samples.length > 0 && (
+              <div className="relative mb-4 max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
+                <Input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search samples (typos OK)"
+                  className="pl-9"
+                  aria-label="Search greeting card samples"
+                />
+              </div>
+            )}
             {samples.length === 0 ? (
               <p className="text-gray-500 py-8 text-center">
                 No samples yet. Create one with &quot;New sample&quot;.
               </p>
+            ) : filteredSamples.length === 0 ? (
+              <p className="text-gray-500 py-8 text-center">No samples match your search.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -98,7 +123,7 @@ export default function GreetingCardSamplesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {samples.map((s) => (
+                    {filteredSamples.map((s) => (
                       <tr key={s.id} className="border-b">
                         <td className="py-3 pr-4">
                           {s.background_image_url ? (

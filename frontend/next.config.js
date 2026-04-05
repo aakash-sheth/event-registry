@@ -5,6 +5,7 @@ const nextConfig = {
     '@dnd-kit/core',
     '@dnd-kit/sortable',
     '@dnd-kit/utilities',
+    'fuse.js',
     'react-markdown',
   ],
   // Proxy /media/ requests to Django backend in local dev

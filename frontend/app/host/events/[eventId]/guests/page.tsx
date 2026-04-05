@@ -16,6 +16,8 @@ import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { generateWhatsAppLink, generateGuestMessage, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
 import { logError } from '@/lib/error-handler'
 import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
+import { isContactPickerSupported, selectContactsAsGuestRows } from '@/lib/contactPickerImport'
+import { isLikelyIOS } from '@/lib/contactImportUi'
 import dynamic from 'next/dynamic'
 
 const TemplateSelector = dynamic(
@@ -184,8 +186,7 @@ export default function GuestsPage() {
     | 'notes'
   >('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [showImportExportMenu, setShowImportExportMenu] = useState(false)
-  const [showImportInstructions, setShowImportInstructions] = useState(false)
+  const [showImportGuestsModal, setShowImportGuestsModal] = useState(false)
   const [subEvents, setSubEvents] = useState<SubEvent[]>([])
   const [showSubEventAssignment, setShowSubEventAssignment] = useState<number | null>(null)
   const [guestSubEventAssignments, setGuestSubEventAssignments] = useState<Record<number, number[]>>({})
@@ -200,8 +201,10 @@ export default function GuestsPage() {
   const [showAnalyticsSummary, setShowAnalyticsSummary] = useState(true)
   const [nameSearch, setNameSearch] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const bulkActionsMenuRef = useRef<HTMLDivElement>(null)
+  const [showBulkActionsMenu, setShowBulkActionsMenu] = useState(false)
   const hasInitializedFiltersRef = useRef(false)
+  const contactPickerSupported = useMemo(() => isContactPickerSupported(), [])
 
   const makeDraftId = () => {
     try {
@@ -341,8 +344,8 @@ export default function GuestsPage() {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowImportExportMenu(false)
+      if (bulkActionsMenuRef.current && !bulkActionsMenuRef.current.contains(event.target as Node)) {
+        setShowBulkActionsMenu(false)
       }
       if (subEventFilterRef.current && !subEventFilterRef.current.contains(event.target as Node)) {
         setShowSubEventFilterMenu(false)
@@ -1390,6 +1393,27 @@ export default function GuestsPage() {
     setShowForm(false)
   }
 
+  const applyImportResponse = async (data: { created?: number; errors?: string[] }) => {
+    const createdCount = data.created ?? 0
+    if (data.errors && data.errors.length > 0) {
+      const errorCount = data.errors.length
+      setImportErrors(data.errors)
+      setImportSummary({ created: createdCount, errors: errorCount })
+      const errorMsg =
+        createdCount > 0
+          ? `✅ ${createdCount} guest(s) imported. ⚠️ ${errorCount} row(s) skipped. Click to see details.`
+          : `❌ Import failed: ${errorCount} error(s). Click to see details.`
+      showToast(errorMsg, createdCount > 0 ? 'info' : 'error')
+    } else {
+      showToast(`Successfully imported ${createdCount} guest(s)`, 'success')
+      setImportErrors(null)
+      setImportSummary(null)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await fetchGuests()
+    await fetchAnalytics()
+  }
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -1409,32 +1433,7 @@ export default function GuestsPage() {
         }
       )
 
-      if (response.data.errors && response.data.errors.length > 0) {
-        const errorCount = response.data.errors.length
-        const createdCount = response.data.created || 0
-        
-        // Store errors and summary for modal display
-        setImportErrors(response.data.errors)
-        setImportSummary({ created: createdCount, errors: errorCount })
-        
-        // Show summary toast
-        let errorMsg = ''
-        if (createdCount > 0) {
-          errorMsg = `✅ ${createdCount} guest(s) imported. ⚠️ ${errorCount} row(s) skipped. Click to see details.`
-        } else {
-          errorMsg = `❌ Import failed: ${errorCount} error(s). Click to see details.`
-        }
-        
-        showToast(errorMsg, createdCount > 0 ? 'info' : 'error')
-      } else {
-        showToast(`Successfully imported ${response.data.created} guests`, 'success')
-        setImportErrors(null)
-        setImportSummary(null)
-      }
-      // Wait a moment for backend to process, then fetch fresh data
-      await new Promise(resolve => setTimeout(resolve, 100))
-      await fetchGuests()
-      await fetchAnalytics()
+      await applyImportResponse(response.data)
     } catch (error: any) {
       showToast(
         error.response?.data?.error || 'Failed to import file',
@@ -1442,8 +1441,35 @@ export default function GuestsPage() {
       )
     } finally {
       setUploading(false)
-      // Reset file input
       event.target.value = ''
+    }
+  }
+
+  const handleContactPickerImport = async () => {
+    if (!contactPickerSupported) return
+    setShowImportGuestsModal(false)
+    setShowBulkActionsMenu(false)
+    setUploading(true)
+    try {
+      const rows = await selectContactsAsGuestRows()
+      if (rows.length === 0) {
+        return
+      }
+      const response = await api.post(`/api/events/${eventId}/guests/import-json/`, {
+        guests: rows,
+      })
+      await applyImportResponse(response.data)
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        showToast('Import cancelled', 'info')
+      } else {
+        showToast(
+          error.response?.data?.error || 'Failed to import contacts',
+          'error'
+        )
+      }
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -1451,16 +1477,49 @@ export default function GuestsPage() {
     try {
       const response = await api.get(`/api/events/${eventId}/guests.csv/`, {
         responseType: 'blob',
+        validateStatus: (status) => status >= 200 && status < 300,
       })
-      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const blob = response.data as Blob
+      const ct = (response.headers['content-type'] || '').toLowerCase()
+      if (ct.includes('application/json') || (blob.size > 0 && blob.type?.includes('json'))) {
+        const text = await blob.text()
+        try {
+          const body = JSON.parse(text) as { detail?: string; error?: string }
+          showToast(body.detail || body.error || 'Could not export guest list', 'error')
+        } catch {
+          showToast('Could not export guest list', 'error')
+        }
+        return
+      }
+      const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.setAttribute('download', `guest_list_${event?.slug || eventId}.csv`)
+      const safeSlug = (event?.slug || String(eventId)).replace(/[^\w.-]/g, '_')
+      link.setAttribute('download', `guest_list_${safeSlug}.csv`)
       document.body.appendChild(link)
       link.click()
       link.remove()
+      window.URL.revokeObjectURL(url)
       showToast('Guest list exported successfully', 'success')
     } catch (error: any) {
+      const msg =
+        error.response?.data?.detail ||
+        error.response?.data?.error ||
+        (typeof error.response?.data === 'string' ? error.response.data : null)
+      if (msg) {
+        showToast(String(msg), 'error')
+        return
+      }
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text()
+          const body = JSON.parse(text) as { detail?: string; error?: string }
+          showToast(body.detail || body.error || 'Failed to export CSV', 'error')
+          return
+        } catch {
+          /* fall through */
+        }
+      }
       showToast('Failed to export CSV', 'error')
     }
   }
@@ -1718,45 +1777,52 @@ export default function GuestsPage() {
               >
                 Custom Fields
               </Button>
-              
-              {/* Import/Export Dropdown */}
-              <div className="relative" ref={menuRef}>
+
+              <div className="relative w-full sm:w-auto" ref={bulkActionsMenuRef}>
                 <Button
+                  type="button"
                   variant="outline"
-                  onClick={() => setShowImportExportMenu(!showImportExportMenu)}
-                  className="border-eco-green text-eco-green hover:bg-eco-green-light flex items-center justify-between gap-2 text-sm w-full sm:w-auto whitespace-nowrap"
+                  onClick={() => setShowBulkActionsMenu((open) => !open)}
+                  className="border-eco-green text-eco-green hover:bg-eco-green-light flex items-center justify-between gap-2 text-sm w-full sm:w-auto whitespace-nowrap sm:min-w-[10.5rem]"
                 >
                   <span>Bulk Actions</span>
-                  <svg 
-                    className={`w-4 h-4 transition-transform ${showImportExportMenu ? 'rotate-180' : ''}`}
-                    fill="none" 
-                    stroke="currentColor" 
+                  <svg
+                    className={`w-4 h-4 shrink-0 transition-transform ${showBulkActionsMenu ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
                     viewBox="0 0 24 24"
+                    aria-hidden
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </Button>
-                
-                {showImportExportMenu && (
-                  <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-full sm:w-48 bg-white border-2 border-eco-green-light rounded-md shadow-lg z-50">
+                {showBulkActionsMenu && (
+                  <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-full sm:w-52 bg-white border-2 border-eco-green-light rounded-md shadow-lg z-50">
                     <button
+                      type="button"
                       onClick={() => {
-                        setShowImportInstructions(true)
-                        setShowImportExportMenu(false)
+                        setShowImportGuestsModal(true)
+                        setShowBulkActionsMenu(false)
                       }}
-                      className="w-full text-left px-4 py-3 hover:bg-eco-green-light flex items-center gap-3 text-sm border-b border-gray-200 transition-colors"
+                      disabled={uploading}
+                      className="w-full text-left px-4 py-3 hover:bg-eco-green-light flex items-center gap-3 text-sm border-b border-gray-200 transition-colors disabled:opacity-50"
                     >
-                      <span className="text-xl">⬆️</span>
-                      <span>Import CSV/Excel</span>
+                      <span className="text-xl" aria-hidden>
+                        ⬆️
+                      </span>
+                      <span>Import guests</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
-                        handleExportCSV()
-                        setShowImportExportMenu(false)
+                        void handleExportCSV()
+                        setShowBulkActionsMenu(false)
                       }}
                       className="w-full text-left px-4 py-3 hover:bg-eco-green-light flex items-center gap-3 text-sm transition-colors"
                     >
-                      <span className="text-xl">⬇️</span>
+                      <span className="text-xl" aria-hidden>
+                        ⬇️
+                      </span>
                       <span>Export CSV</span>
                     </button>
                   </div>
@@ -1767,8 +1833,11 @@ export default function GuestsPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.txt,.xlsx,.xls"
-                onChange={handleFileUpload}
+                accept=".csv,.txt,.xlsx,.xls,.vcf,.vcard,text/vcard"
+                onChange={(e) => {
+                  void handleFileUpload(e)
+                  setShowImportGuestsModal(false)
+                }}
                 disabled={uploading}
                 className="hidden"
               />
@@ -2019,85 +2088,144 @@ export default function GuestsPage() {
           </Card>
         )}
 
-        {/* CSV Import Instructions - Show only when import is clicked */}
-        {showImportInstructions && (
-          <Card className="mb-8 bg-white border-2 border-gray-300 shadow-lg">
-            <CardHeader className="bg-gray-50 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-gray-800 text-xl">Import Guests from CSV/TXT/Excel</CardTitle>
-                <button
-                  onClick={() => setShowImportInstructions(false)}
-                  className="text-gray-500 hover:text-gray-700 hover:bg-gray-200 text-2xl font-light w-8 h-8 flex items-center justify-center rounded transition-colors"
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6 py-6">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-base font-semibold text-gray-800 mb-3">File Format Requirements</h3>
-                  <p className="text-sm text-gray-700 mb-3">
-                    Your CSV, TXT, or Excel file should include the following columns:
-                  </p>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <span className="inline-flex items-center px-3 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium">name</span>
-                    <span className="inline-flex items-center px-3 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium">phone</span>
-                    <span className="inline-flex items-center px-3 py-1 rounded-md bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium">email</span>
-                    <span className="inline-flex items-center px-3 py-1 rounded-md bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium">relationship</span>
-                    <span className="inline-flex items-center px-3 py-1 rounded-md bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium">notes</span>
-                  </div>
+        {/* Import guests: modal (phone picker / vCard / spreadsheet) */}
+        {showImportGuestsModal && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-guests-title"
+            onClick={() => !uploading && setShowImportGuestsModal(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !uploading) setShowImportGuestsModal(false)
+            }}
+          >
+            <Card
+              className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white shadow-xl border-2 border-eco-green-light"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <CardHeader className="border-b border-gray-100 pb-4">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle id="import-guests-title" className="text-eco-green text-lg pr-2">
+                    Import guests
+                  </CardTitle>
+                  <button
+                    type="button"
+                    onClick={() => !uploading && setShowImportGuestsModal(false)}
+                    className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 text-2xl font-light w-9 h-9 flex shrink-0 items-center justify-center rounded transition-colors"
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
                 </div>
-                
-                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
-                  <p className="text-sm text-gray-800 mb-2">
-                    <strong className="text-yellow-800">Required fields:</strong> <span className="font-mono bg-white px-2 py-0.5 rounded border border-yellow-300 text-yellow-900">name</span> and <span className="font-mono bg-white px-2 py-0.5 rounded border border-yellow-300 text-yellow-900">phone</span>
-                  </p>
-                  <p className="text-xs text-gray-700">
-                    Phone number is used as a unique identifier per event.
-                  </p>
-                </div>
-                
-                <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
-                  <p className="text-xs text-gray-700">
-                    <strong className="text-blue-800">Note:</strong> If a guest with the same phone number already exists, that row will be skipped during import. You can merge duplicate entries manually if needed.
-                  </p>
-                </div>
-              </div>
-              
-              <div className="pt-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.txt,.xlsx,.xls"
-                  onChange={(e) => {
-                    handleFileUpload(e)
-                    setShowImportInstructions(false)
-                  }}
-                  disabled={uploading}
-                  className="hidden"
-                />
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="bg-eco-green hover:bg-green-600 text-white w-full py-3 text-base font-medium shadow-sm"
-                >
-                  {uploading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="animate-spin">⏳</span>
-                      Uploading...
-                    </span>
+                <CardDescription className="text-gray-600 text-sm mt-1">
+                  Add many guests at once from your phone or a file. Existing phone numbers are skipped.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <section className="space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-900">From phone</h3>
+                  {contactPickerSupported ? (
+                    <>
+                      <p className="text-sm text-gray-600">
+                        Your browser can open your address book. Choose one or more contacts; names and numbers are sent
+                        only to your event guest list.
+                      </p>
+                      <Button
+                        type="button"
+                        className="w-full bg-eco-green hover:bg-green-600 text-white"
+                        disabled={uploading}
+                        onClick={() => void handleContactPickerImport()}
+                      >
+                        {uploading ? 'Working…' : 'Choose contacts'}
+                      </Button>
+                    </>
                   ) : (
-                    <span className="flex items-center gap-2">
-                      <span>⬆️</span>
-                      Choose CSV/Excel File to Upload
-                    </span>
+                    <>
+                      <p className="text-sm text-gray-600">
+                        {isLikelyIOS()
+                          ? 'On iPhone, save contacts as a contact card, then upload it here.'
+                          : 'Export or share contacts from your phone as a contact card (.vcf), then upload it here.'}
+                      </p>
+                      <ol className="text-sm text-gray-700 list-decimal pl-5 space-y-1.5">
+                        {isLikelyIOS() ? (
+                          <>
+                            <li>Open the Contacts app.</li>
+                            <li>Select people to invite, then tap Share.</li>
+                            <li>Save to Files, AirDrop, or Mail so you can open the .vcf in Safari.</li>
+                            <li>Tap the button below and pick that file.</li>
+                          </>
+                        ) : (
+                          <>
+                            <li>Open your contacts app and export or share selected contacts as a .vcf file.</li>
+                            <li>Save the file where this browser can open it (Downloads, Desktop, etc.).</li>
+                            <li>Tap the button below and choose the .vcf file.</li>
+                          </>
+                        )}
+                      </ol>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full border-eco-green text-eco-green hover:bg-eco-green-light"
+                        disabled={uploading}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        {uploading ? 'Uploading…' : 'Upload contact card (.vcf)'}
+                      </Button>
+                    </>
                   )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                </section>
+
+                <div className="border-t border-gray-200 pt-5 space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-900">From spreadsheet</h3>
+                  <p className="text-sm text-gray-600">
+                    Use a CSV, TXT, or Excel file with a header row. Required columns:{' '}
+                    <span className="font-mono text-gray-800">name</span> and{' '}
+                    <span className="font-mono text-gray-800">phone</span>.
+                  </p>
+                  <details className="text-sm border border-gray-200 rounded-md bg-gray-50/80">
+                    <summary className="cursor-pointer select-none px-3 py-2 font-medium text-gray-800">
+                      Column details
+                    </summary>
+                    <div className="px-3 pb-3 pt-1 space-y-2 border-t border-gray-200">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-800 text-xs font-medium">
+                          name
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-800 text-xs font-medium">
+                          phone
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-700 text-xs">
+                          email
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-700 text-xs">
+                          relationship
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-700 text-xs">
+                          notes
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600">
+                        Phone is the unique key per event. Duplicate numbers in the file or already on your list are
+                        skipped.
+                      </p>
+                    </div>
+                  </details>
+                  <Button
+                    type="button"
+                    className="w-full bg-eco-green hover:bg-green-600 text-white"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploading ? 'Uploading…' : 'Choose CSV or Excel file'}
+                  </Button>
+                  <p className="text-xs text-gray-500">
+                    You can also upload a .vcf from this button if you prefer one file picker for everything.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* Guest List Table */}

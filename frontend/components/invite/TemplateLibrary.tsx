@@ -1,9 +1,12 @@
 'use client'
 
 import React, { useMemo, useState, useRef, useEffect, Component, type ReactNode } from 'react'
+import { Search } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import type { InviteTemplate } from '@/lib/invite/templates'
+import { fuzzyFilter } from '@/lib/fuzzyFilter'
 import TemplateCardPreview from '@/components/invite/TemplateCardPreview'
 
 class PreviewErrorBoundary extends Component<
@@ -147,14 +150,37 @@ export default function TemplateLibrary({
 }: TemplateLibraryProps): React.ReactElement {
   const [failedImageIds, setFailedImageIds] = useState<Record<string, boolean>>({})
   const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, boolean>>({})
+  const [searchQuery, setSearchQuery] = useState('')
 
   const imageFallbackLabel = useMemo(
     () => 'Template preview unavailable',
     []
   )
 
+  const filteredTemplates = useMemo(
+    () =>
+      fuzzyFilter(templates, searchQuery, [
+        'name',
+        'description',
+        'previewAlt',
+        'createdByName',
+      ]),
+    [templates, searchQuery]
+  )
+
   return (
     <div className="space-y-6">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
+        <Input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search templates (typos OK)"
+          className="pl-9"
+          aria-label="Search templates"
+        />
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {onBlankCanvas && (
           <div
@@ -196,7 +222,12 @@ export default function TemplateLibrary({
             </div>
           </div>
         )}
-        {templates.map((template) => (
+        {filteredTemplates.length === 0 && templates.length > 0 && (
+          <p className="col-span-full text-center text-sm text-gray-500 py-6">
+            No templates match your search. Try different words or check spelling.
+          </p>
+        )}
+        {filteredTemplates.map((template) => (
           <Card
             key={template.id}
             role="button"
