@@ -854,7 +854,7 @@ class EventViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='guests/import')
     def import_guests(self, request, id=None):
-        """Import guests from CSV, TXT, Excel, or vCard (.vcf) file."""
+        """Import guests from CSV, TXT, Excel, or vCard (.vcf) file"""
         event = self.get_object()
         self._verify_event_ownership(event)
 
@@ -994,7 +994,7 @@ class EventViewSet(viewsets.ModelViewSet):
                     event.custom_fields_metadata = meta
                     event.save(update_fields=['custom_fields_metadata', 'updated_at'])
 
-            labeled_rows = []
+            labeled_rows: list = []
             for idx, row in enumerate(rows, start=2):
                 if isinstance(row, tuple):
                     row_num, row_dict = row
@@ -1024,7 +1024,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='guests/import-json')
     def import_guests_json(self, request, id=None):
-        """Bulk-import guests from JSON (e.g. Contact Picker). Body: {\"guests\": [{name, phone, email}]}"""
+        """Bulk-import guests from JSON (e.g. Contact Picker). Body: { \"guests\": [{\"name\",\"phone\",\"email\"}] }"""
         event = self.get_object()
         self._verify_event_ownership(event)
 
@@ -1062,27 +1062,30 @@ class EventViewSet(viewsets.ModelViewSet):
             if phone_raw is None:
                 phone_s = ''
             elif isinstance(phone_raw, (int, float)):
-                if isinstance(phone_raw, float) and phone_raw != int(phone_raw):
-                    phone_s = str(phone_raw).strip()
-                else:
-                    phone_s = str(int(phone_raw))
+                phone_s = str(int(phone_raw)) if isinstance(phone_raw, float) and phone_raw == int(phone_raw) else str(phone_raw)
             else:
                 phone_s = str(phone_raw).strip()
 
             name_raw = item.get('name')
-            name_s = '' if name_raw is None else str(name_raw).strip()
+            if name_raw is None:
+                name_s = ''
+            else:
+                name_s = str(name_raw).strip()
 
             email_raw = item.get('email')
-            email_s = '' if email_raw is None else str(email_raw).strip()
+            if email_raw is None:
+                email_s = ''
+            else:
+                email_s = str(email_raw).strip()
 
             labeled_rows.append(
                 (label, {'name': name_s, 'phone': phone_s, 'email': email_s})
             )
 
-        created, row_errors = process_guest_import_rows(event, labeled_rows)
+        created, errors = process_guest_import_rows(event, labeled_rows)
         response_data = {'created': created}
-        if row_errors:
-            response_data['errors'] = row_errors
+        if errors:
+            response_data['errors'] = errors
         return Response(response_data, status=status.HTTP_200_OK)
 
     # -------------------------
@@ -2029,66 +2032,44 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
 
         return response
 
+    @action(detail=True, methods=['get'], url_path='guests.csv')
+    def guests_csv(self, request, id=None):
+        """Export guest list (RSVPs) as CSV - host only, privacy protected"""
+        event = self.get_object()
+        self._verify_event_ownership(event)  # Explicit ownership check
 
-class EventGuestsCSVExportView(APIView):
-    """
-    Standalone CSV download (not a ViewSet @action) so DRF does not run response
-    rendering that can break plain HttpResponse / file downloads.
-    """
+        # Get all RSVPs for this event
+        rsvps = RSVP.objects.filter(event=event).order_by('-created_at')
 
-    permission_classes = [IsAuthenticated]
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="guest_list_{event.slug}.csv"'
 
-    def get(self, request, id):
-        event = get_object_or_404(Event, id=id, host=request.user)
+        writer = csv.writer(response)
+        writer.writerow([
+            'Name',
+            'Phone',
+            'Email',
+            'Will Attend',
+            'Guests Count',
+            'Source Channel',
+            'Notes',
+            'RSVP Date',
+            'Is Removed'
+        ])
 
-        guests_list = list(
-            Guest.objects.filter(event=event, is_removed=False).order_by('name')
-        )
+        for rsvp in rsvps:
+            writer.writerow([
+                rsvp.name,
+                rsvp.phone,
+                rsvp.email or '',
+                rsvp.get_will_attend_display(),
+                rsvp.guests_count,
+                rsvp.get_source_channel_display(),
+                rsvp.notes or '',
+                rsvp.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'Yes' if rsvp.is_removed else 'No',
+            ])
 
-        meta = getattr(event, 'custom_fields_metadata', None) or {}
-        custom_keys = []
-        if isinstance(meta, dict):
-            custom_keys = sorted(meta.keys(), key=str)
-        seen = set(custom_keys)
-        for g in guests_list:
-            cf = g.custom_fields if isinstance(g.custom_fields, dict) else {}
-            for k in sorted(cf.keys(), key=str):
-                if k not in seen:
-                    seen.add(k)
-                    custom_keys.append(k)
-
-        import io
-
-        buffer = io.StringIO()
-        buffer.write('\ufeff')
-        writer = csv.writer(buffer)
-        base_headers = ['name', 'phone', 'email', 'relationship', 'notes', 'country_iso']
-        writer.writerow(base_headers + custom_keys)
-
-        for g in guests_list:
-            cf = g.custom_fields if isinstance(g.custom_fields, dict) else {}
-            row = [
-                g.name,
-                g.phone,
-                g.email or '',
-                g.relationship or '',
-                g.notes or '',
-                g.country_iso or '',
-            ]
-            for k in custom_keys:
-                v = cf.get(k, '')
-                row.append('' if v is None else str(v))
-            writer.writerow(row)
-
-        slug_raw = (event.slug or '').strip()
-        slug_safe = re.sub(r'[^A-Za-z0-9_.-]', '_', slug_raw) or f'event_{event.id}'
-        filename = f'guest_list_{slug_safe}.csv'
-
-        response = HttpResponse(
-            buffer.getvalue().encode('utf-8'),
-            content_type='text/csv; charset=utf-8',
-        )
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
 

@@ -91,14 +91,10 @@ function LoginForm() {
       // Check if user has a remembered preference
       const rememberedMethod = localStorage.getItem(`login_method_${data.email}`) as 'password' | 'otp' | null
       
-      if (passwordEnabled && rememberedMethod) {
-        // Use remembered method
-        setLoginMethod(rememberedMethod)
-        if (rememberedMethod === 'password') {
-          setStep('password')
-        } else {
-          await startOtpFlow(data.email)
-        }
+      if (passwordEnabled && rememberedMethod === 'password') {
+        // Only skip the choice screen if they previously chose password
+        setLoginMethod('password')
+        setStep('password')
       } else if (passwordEnabled) {
         // Show choice screen
         setStep('choice')
