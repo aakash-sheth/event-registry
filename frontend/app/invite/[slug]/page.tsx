@@ -713,9 +713,11 @@ export async function generateMetadata({
     }
   }
   
-  // Use custom title if provided, otherwise format with brand suffix
-  const title = customMetadata?.title 
-    ? customMetadata.title 
+  // Resolve title based on previewTitleSource
+  // 'auto' → skip custom title, use auto-generated; 'custom' or undefined → use custom if set
+  const titleSource = customMetadata?.previewTitleSource
+  const title = (titleSource !== 'auto' && customMetadata?.title)
+    ? customMetadata.title
     : `${baseTitle} | ${BRAND_NAME}`
 
   // Extract description: custom metadata > auto-generated from tiles/event
@@ -729,26 +731,51 @@ export async function generateMetadata({
       description = descTile.settings.content.replace(/<[^>]*>/g, '').substring(0, 200)
     }
   }
-  
-  // Use custom description if provided
-  const finalDescription = customMetadata?.description || description
 
-  // Extract banner image with priority: preview image > image tile > generic envelope image
-  // Priority 1: Custom preview image (from Link Preview Settings)
-  let bannerImage: string | undefined = customMetadata?.image
-  
-  // Priority 2: Image tile (first enabled image tile from config)
-  if (!bannerImage && inviteData.config?.tiles) {
-    // Find first enabled image tile with a source
-    const imageTile = inviteData.config.tiles.find(
-      (tile: any) => (tile.type === 'image' || tile.type === 'greeting-card') && tile.enabled !== false && tile.settings?.src
-    ) as any
-    if (imageTile?.settings?.src) {
-      bannerImage = imageTile.settings.src
+  // Resolve description based on previewDescriptionSource
+  // 'auto' → skip custom description, use auto-generated; 'custom' or undefined → use custom if set
+  const descSource = customMetadata?.previewDescriptionSource
+  const finalDescription = (descSource !== 'auto' && customMetadata?.description)
+    ? customMetadata.description
+    : description
+
+  // Resolve banner image based on previewImageSource
+  const imageSource = customMetadata?.previewImageSource
+  let bannerImage: string | undefined
+
+  if (imageSource === 'upload') {
+    // Explicit upload source: use the uploaded image only
+    bannerImage = customMetadata?.image
+  } else if (imageSource === 'greeting-card') {
+    // Use first enabled greeting-card tile with a src
+    if (inviteData.config?.tiles) {
+      const gcTile = inviteData.config.tiles.find(
+        (tile: any) => tile.type === 'greeting-card' && tile.enabled !== false && tile.settings?.src
+      ) as any
+      bannerImage = gcTile?.settings?.src
+    }
+  } else if (imageSource === 'image-tile') {
+    // Use first enabled image tile with a src
+    if (inviteData.config?.tiles) {
+      const imgTile = inviteData.config.tiles.find(
+        (tile: any) => tile.type === 'image' && tile.enabled !== false && tile.settings?.src
+      ) as any
+      bannerImage = imgTile?.settings?.src
+    }
+  } else {
+    // No source set — existing waterfall: upload → first image/GC tile → generic envelope
+    bannerImage = customMetadata?.image
+    if (!bannerImage && inviteData.config?.tiles) {
+      const imageTile = inviteData.config.tiles.find(
+        (tile: any) => (tile.type === 'image' || tile.type === 'greeting-card') && tile.enabled !== false && tile.settings?.src
+      ) as any
+      if (imageTile?.settings?.src) {
+        bannerImage = imageTile.settings.src
+      }
     }
   }
 
-  // Priority 3: Generic envelope image (common fallback for everyone)
+  // Priority final: Generic envelope image (common fallback for everyone)
   if (!bannerImage) {
     bannerImage = GENERIC_ENVELOPE_IMAGE
   }

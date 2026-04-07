@@ -8,13 +8,18 @@ const nextConfig = {
     'fuse.js',
     'react-markdown',
   ],
-  // Proxy /media/ requests to Django backend in local dev
+  // Proxy /media/ and /q/ requests to Django backend
   async rewrites() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
     return [
       {
         source: '/media/:path*',
         destination: `${apiBase}/media/:path*`,
+      },
+      // Attribution short links — Django handles redirect + click tracking
+      {
+        source: '/q/:token',
+        destination: `${apiBase}/q/:token/`,
       },
     ]
   },

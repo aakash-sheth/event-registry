@@ -28,6 +28,7 @@ import { ThemeProvider } from '@/components/invite/living-poster/ThemeProvider'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
 import { cropImage } from '@/lib/invite/imageAnalysis'
+import { convertToCloudFrontUrl } from '@/lib/image-utils'
 import WizardProgress from '@/components/host/WizardProgress'
 
 interface Event {
@@ -697,8 +698,9 @@ export default function DesignInvitationPage(): JSX.Element {
       // If customColors is empty or doesn't exist, don't include it (undefined)
       
       // Clean up linkMetadata - only include if it has at least one defined property
-      const linkMetadataToSave = config.linkMetadata && 
-        (config.linkMetadata.title || config.linkMetadata.description || config.linkMetadata.image)
+      const linkMetadataToSave = config.linkMetadata &&
+        (config.linkMetadata.title || config.linkMetadata.description || config.linkMetadata.image ||
+         config.linkMetadata.previewImageSource || config.linkMetadata.previewTitleSource || config.linkMetadata.previewDescriptionSource)
         ? config.linkMetadata
         : undefined
       
@@ -961,7 +963,7 @@ export default function DesignInvitationPage(): JSX.Element {
         },
       }))
 
-      // Open cropper to let host choose what’s visible in the 1200x630 frame
+      // Open cropper to let host choose what's visible in the 1200x630 frame
       await openPreviewCropper(originalUrl, file.name)
     } catch (error) {
       logError('Failed to upload preview image:', error)
@@ -1449,6 +1451,43 @@ export default function DesignInvitationPage(): JSX.Element {
     logError('No tiles in config, using DEFAULT_TILES')
     sortedTiles = DEFAULT_TILES
   }
+
+  // Derived values for Link Preview Settings
+  const greetingCardTileForPreview = config.tiles?.find(
+    (t: any) => t.type === 'greeting-card' && t.enabled !== false && (t.settings as any)?.src
+  )
+  const imageTileForPreview = config.tiles?.find(
+    (t: any) => t.type === 'image' && t.enabled !== false && (t.settings as any)?.src
+  )
+  const effectiveImageSource = config.linkMetadata?.previewImageSource
+    ?? (greetingCardTileForPreview ? 'greeting-card' : imageTileForPreview ? 'image-tile' : 'upload')
+
+  const resolvedPreviewImage = (() => {
+    if (effectiveImageSource === 'upload') return config.linkMetadata?.image
+    if (effectiveImageSource === 'greeting-card') return (greetingCardTileForPreview?.settings as any)?.src
+    if (effectiveImageSource === 'image-tile') return (imageTileForPreview?.settings as any)?.src
+    return undefined
+  })()
+
+  const resolvedPreviewTitle = (() => {
+    const titleSource = config.linkMetadata?.previewTitleSource
+    if (titleSource === 'custom' && config.linkMetadata?.title) return config.linkMetadata.title
+    if (titleSource === 'auto' || !config.linkMetadata?.title) {
+      const titleTile = config.tiles?.find((t: any) => t.type === 'title' && t.settings?.text) as any
+      return titleTile?.settings?.text || 'Event Invitation'
+    }
+    return config.linkMetadata?.title || 'Event Invitation'
+  })()
+
+  const resolvedPreviewDescription = (() => {
+    const descSource = config.linkMetadata?.previewDescriptionSource
+    if (descSource === 'custom' && config.linkMetadata?.description) return config.linkMetadata.description
+    if (descSource === 'auto' || !config.linkMetadata?.description) {
+      const descTile = config.tiles?.find((t: any) => t.type === 'description' && t.settings?.content) as any
+      return descTile?.settings?.content?.replace(/<[^>]*>/g, '').substring(0, 100) || ''
+    }
+    return config.linkMetadata?.description || ''
+  })()
 
   // Validate eventId after all hooks so hook count is consistent every render
   if (!eventId || isNaN(eventId)) {
@@ -1967,7 +2006,22 @@ export default function DesignInvitationPage(): JSX.Element {
                     className="flex items-center justify-between w-full text-left focus:outline-none focus:ring-2 focus:ring-eco-green rounded-md p-2 -m-2"
                   >
                     <div>
-                      <h3 className="text-sm font-semibold text-eco-green">Link Preview Settings</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-eco-green">Link Preview Settings</h3>
+                        {!showLinkMetadata && (() => {
+                          const src = effectiveImageSource
+                          const label =
+                            src === 'greeting-card' ? 'Using greeting card' :
+                            src === 'image-tile' ? 'Using image tile' :
+                            config.linkMetadata?.image ? 'Using custom image' : 'Using default'
+                          const isDefault = !config.linkMetadata?.image && src !== 'greeting-card' && src !== 'image-tile'
+                          return (
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${isDefault ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}`}>
+                              {label}
+                            </span>
+                          )
+                        })()}
+                      </div>
                       <p className="text-xs text-gray-500 mt-0.5">Customize how your invite appears when shared on WhatsApp, Facebook, and other platforms</p>
                     </div>
                     <svg
@@ -1983,164 +2037,354 @@ export default function DesignInvitationPage(): JSX.Element {
                   {showLinkMetadata && (
                     <div className="mt-4 space-y-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2">
-                          Preview Title
-                          <span className="text-gray-400 font-normal ml-1">(optional)</span>
-                        </label>
-                        <Input
-                          type="text"
-                          value={config.linkMetadata?.title || ''}
-                          onChange={(e) => setConfig(prev => ({
-                            ...prev,
-                            linkMetadata: {
-                              ...prev.linkMetadata,
-                              title: e.target.value || undefined,
-                            },
-                          }))}
-                          placeholder="Leave empty to use page title"
-                          className="w-full"
-                          maxLength={60}
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Custom title for link previews (recommended: 50-60 characters). Leave empty to auto-generate from page title.
-                        </p>
-                        {config.linkMetadata?.title && (
-                          <p className="text-xs mt-1 text-gray-400">
-                            {config.linkMetadata.title.length} / 60 characters
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-2">
-                          Preview Description
-                          <span className="text-gray-400 font-normal ml-1">(optional)</span>
-                        </label>
-                        <textarea
-                          value={config.linkMetadata?.description || ''}
-                          onChange={(e) => setConfig(prev => ({
-                            ...prev,
-                            linkMetadata: {
-                              ...prev.linkMetadata,
-                              description: e.target.value || undefined,
-                            },
-                          }))}
-                          placeholder="Leave empty to use page description"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green resize-none"
-                          rows={3}
-                          maxLength={200}
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Custom description for link previews (recommended: 150-200 characters). Leave empty to auto-generate from page content.
-                        </p>
-                        {config.linkMetadata?.description && (
-                          <p className="text-xs mt-1 text-gray-400">
-                            {config.linkMetadata.description.length} / 200 characters
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-2">
-                          Preview Image
-                          <span className="text-gray-400 font-normal ml-1">(optional)</span>
-                        </label>
-                        {config.linkMetadata?.image ? (
-                          <div className="space-y-2">
-                            <div className="relative">
-                              <img
-                                src={config.linkMetadata.image}
-                                alt="Preview"
-                                className="w-full max-w-md h-48 object-contain bg-white rounded border border-gray-300"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none'
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setConfig(prev => ({
-                                  ...prev,
-                                  linkMetadata: {
-                                    ...prev.linkMetadata,
-                                    image: undefined,
-                                    previewImageOriginal: undefined,
-                                    previewImageCrop: undefined,
-                                    previewImageCropAspectRatio: undefined,
-                                  },
-                                }))}
-                                className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
-                                title="Remove image"
-                              >
-                                ×
-                              </button>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={handleAdjustPreviewFraming}
-                              disabled={uploadingPreviewImage}
+                        <label className="block text-sm font-medium mb-2">Preview Title</label>
+                        <div className="flex gap-2 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfig(prev => ({
+                              ...prev,
+                              linkMetadata: { ...prev.linkMetadata, previewTitleSource: 'auto' },
+                            }))}
+                            className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                              (config.linkMetadata?.previewTitleSource ?? 'auto') === 'auto'
+                                ? 'bg-eco-green text-white border-eco-green'
+                                : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                            }`}
+                          >Auto</button>
+                          <button
+                            type="button"
+                            onClick={() => setConfig(prev => ({
+                              ...prev,
+                              linkMetadata: { ...prev.linkMetadata, previewTitleSource: 'custom' },
+                            }))}
+                            className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                              config.linkMetadata?.previewTitleSource === 'custom'
+                                ? 'bg-eco-green text-white border-eco-green'
+                                : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                            }`}
+                          >Custom</button>
+                        </div>
+                        {config.linkMetadata?.previewTitleSource === 'custom' ? (
+                          <div>
+                            <Input
+                              type="text"
+                              value={config.linkMetadata?.title || ''}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                linkMetadata: {
+                                  ...prev.linkMetadata,
+                                  title: e.target.value || undefined,
+                                },
+                              }))}
+                              placeholder="Enter a custom preview title"
                               className="w-full"
-                            >
-                              Adjust framing
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                previewImageInputRef.current?.click()
-                              }}
-                              disabled={uploadingPreviewImage}
-                              className="w-full"
-                            >
-                              {uploadingPreviewImage ? 'Uploading...' : 'Replace Image'}
-                            </Button>
+                              maxLength={60}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Recommended: 50–60 characters.
+                            </p>
+                            {config.linkMetadata?.title && (
+                              <p className="text-xs mt-1 text-gray-400">
+                                {config.linkMetadata.title.length} / 60 characters
+                              </p>
+                            )}
                           </div>
                         ) : (
+                          <p className="text-sm text-gray-400 italic px-3 py-2 bg-gray-50 rounded border border-gray-100">
+                            {resolvedPreviewTitle}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Preview Description</label>
+                        <div className="flex gap-2 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfig(prev => ({
+                              ...prev,
+                              linkMetadata: { ...prev.linkMetadata, previewDescriptionSource: 'auto' },
+                            }))}
+                            className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                              (config.linkMetadata?.previewDescriptionSource ?? 'auto') === 'auto'
+                                ? 'bg-eco-green text-white border-eco-green'
+                                : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                            }`}
+                          >Auto</button>
+                          <button
+                            type="button"
+                            onClick={() => setConfig(prev => ({
+                              ...prev,
+                              linkMetadata: { ...prev.linkMetadata, previewDescriptionSource: 'custom' },
+                            }))}
+                            className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                              config.linkMetadata?.previewDescriptionSource === 'custom'
+                                ? 'bg-eco-green text-white border-eco-green'
+                                : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                            }`}
+                          >Custom</button>
+                        </div>
+                        {config.linkMetadata?.previewDescriptionSource === 'custom' ? (
                           <div>
-                            <input
-                              ref={previewImageInputRef}
-                              type="file"
-                              accept="image/*"
-                              onChange={handlePreviewImageUpload}
-                              className="hidden"
-                              id="preview-image-upload"
-                              disabled={uploadingPreviewImage}
+                            <textarea
+                              value={config.linkMetadata?.description || ''}
+                              onChange={(e) => setConfig(prev => ({
+                                ...prev,
+                                linkMetadata: {
+                                  ...prev.linkMetadata,
+                                  description: e.target.value || undefined,
+                                },
+                              }))}
+                              placeholder="Enter a custom preview description"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-eco-green resize-none"
+                              rows={3}
+                              maxLength={200}
                             />
-                            <label
-                              htmlFor="preview-image-upload"
-                              className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
-                            >
-                              {uploadingPreviewImage ? (
-                                <div className="flex flex-col items-center">
-                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-eco-green mb-2"></div>
-                                  <span className="text-sm text-gray-600">Uploading and optimizing...</span>
-                                </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Recommended: 150–200 characters.
+                            </p>
+                            {config.linkMetadata?.description && (
+                              <p className="text-xs mt-1 text-gray-400">
+                                {config.linkMetadata.description.length} / 200 characters
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 italic px-3 py-2 bg-gray-50 rounded border border-gray-100">
+                            {resolvedPreviewDescription || 'No description tile found — add a Description tile to your page.'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Preview Image</label>
+
+                        {/* Source selector — 3 clickable cards */}
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          {/* Greeting Card option */}
+                          <button
+                            type="button"
+                            disabled={!greetingCardTileForPreview}
+                            onClick={() => setConfig(prev => ({ ...prev, linkMetadata: { ...prev.linkMetadata, previewImageSource: "greeting-card" } }))}
+                            className={
+                              "flex flex-col items-center rounded-lg border-2 overflow-hidden transition-colors " +
+                              (effectiveImageSource === "greeting-card" ? "border-eco-green bg-green-50 " : "border-gray-200 hover:border-gray-300 ") +
+                              (!greetingCardTileForPreview ? "opacity-50 cursor-not-allowed" : "cursor-pointer")
+                            }
+                          >
+                            <div className="w-full h-14 bg-gray-100 flex items-center justify-center overflow-hidden">
+                              {greetingCardTileForPreview ? (
+                                <img
+                                  src={convertToCloudFrontUrl((greetingCardTileForPreview.settings as any)?.src)}
+                                  alt="Greeting Card"
+                                  className="w-full h-full object-cover"
+                                />
                               ) : (
-                                <div className="flex flex-col items-center">
-                                  <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                  </svg>
-                                  <span className="text-sm text-gray-600">Click to upload preview image</span>
-                                  <span className="text-xs text-gray-400 mt-1">Recommended: 1200x630px (will be auto-optimized)</span>
-                                </div>
+                                <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
                               )}
-                            </label>
+                            </div>
+                            <span className="text-xs py-1 px-1 text-center leading-tight text-gray-700">Greeting Card</span>
+                          </button>
+
+                          {/* Image Tile option */}
+                          <button
+                            type="button"
+                            disabled={!imageTileForPreview}
+                            onClick={() => setConfig(prev => ({ ...prev, linkMetadata: { ...prev.linkMetadata, previewImageSource: "image-tile" } }))}
+                            className={
+                              "flex flex-col items-center rounded-lg border-2 overflow-hidden transition-colors " +
+                              (effectiveImageSource === "image-tile" ? "border-eco-green bg-green-50 " : "border-gray-200 hover:border-gray-300 ") +
+                              (!imageTileForPreview ? "opacity-50 cursor-not-allowed" : "cursor-pointer")
+                            }
+                          >
+                            <div className="w-full h-14 bg-gray-100 flex items-center justify-center overflow-hidden">
+                              {imageTileForPreview ? (
+                                <img
+                                  src={convertToCloudFrontUrl((imageTileForPreview.settings as any)?.src)}
+                                  alt="Image Tile"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="text-xs py-1 px-1 text-center leading-tight text-gray-700">Image Tile</span>
+                          </button>
+
+                          {/* Upload Custom option */}
+                          <button
+                            type="button"
+                            onClick={() => setConfig(prev => ({ ...prev, linkMetadata: { ...prev.linkMetadata, previewImageSource: "upload" } }))}
+                            className={
+                              "flex flex-col items-center rounded-lg border-2 overflow-hidden transition-colors cursor-pointer " +
+                              (effectiveImageSource === "upload" ? "border-eco-green bg-green-50" : "border-gray-200 hover:border-gray-300")
+                            }
+                          >
+                            <div className="w-full h-14 bg-gray-100 flex items-center justify-center overflow-hidden">
+                              {config.linkMetadata?.image ? (
+                                <img
+                                  src={convertToCloudFrontUrl(config.linkMetadata.image)}
+                                  alt="Custom Upload"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="text-xs py-1 px-1 text-center leading-tight text-gray-700">Upload Custom</span>
+                          </button>
+                        </div>
+
+                        {/* Conditionally render upload UI or tile thumbnail */}
+                        {effectiveImageSource === 'upload' ? (
+                          <div>
+                            {config.linkMetadata?.image ? (
+                              <div className="space-y-2">
+                                <div className="relative">
+                                  <img
+                                    src={config.linkMetadata.image}
+                                    alt="Preview"
+                                    className="w-full max-w-md h-48 object-contain bg-white rounded border border-gray-300"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none'
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfig(prev => ({
+                                      ...prev,
+                                      linkMetadata: {
+                                        ...prev.linkMetadata,
+                                        image: undefined,
+                                        previewImageOriginal: undefined,
+                                        previewImageCrop: undefined,
+                                        previewImageCropAspectRatio: undefined,
+                                      },
+                                    }))}
+                                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                                    title="Remove image"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleAdjustPreviewFraming}
+                                  disabled={uploadingPreviewImage}
+                                  className="w-full"
+                                >
+                                  Adjust framing
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    previewImageInputRef.current?.click()
+                                  }}
+                                  disabled={uploadingPreviewImage}
+                                  className="w-full"
+                                >
+                                  {uploadingPreviewImage ? 'Uploading...' : 'Replace Image'}
+                                </Button>
+                              </div>
+                            ) : (
+                              <div>
+                                <input
+                                  ref={previewImageInputRef}
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handlePreviewImageUpload}
+                                  className="hidden"
+                                  id="preview-image-upload"
+                                  disabled={uploadingPreviewImage}
+                                />
+                                <label
+                                  htmlFor="preview-image-upload"
+                                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
+                                >
+                                  {uploadingPreviewImage ? (
+                                    <div className="flex flex-col items-center">
+                                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-eco-green mb-2"></div>
+                                      <span className="text-sm text-gray-600">Uploading and optimizing...</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col items-center">
+                                      <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                      </svg>
+                                      <span className="text-sm text-gray-600">Click to upload preview image</span>
+                                      <span className="text-xs text-gray-400 mt-1">Recommended: 1200x630px (will be auto-optimized)</span>
+                                    </div>
+                                  )}
+                                </label>
+                              </div>
+                            )}
+                            <p className="text-xs text-gray-500 mt-2">
+                              Recommended: <strong>1200×630 (1.91:1)</strong>. Keep key content centered with padding. Use <strong>Adjust framing</strong> to choose what is visible in the frame.
+                            </p>
+                            <p className="text-xs text-eco-green mt-1 font-medium">
+                              WhatsApp requires preview images under 300KB - your image will be automatically compressed to meet this requirement.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-3 px-3 py-2 bg-gray-50 rounded border border-gray-100">
+                            {resolvedPreviewImage && (
+                              <img
+                                src={convertToCloudFrontUrl(resolvedPreviewImage)}
+                                alt="Tile preview"
+                                className="w-16 h-12 object-cover rounded flex-shrink-0"
+                              />
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              This image is pulled from your{' '}
+                              <strong>{effectiveImageSource === 'greeting-card' ? 'Greeting Card' : 'Image'} tile</strong>.
+                              {' '}To change it, update the tile directly.
+                            </p>
                           </div>
                         )}
-                        <p className="text-xs text-gray-500 mt-2">
-                          Custom image for link previews (WhatsApp, Facebook, Twitter). Recommended: <strong>1200×630 (1.91:1)</strong>. Platforms may crop thumbnails—keep key text/faces centered with padding.
-                          Use <strong>Adjust framing</strong> to choose what’s visible in the 1200×630 frame.
-                        </p>
-                        <p className="text-xs text-eco-green mt-1 font-medium">
-                          WhatsApp requires preview images under 300KB - your image will be automatically compressed to meet this requirement.
-                        </p>
+                      </div>
+
+                      {/* WhatsApp / iMessage live preview card */}
+                      <div className="mt-4">
+                        <p className="text-xs font-medium text-gray-500 mb-2">Preview (WhatsApp / iMessage)</p>
+                        <div className="border border-gray-200 rounded-lg overflow-hidden bg-white max-w-xs">
+                          {resolvedPreviewImage ? (
+                            <img
+                              src={convertToCloudFrontUrl(resolvedPreviewImage)}
+                              alt="preview"
+                              className="w-full h-32 object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-32 bg-gray-100 flex items-center justify-center">
+                              <span className="text-xs text-gray-400">No image selected</span>
+                            </div>
+                          )}
+                          <div className="px-3 py-2 border-t border-gray-100">
+                            <p className="text-xs font-semibold text-gray-900 truncate">
+                              {resolvedPreviewTitle.length > 55 ? resolvedPreviewTitle.substring(0, 55) + '…' : resolvedPreviewTitle}
+                            </p>
+                            {resolvedPreviewDescription && (
+                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                                {resolvedPreviewDescription}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-400 mt-1">ekfern.com</p>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
                         <p className="text-xs text-blue-800">
-                          <strong>💡 Tip:</strong> These settings control how your invite appears when shared on WhatsApp, Facebook, Twitter, and other platforms. If left empty, the system will automatically generate previews from your page content.
+                          <strong>Tip:</strong> These settings control how your invite appears when shared on WhatsApp, Facebook, Twitter, and other platforms. If left empty, the system will automatically generate previews from your page content.
                         </p>
                       </div>
                     </div>

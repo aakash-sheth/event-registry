@@ -184,6 +184,9 @@ export interface LinkMetadata {
   previewImageOriginal?: string // Original uploaded image URL for re-editing framing
   previewImageCrop?: { x: number; y: number; width: number; height: number } // Crop rectangle in original image coordinates
   previewImageCropAspectRatio?: number // Aspect ratio used when cropping (e.g., 1200/630)
+  previewImageSource?: 'upload' | 'greeting-card' | 'image-tile' // Which source drives the OG image
+  previewTitleSource?: 'auto' | 'custom' // Whether to use auto-generated or custom title
+  previewDescriptionSource?: 'auto' | 'custom' // Whether to use auto-generated or custom description
 }
 
 export type RsvpFieldType = 'text' | 'number' | 'select' | 'radio' | 'checkbox'
