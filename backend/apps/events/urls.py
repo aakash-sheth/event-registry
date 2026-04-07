@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    EventViewSet, EventGuestsCSVExportView, create_rsvp, get_rsvp, check_phone_for_rsvp, get_guest_by_token,
+    EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp, get_guest_by_token,
     InvitePageViewSet, PublicInviteViewSet, upload_image,
     SubEventViewSet, GuestInviteViewSet, MessageTemplateViewSet,
     InviteDesignTemplateViewSet,
@@ -34,7 +34,6 @@ urlpatterns = [
     path('impact/overall/', get_overall_impact, name='overall-impact'),
     # Invite page routes - must be before other <int:id> routes to avoid conflicts
     path('<int:event_id>/invite/', invite_page_by_event, name='event-invite'),
-    path('<int:id>/guests.csv/', EventGuestsCSVExportView.as_view(), name='event-guests-csv'),
     path('<int:id>/guests/import/', EventViewSet.as_view({'post': 'import_guests'}), name='event-guests-import'),
     path('<int:id>/guests/import-json/', EventViewSet.as_view({'post': 'import_guests_json'}), name='event-guests-import-json'),
     path('<int:id>/guests/<int:guest_id>/', EventViewSet.as_view({'put': 'update_guest', 'patch': 'update_guest', 'delete': 'delete_guest'}), name='event-guest-update'),
