@@ -16,11 +16,6 @@ const nextConfig = {
         source: '/media/:path*',
         destination: `${apiBase}/media/:path*`,
       },
-      // Attribution short links — Django handles redirect + click tracking
-      {
-        source: '/q/:token',
-        destination: `${apiBase}/q/:token/`,
-      },
     ]
   },
   // Add cache headers for CloudFront caching
