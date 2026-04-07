@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { publishInvitePage } from '@/lib/invite/api'
 import { logError } from '@/lib/error-handler'
+import { getSiteUrl } from '@/lib/site-url'
 
 interface PublishModalProps {
   isOpen: boolean
@@ -30,7 +31,7 @@ export default function PublishModal({
 
   if (!isOpen) return null
 
-  const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${slug}`
+  const publicUrl = `${getSiteUrl()}/invite/${slug}?source=link`
 
   const handlePublish = async () => {
     if (!slug) {

@@ -272,11 +272,13 @@ class AttributionLinkSerializer(serializers.ModelSerializer):
 
     def get_short_url(self, obj):
         short_path = f"/q/{obj.token}/"
+        origin = getattr(settings, 'FRONTEND_ORIGIN', '').rstrip('/')
+        if origin:
+            return f"{origin}{short_path}"
         request = self.context.get('request')
         if request:
             return request.build_absolute_uri(short_path)
-        origin = getattr(settings, 'FRONTEND_ORIGIN', '').rstrip('/')
-        return f"{origin}{short_path}" if origin else short_path
+        return short_path
 
     def get_destination_url(self, obj):
         request = self.context.get('request')

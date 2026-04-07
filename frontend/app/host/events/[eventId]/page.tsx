@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import api, { createAttributionLink, listAttributionLinks, getEventAnalyticsSummary, enableEventAnalyticsInsights, type AttributionLink, type EventAnalyticsSummary } from '@/lib/api'
+import api, { getEventAnalyticsSummary, enableEventAnalyticsInsights, type EventAnalyticsSummary } from '@/lib/api'
+import { getSiteUrl } from '@/lib/site-url'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
@@ -73,11 +74,6 @@ export default function EventDetailPage() {
   const [savingSlug, setSavingSlug] = useState(false)
   const [impact, setImpact] = useState<any>(null)
   const [invitePublishStatus, setInvitePublishStatus] = useState<InvitePublishStatus>('Unknown')
-  const [trackedLinks, setTrackedLinks] = useState<Record<LinkKey, AttributionLink | null>>({
-    invite: null,
-    rsvp: null,
-    registry: null,
-  })
   const [openQrKey, setOpenQrKey] = useState<LinkKey | null>(null)
   const [openActionsKey, setOpenActionsKey] = useState<LinkKey | null>(null)
   const [downloadPickerKey, setDownloadPickerKey] = useState<LinkKey | null>(null)
@@ -97,11 +93,6 @@ export default function EventDetailPage() {
     fetchGuests()
     fetchRsvps()
   }, [eventId, router])
-
-  useEffect(() => {
-    if (!eventId || eventId === 'undefined') return
-    loadTrackedLinks()
-  }, [eventId, event?.has_rsvp, event?.has_registry])
 
   useEffect(() => {
     if (!eventId || eventId === 'undefined') return
@@ -282,87 +273,14 @@ export default function EventDetailPage() {
     }
   }
 
-  const getInviteUrl = () => {
-    if (typeof window === 'undefined' || !event) return ''
-    return `${window.location.origin}/invite/${event.slug}`
+  const buildUrl = (key: LinkKey, source: 'link' | 'qr') => {
+    const base = getSiteUrl()
+    if (!event) return ''
+    const path = key === 'invite' ? `/invite/${event.slug}`
+      : key === 'rsvp' ? `/event/${event.slug}/rsvp`
+      : `/registry/${event.slug}`
+    return `${base}${path}?source=${source}`
   }
-
-  const getRSVPUrl = () => {
-    if (typeof window === 'undefined' || !event) return ''
-    return `${window.location.origin}/event/${event.slug}/rsvp`
-  }
-
-  const getRegistryUrl = () => {
-    if (typeof window === 'undefined' || !event) return ''
-    return `${window.location.origin}/registry/${event.slug}`
-  }
-
-  const campaignPreset: Record<LinkKey, string> = {
-    invite: 'main_card',
-    rsvp: 'rsvp_card',
-    registry: 'registry_card',
-  }
-
-  const placementPreset: Record<LinkKey, string> = {
-    invite: 'physical_invite',
-    rsvp: 'physical_invite',
-    registry: 'physical_invite',
-  }
-
-  const upsertTrackedLink = async (key: LinkKey, silent = false) => {
-    if (!eventId || eventId === 'undefined') return null
-    try {
-      const created = await createAttributionLink(parseInt(eventId), {
-        target_type: key,
-        channel: 'qr',
-        campaign: campaignPreset[key],
-        placement: placementPreset[key],
-      })
-      if (!silent) {
-        setTrackedLinks((prev) => ({ ...prev, [key]: created }))
-      }
-      return created
-    } catch (error: any) {
-      if (!silent) {
-        showToast(getErrorMessage(error) || 'Unable to initialize tracked link', 'error')
-      }
-      return null
-    }
-  }
-
-  const loadTrackedLinks = async () => {
-    try {
-      const links = await listAttributionLinks(parseInt(eventId))
-      const latest: Record<LinkKey, AttributionLink | null> = { invite: null, rsvp: null, registry: null }
-      links.forEach((link) => {
-        const key = link.target_type as LinkKey
-        if (!latest[key]) {
-          latest[key] = link
-        }
-      })
-
-      // Always-on tracking: silently provision canonical tracked links for enabled destinations.
-      if (event) {
-        const requiredKeys: LinkKey[] = ['invite']
-        if (event.has_rsvp) requiredKeys.push('rsvp')
-        if (event.has_registry) requiredKeys.push('registry')
-
-        for (const key of requiredKeys) {
-          if (!latest[key]) {
-            const created = await upsertTrackedLink(key, true)
-            if (created) latest[key] = created
-          }
-        }
-      }
-
-      setTrackedLinks(latest)
-    } catch (error) {
-      logDebug('Tracked links not available yet')
-    }
-  }
-
-  const getTrackedUrl = (key: LinkKey) => trackedLinks[key]?.short_url || ''
-  const getEffectiveUrl = (key: LinkKey, fallbackUrl: string) => getTrackedUrl(key) || fallbackUrl
 
   const escapeSvgText = (value: string) =>
     value
@@ -788,13 +706,12 @@ export default function EventDetailPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {[
-              { key: 'invite' as LinkKey, label: 'Invite Page', url: getInviteUrl(), show: true },
-              { key: 'rsvp' as LinkKey, label: 'RSVP Page', url: getRSVPUrl(), show: event.has_rsvp },
-              { key: 'registry' as LinkKey, label: 'Registry Page', url: getRegistryUrl(), show: event.has_registry },
+              { key: 'invite' as LinkKey, label: 'Invite Page', show: true },
+              { key: 'rsvp' as LinkKey, label: 'RSVP Page', show: event.has_rsvp },
+              { key: 'registry' as LinkKey, label: 'Registry Page', show: event.has_registry },
             ]
               .filter((item) => item.show)
               .map((item) => {
-                const effectiveUrl = getEffectiveUrl(item.key, item.url)
                 return (
                 <div key={item.key} className="space-y-2">
                   <p className="text-sm font-medium text-gray-700">{item.label}</p>
@@ -802,7 +719,7 @@ export default function EventDetailPage() {
                     <input
                       type="text"
                       readOnly
-                      value={effectiveUrl}
+                      value={buildUrl(item.key, 'link')}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
                     />
                     <div className="relative">
@@ -823,7 +740,7 @@ export default function EventDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              handleCopyLink(item.key, effectiveUrl)
+                              handleCopyLink(item.key, buildUrl(item.key, 'link'))
                               setOpenActionsKey(null)
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
@@ -833,7 +750,7 @@ export default function EventDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              handleShareLink(item.label, effectiveUrl)
+                              handleShareLink(item.label, buildUrl(item.key, 'link'))
                               setOpenActionsKey(null)
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
@@ -933,7 +850,7 @@ export default function EventDetailPage() {
 
                     <div className="mx-auto inline-block rounded-lg bg-white p-3 border border-gray-200 shadow-sm">
                       <div className="relative inline-block">
-                        <QRCode value={effectiveUrl} size={148} level="H" />
+                        <QRCode value={buildUrl(item.key, 'qr')} size={148} level="H" />
                         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#D7E6D2] bg-white px-2 py-0.5">
                           <span className="text-[9px] leading-none font-semibold text-eco-green">Ekfern</span>
                         </div>

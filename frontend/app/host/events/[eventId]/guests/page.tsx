@@ -15,6 +15,7 @@ import { getCountryCode, formatPhoneWithCountryCode } from '@/lib/countryCodesFu
 import CountryCodeSelector from '@/components/CountryCodeSelector'
 import { generateWhatsAppLink, generateGuestMessage, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
 import { logError } from '@/lib/error-handler'
+import { getSiteUrl } from '@/lib/site-url'
 import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
 import { isContactPickerSupported, selectContactsAsGuestRows } from '@/lib/contactPickerImport'
 import { isLikelyIOS } from '@/lib/contactImportUi'
@@ -1648,9 +1649,8 @@ export default function GuestsPage() {
     
     try {
       // Generate guest-specific event URL with token if available
-      const eventUrl = typeof window !== 'undefined' 
-        ? `${window.location.origin}/invite/${event.slug || eventId}${selectedGuest.guest_token ? `?g=${selectedGuest.guest_token}` : ''}` 
-        : ''
+      const guestParam = selectedGuest.guest_token ? `&g=${selectedGuest.guest_token}` : ''
+      const eventUrl = `${getSiteUrl()}/invite/${event.slug || eventId}?source=link${guestParam}`
       
       let message: string
       
