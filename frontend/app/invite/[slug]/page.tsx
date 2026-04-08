@@ -718,7 +718,7 @@ export async function generateMetadata({
   const titleSource = customMetadata?.previewTitleSource
   const title = (titleSource !== 'auto' && customMetadata?.title)
     ? customMetadata.title
-    : `${baseTitle} | ${BRAND_NAME}`
+    : baseTitle
 
   // Extract description: custom metadata > auto-generated from tiles/event
   let description = inviteData.description || 'Join us for a special celebration'

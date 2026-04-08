@@ -206,7 +206,8 @@ export default function EventDetailPage() {
     }
     try {
       const response = await api.get(`/api/events/${eventId}/rsvps/`)
-      setRsvps(response.data || [])
+      const data = response.data
+      setRsvps(Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []))
     } catch (error) {
       // RSVPs might not exist yet, that's okay
       logDebug('No RSVPs found')

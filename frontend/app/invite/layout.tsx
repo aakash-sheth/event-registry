@@ -1,6 +1,10 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
+  title: {
+    template: '%s',
+    default: 'Event Invitation',
+  },
   robots: {
     index: false,
     follow: false,
