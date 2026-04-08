@@ -81,6 +81,15 @@ export default function EventDetailPage() {
   const [analyticsSummary, setAnalyticsSummary] = useState<EventAnalyticsSummary | null>(null)
   const [enablingInsights, setEnablingInsights] = useState(false)
 
+  const normalizeListResponse = (payload: any): any[] => {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.results)) return payload.results
+    if (Array.isArray(payload?.items)) return payload.items
+    if (Array.isArray(payload?.orders)) return payload.orders
+    if (Array.isArray(payload?.data)) return payload.data
+    return []
+  }
+
   useEffect(() => {
     if (!eventId || eventId === 'undefined') {
       logError('Invalid eventId:', eventId)
@@ -176,9 +185,10 @@ export default function EventDetailPage() {
     }
     try {
       const response = await api.get(`/api/events/${eventId}/orders/`)
-      setOrders(response.data.results || response.data || [])
+      setOrders(normalizeListResponse(response.data))
     } catch (error) {
       logError('Failed to fetch orders:', error)
+      setOrders([])
     }
   }
 
@@ -192,11 +202,12 @@ export default function EventDetailPage() {
       if (Array.isArray(response.data)) {
         setGuests(response.data)
       } else {
-        setGuests(response.data?.guests || [])
+        setGuests(normalizeListResponse(response.data?.guests))
       }
     } catch (error) {
       // Guest list might not exist yet, that's okay
       logDebug('No guest list found')
+      setGuests([])
     }
   }
 
@@ -206,11 +217,11 @@ export default function EventDetailPage() {
     }
     try {
       const response = await api.get(`/api/events/${eventId}/rsvps/`)
-      const data = response.data
-      setRsvps(Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []))
+      setRsvps(normalizeListResponse(response.data))
     } catch (error) {
       // RSVPs might not exist yet, that's okay
       logDebug('No RSVPs found')
+      setRsvps([])
     }
   }
 

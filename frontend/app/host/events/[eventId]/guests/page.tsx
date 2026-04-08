@@ -269,13 +269,14 @@ export default function GuestsPage() {
       try {
         // Poll analytics endpoint directly - it already filters by event and returns guest IDs
         const analyticsResponse = await getGuestsAnalytics(parseInt(eventId))
+        const polledGuests = normalizeAnalyticsGuests(analyticsResponse)
         
         // Compare with current analytics data (from ref) to detect changes
         const currentAnalyticsData = analyticsDataRef.current
         let hasChanges = false
         
         // Check each guest for changes
-        analyticsResponse.guests.forEach((guest: GuestAnalytics) => {
+        polledGuests.forEach((guest: GuestAnalytics) => {
           const prevGuest = currentAnalyticsData[guest.id]
           
           // Check if view counts or timestamps changed
@@ -292,7 +293,7 @@ export default function GuestsPage() {
         
         // Also check if any guests were removed (had analytics before but not now)
         Object.keys(currentAnalyticsData).forEach(guestId => {
-          if (!analyticsResponse.guests.find(g => g.id === parseInt(guestId))) {
+          if (!polledGuests.find(g => g.id === parseInt(guestId))) {
             hasChanges = true
           }
         })
@@ -300,7 +301,7 @@ export default function GuestsPage() {
         // If changes detected, refresh analytics (which will update state and merge into guests)
         if (hasChanges) {
           console.log('[Analytics] Detected changes in analytics data, refreshing UI...', {
-            guests_checked: analyticsResponse.guests.length,
+            guests_checked: polledGuests.length,
             event_id: eventId
           })
           await fetchAnalytics(true) // Silent refresh - don't show loading indicator
@@ -934,6 +935,13 @@ export default function GuestsPage() {
   const [analyticsSummary, setAnalyticsSummary] = useState<EventAnalyticsSummary | null>(null)
   const [loadingAnalytics, setLoadingAnalytics] = useState(false)
 
+  const normalizeAnalyticsGuests = (payload: any): GuestAnalytics[] => {
+    if (Array.isArray(payload?.guests)) return payload.guests
+    if (Array.isArray(payload?.results)) return payload.results
+    if (Array.isArray(payload)) return payload
+    return []
+  }
+
   const fetchAnalytics = async (silent = false) => {
     try {
       if (!silent) {
@@ -943,10 +951,11 @@ export default function GuestsPage() {
         getGuestsAnalytics(parseInt(eventId)),
         getEventAnalyticsSummary(parseInt(eventId))
       ])
+      const analyticsGuests = normalizeAnalyticsGuests(analyticsResponse)
       
       // Create a map of guest ID to analytics data
       const analyticsMap: Record<number, GuestAnalytics> = {}
-      analyticsResponse.guests.forEach((guest: GuestAnalytics) => {
+      analyticsGuests.forEach((guest: GuestAnalytics) => {
         analyticsMap[guest.id] = guest
       })
       setAnalyticsData(analyticsMap)
