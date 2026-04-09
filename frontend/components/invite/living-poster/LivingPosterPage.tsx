@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useReducedMotion } from 'framer-motion'
 import { InviteConfig } from '@/lib/invite/schema'
 import { ThemeProvider, useTheme } from './ThemeProvider'
 import Hero from './Hero'
@@ -9,6 +10,77 @@ import TilePreview from '@/components/invite/tiles/TilePreview'
 import ScrollIndicator from '@/components/invite/ScrollIndicator'
 import TextureOverlay from './TextureOverlay'
 
+const DEFAULT_VIEWPORT_FADE_INSET_PX = 10
+
+/**
+ * Opacity 0→1 as the tile moves out of the top/bottom viewport edge bands (inset px each).
+ * Content overlapping the top band fades by top edge proximity; bottom band by bottom edge.
+ */
+function InviteTileViewportEdgeFade({
+  children,
+  enabled,
+  insetPx,
+}: {
+  children: React.ReactNode
+  enabled: boolean
+  insetPx: number
+}) {
+  const reduceMotion = useReducedMotion()
+  const ref = useRef<HTMLDivElement>(null)
+  const [opacity, setOpacity] = useState(1)
+
+  useLayoutEffect(() => {
+    if (!enabled || reduceMotion) {
+      setOpacity(1)
+      return
+    }
+
+    const inset = Math.max(1, insetPx)
+    let raf = 0
+
+    const tick = () => {
+      const el = ref.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const vh = window.innerHeight || inset + 1
+
+      const topFactor = rect.top >= inset ? 1 : Math.max(0, rect.top / inset)
+      const bottomDist = vh - rect.bottom
+      const bottomFactor = bottomDist >= inset ? 1 : Math.max(0, bottomDist / inset)
+
+      const next = Math.min(1, topFactor * bottomFactor)
+      setOpacity((prev) => (Math.abs(prev - next) < 0.004 ? prev : next))
+    }
+
+    const schedule = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        tick()
+      })
+    }
+
+    tick()
+    window.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule, { passive: true })
+
+    return () => {
+      window.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [enabled, reduceMotion, insetPx])
+
+  if (!enabled || reduceMotion) {
+    return <div className="w-full">{children}</div>
+  }
+
+  return (
+    <div ref={ref} className="w-full will-change-[opacity]" style={{ opacity }}>
+      {children}
+    </div>
+  )
+}
 
 interface LivingPosterPageProps {
   config: InviteConfig
@@ -41,6 +113,12 @@ function LivingPosterContent({
 }: LivingPosterPageProps) {
   const theme = useTheme()
   const backgroundColor = config.customColors?.backgroundColor ?? theme.backgroundColor
+  const tileViewportFade = config.animations?.tileViewportFade === true
+  const tileFadeInset =
+    typeof config.animations?.tileViewportFadeInsetPx === 'number' &&
+    config.animations.tileViewportFadeInsetPx > 0
+      ? config.animations.tileViewportFadeInsetPx
+      : DEFAULT_VIEWPORT_FADE_INSET_PX
 
   // Set body background to match page background (skip if already set at page level)
   useEffect(() => {
@@ -133,22 +211,28 @@ function LivingPosterContent({
           }
         >
         {sortedTiles.map((tile) => {
-          const tileEl = <TilePreview key={tile.id} tile={tile} {...sharedProps} />
+          const tileEl = <TilePreview tile={tile} {...sharedProps} />
 
           // Inject attendee count above the RSVP/feature-buttons tile (min 5 to avoid "2 attending")
           if (tile.type === 'feature-buttons' && hasRsvp && rsvpCount !== undefined && rsvpCount >= 5) {
             const countColor = config.customColors?.fontColor ?? theme.fontColor
             return (
-              <React.Fragment key={tile.id}>
-                <p className="text-center text-sm px-6" style={{ color: countColor, opacity: 0.6 }}>
-                  ✓ {rsvpCount} {rsvpCount === 1 ? 'person' : 'people'} attending
-                </p>
-                {tileEl}
-              </React.Fragment>
+              <InviteTileViewportEdgeFade key={tile.id} enabled={tileViewportFade} insetPx={tileFadeInset}>
+                <div className="flex flex-col gap-2 w-full">
+                  <p className="text-center text-sm px-6" style={{ color: countColor, opacity: 0.6 }}>
+                    ✓ {rsvpCount} {rsvpCount === 1 ? 'person' : 'people'} attending
+                  </p>
+                  {tileEl}
+                </div>
+              </InviteTileViewportEdgeFade>
             )
           }
 
-          return tileEl
+          return (
+            <InviteTileViewportEdgeFade key={tile.id} enabled={tileViewportFade} insetPx={tileFadeInset}>
+              {tileEl}
+            </InviteTileViewportEdgeFade>
+          )
         })}
         </div>
         {config.pageFrame?.imageUrl && (

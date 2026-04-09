@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -n \"applyTemplate\" /Users/aakashsheth/Wedding registry code/frontend/app/host/events/[eventId]/design/page.tsx)"
+      "Bash(grep -n \"applyTemplate\" /Users/aakashsheth/Wedding registry code/frontend/app/host/events/[eventId]/design/page.tsx)",
+      "Bash(ls -la frontend/components/invite/tiles/*.tsx)",
+      "Bash(ls frontend/components/invite/tiles/*.tsx)",
+      "WebFetch(domain:ekfern.com)",
+      "Bash(find '/Users/aakashsheth/Wedding registry code' -name globals.css -o -name tailwind.config.*)"
     ]
   }
 }

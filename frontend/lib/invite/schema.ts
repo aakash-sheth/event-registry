@@ -282,6 +282,10 @@ export interface InviteConfig {
   // Animation settings
   animations?: {
     envelope?: boolean // Enable/disable envelope opening animation (default: true)
+    /** When true, each tile opacity follows viewport: fades in top/bottom 10px bands while scrolling. */
+    tileViewportFade?: boolean
+    /** Pixel inset from top and bottom of viewport for the fade band (default 10). */
+    tileViewportFadeInsetPx?: number
   }
   // Link preview metadata (Open Graph, Twitter Cards, WhatsApp)
   linkMetadata?: LinkMetadata
