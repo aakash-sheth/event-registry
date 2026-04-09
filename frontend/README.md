@@ -46,3 +46,7 @@ vercel
 
 Or configure for S3 + CloudFront.
 
+## Design Documentation
+
+- `DESIGN_STYLE_GUIDE.md` - EkFern design tokens, component rules, theming, layout, and UI implementation standards.
+
