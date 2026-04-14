@@ -30,8 +30,15 @@ const config: Config = {
         'fade-in-up': 'fadeInUp 1s ease',
         'gradient-shift': 'gradientShift 8s ease infinite',
         'scroll': 'scroll 30s linear infinite',
+        'scroll-reverse': 'scroll-reverse 30s linear infinite',
+        'ken-burns': 'kenBurns 18s ease-in-out infinite alternate',
+        'ken-burns-slow': 'kenBurns 28s ease-in-out infinite alternate',
       },
       keyframes: {
+        kenBurns: {
+          '0%':   { transform: 'scale(1)    translateZ(0)' },
+          '100%': { transform: 'scale(1.07) translateZ(0)' },
+        },
         float: {
           '0%, 100%': { transform: 'translateY(0px)' },
           '50%': { transform: 'translateY(-30px)' },
@@ -53,6 +60,10 @@ const config: Config = {
         scroll: {
           '0%': { transform: 'translateX(0)' },
           '100%': { transform: 'translateX(-50%)' },
+        },
+        'scroll-reverse': {
+          '0%': { transform: 'translateX(-50%)' },
+          '100%': { transform: 'translateX(0%)' },
         },
       },
     },
