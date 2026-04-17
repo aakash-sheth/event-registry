@@ -1,14 +1,34 @@
 from rest_framework import serializers
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
 from apps.users.serializers import UserSerializer
-from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header
+from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, normalize_phone_for_match, phones_loosely_match
 import re
 import secrets
 import string
 from urllib.parse import urlencode
+
+
+EVENT_RSVP_MUTATION_KEYS = frozenset({'rsvp_experience_mode', 'event_structure', 'rsvp_mode'})
+
+
+def _display_label_for_booking_slot(slot, event) -> str:
+    """Host list: use slot label, or a compact local time range if the label is empty."""
+    text = (slot.label or '').strip()
+    if text:
+        return text
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(event.timezone or 'UTC')
+        start = slot.start_at.astimezone(tz)
+        end = slot.end_at.astimezone(tz)
+        return f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')}"
+    except Exception:
+        return 'Booked'
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -16,11 +36,18 @@ class EventSerializer(serializers.ModelSerializer):
     host_name = serializers.CharField(source='host.name', read_only=True, allow_null=True)
     country_code = serializers.SerializerMethodField()
     is_expired = serializers.BooleanField(read_only=True)
-    
+    rsvp_experience_mode = serializers.ChoiceField(
+        choices=Event.RSVP_EXPERIENCE_MODE_CHOICES,
+        required=False,
+    )
+    rsvp_mode_readiness = serializers.SerializerMethodField()
+    mode_switch_locked = serializers.SerializerMethodField()
+    mode_switch_lock_reasons = serializers.SerializerMethodField()
+
     class Meta:
         model = Event
-        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'timezone', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'is_expired', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'host_name', 'country_code', 'analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'is_expired', 'created_at', 'updated_at')
+        fields = ('id', 'host_name', 'slug', 'title', 'event_type', 'date', 'event_end_date', 'city', 'country', 'timezone', 'country_code', 'is_public', 'has_rsvp', 'has_registry', 'event_structure', 'rsvp_mode', 'rsvp_experience_mode', 'rsvp_mode_readiness', 'mode_switch_locked', 'mode_switch_lock_reasons', 'banner_image', 'description', 'additional_photos', 'page_config', 'expiry_date', 'whatsapp_message_template', 'custom_fields_metadata', 'analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'is_expired', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'host_name', 'country_code', 'analytics_insights_enabled', 'analytics_enabled_at', 'analytics_enabled_by', 'is_expired', 'rsvp_mode_readiness', 'mode_switch_locked', 'mode_switch_lock_reasons', 'created_at', 'updated_at')
     
     def validate_slug(self, value):
         """Ensure slug is unique (excluding current instance on update)"""
@@ -45,6 +72,81 @@ class EventSerializer(serializers.ModelSerializer):
         """Return phone country code for the event's country"""
         return get_country_code(obj.country or 'IN')
 
+    def get_rsvp_mode_readiness(self, obj):
+        return obj.get_rsvp_mode_readiness()
+
+    def _mode_switch_lock_payload(self, obj):
+        cache = getattr(self, '_mode_switch_lock_payload_cache', None)
+        if cache is None or cache[0] != obj.pk:
+            info = obj.get_mode_switch_lock_info()
+            self._mode_switch_lock_payload_cache = (obj.pk, info)
+        return self._mode_switch_lock_payload_cache[1]
+
+    def get_mode_switch_locked(self, obj):
+        return self._mode_switch_lock_payload(obj)['locked']
+
+    def get_mode_switch_lock_reasons(self, obj):
+        return self._mode_switch_lock_payload(obj)['reasons']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['rsvp_experience_mode'] = instance.get_canonical_rsvp_mode()
+        return data
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+
+        # Non-RSVP PATCHes (e.g. has_rsvp, title) must not re-derive legacy RSVP fields.
+        if instance and not (EVENT_RSVP_MUTATION_KEYS & attrs.keys()):
+            return attrs
+
+        # Ensure we always reason with canonical mode.
+        incoming_mode = attrs.get('rsvp_experience_mode')
+        if incoming_mode is None and instance:
+            incoming_mode = instance.get_canonical_rsvp_mode()
+        elif incoming_mode is None:
+            incoming_mode = Event.RSVP_EXPERIENCE_MODE_STANDARD
+
+        if incoming_mode not in {
+            Event.RSVP_EXPERIENCE_MODE_STANDARD,
+            Event.RSVP_EXPERIENCE_MODE_SUB_EVENT,
+            Event.RSVP_EXPERIENCE_MODE_SLOT_BASED,
+        }:
+            raise serializers.ValidationError({'rsvp_experience_mode': 'Invalid RSVP mode.'})
+
+        # Mode switch guardrail: prevent switching if live responses/bookings exist.
+        if instance:
+            current_mode = instance.get_canonical_rsvp_mode()
+            if incoming_mode != current_mode:
+                lock = instance.get_mode_switch_lock_info()
+                if lock['locked']:
+                    raise serializers.ValidationError({
+                        'rsvp_experience_mode': (
+                            'Cannot switch RSVP mode after receiving responses or slot bookings.'
+                        )
+                    })
+
+        attrs['rsvp_experience_mode'] = incoming_mode
+
+        # Canonical-to-legacy mapping to avoid mixed-mode behavior.
+        if incoming_mode == Event.RSVP_EXPERIENCE_MODE_STANDARD:
+            attrs['event_structure'] = 'SIMPLE'
+            attrs['rsvp_mode'] = 'ONE_TAP_ALL'
+        elif incoming_mode == Event.RSVP_EXPERIENCE_MODE_SUB_EVENT:
+            attrs['event_structure'] = 'ENVELOPE'
+            attrs['rsvp_mode'] = attrs.get(
+                'rsvp_mode',
+                instance.rsvp_mode if instance else 'PER_SUBEVENT'
+            )
+            if attrs['rsvp_mode'] not in {'PER_SUBEVENT', 'ONE_TAP_ALL'}:
+                attrs['rsvp_mode'] = 'PER_SUBEVENT'
+        else:  # slot_based
+            attrs['event_structure'] = 'SIMPLE'
+            attrs['rsvp_mode'] = 'ONE_TAP_ALL'
+
+        return attrs
+
 
 class InvitePageSerializer(serializers.ModelSerializer):
     """Full serializer for InvitePage - read/write"""
@@ -55,6 +157,7 @@ class InvitePageSerializer(serializers.ModelSerializer):
     guest_context = serializers.SerializerMethodField()
     event_structure = serializers.CharField(source='event.event_structure', read_only=True)
     rsvp_mode = serializers.CharField(source='event.rsvp_mode', read_only=True)
+    rsvp_experience_mode = serializers.SerializerMethodField()
     has_rsvp = serializers.BooleanField(source='event.has_rsvp', read_only=True)
     has_registry = serializers.BooleanField(source='event.has_registry', read_only=True)
     show_branding = serializers.BooleanField(source='event.show_branding', read_only=True)
@@ -63,8 +166,8 @@ class InvitePageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = InvitePage
-        fields = ('id', 'event', 'event_slug', 'event_country', 'event_timezone', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'show_branding', 'rsvp_count', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'event_slug', 'event_country', 'event_timezone', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'has_rsvp', 'has_registry', 'show_branding', 'rsvp_count', 'created_at', 'updated_at')
+        fields = ('id', 'event', 'event_slug', 'event_country', 'event_timezone', 'slug', 'background_url', 'config', 'is_published', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'rsvp_experience_mode', 'has_rsvp', 'has_registry', 'show_branding', 'rsvp_count', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'event_slug', 'event_country', 'event_timezone', 'state', 'allowed_sub_events', 'guest_context', 'event_structure', 'rsvp_mode', 'rsvp_experience_mode', 'has_rsvp', 'has_registry', 'show_branding', 'rsvp_count', 'created_at', 'updated_at')
     
     def get_allowed_sub_events(self, obj):
         """Get allowed sub-events - set by view based on guest token or public visibility"""
@@ -79,6 +182,9 @@ class InvitePageSerializer(serializers.ModelSerializer):
     def get_state(self, obj):
         """Get the state property from the InvitePage model"""
         return obj.state
+
+    def get_rsvp_experience_mode(self, obj):
+        return obj.event.get_canonical_rsvp_mode()
 
     def get_rsvp_count(self, obj):
         """Count of confirmed (will_attend=yes) RSVPs for the event"""
@@ -135,7 +241,7 @@ class EventCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Event
-        fields = ('slug', 'title', 'event_type', 'date', 'city', 'country', 'timezone', 'is_public', 'has_rsvp', 'has_registry')
+        fields = ('slug', 'title', 'event_type', 'date', 'city', 'country', 'timezone', 'is_public', 'has_rsvp', 'has_registry', 'rsvp_experience_mode')
         read_only_fields = ('id',)
 
     @staticmethod
@@ -152,6 +258,23 @@ class EventCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         slug = attrs.get('slug', '').strip()
+        mode = attrs.get('rsvp_experience_mode', Event.RSVP_EXPERIENCE_MODE_STANDARD)
+
+        if mode not in {
+            Event.RSVP_EXPERIENCE_MODE_STANDARD,
+            Event.RSVP_EXPERIENCE_MODE_SUB_EVENT,
+            Event.RSVP_EXPERIENCE_MODE_SLOT_BASED,
+        }:
+            raise serializers.ValidationError({'rsvp_experience_mode': 'Invalid RSVP mode.'})
+        attrs['rsvp_experience_mode'] = mode
+
+        if mode == Event.RSVP_EXPERIENCE_MODE_SUB_EVENT:
+            attrs['event_structure'] = 'ENVELOPE'
+            attrs['rsvp_mode'] = 'PER_SUBEVENT'
+        else:
+            attrs['event_structure'] = 'SIMPLE'
+            attrs['rsvp_mode'] = 'ONE_TAP_ALL'
+
         if not slug:
             attrs['slug'] = self._generate_unique_slug(attrs.get('title', 'event'))
         else:
@@ -396,6 +519,10 @@ class GuestSerializer(serializers.ModelSerializer):
     rsvp_status = serializers.SerializerMethodField()
     rsvp_will_attend = serializers.SerializerMethodField()
     rsvp_guests_count = serializers.SerializerMethodField()
+    slot_booking_selected_slot_label = serializers.SerializerMethodField()
+    slot_booking_slot_date = serializers.SerializerMethodField()
+    slot_booking_status = serializers.SerializerMethodField()
+    rsvp_notes = serializers.SerializerMethodField()
     country_code = serializers.SerializerMethodField()
     local_number = serializers.SerializerMethodField()
     guest_token = serializers.CharField(read_only=True)
@@ -403,8 +530,49 @@ class GuestSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Guest
-        fields = ('id', 'event', 'name', 'phone', 'country_code', 'country_iso', 'local_number', 'email', 'relationship', 'notes', 'is_removed', 'rsvp_status', 'rsvp_will_attend', 'rsvp_guests_count', 'guest_token', 'sub_event_invites', 'custom_fields', 'invitation_sent', 'invitation_sent_at', 'created_at')
-        read_only_fields = ('id', 'created_at', 'rsvp_status', 'rsvp_will_attend', 'rsvp_guests_count', 'country_code', 'local_number', 'guest_token', 'sub_event_invites')
+        fields = (
+            'id',
+            'event',
+            'name',
+            'phone',
+            'country_code',
+            'country_iso',
+            'local_number',
+            'email',
+            'relationship',
+            'notes',
+            'is_removed',
+            'source',
+            'rsvp_status',
+            'rsvp_will_attend',
+            'rsvp_guests_count',
+            'slot_booking_selected_slot_label',
+            'slot_booking_slot_date',
+            'slot_booking_status',
+            'rsvp_notes',
+            'guest_token',
+            'sub_event_invites',
+            'custom_fields',
+            'invitation_sent',
+            'invitation_sent_at',
+            'created_at',
+        )
+        read_only_fields = (
+            'id',
+            'created_at',
+            'rsvp_status',
+            'rsvp_will_attend',
+            'rsvp_guests_count',
+            'country_code',
+            'local_number',
+            'guest_token',
+            'sub_event_invites',
+            'source',
+            'slot_booking_selected_slot_label',
+            'slot_booking_slot_date',
+            'slot_booking_status',
+            'rsvp_notes',
+        )
 
     def validate_custom_fields(self, value):
         """
@@ -483,7 +651,12 @@ class GuestSerializer(serializers.ModelSerializer):
         rsvp = RSVP.objects.filter(event=obj.event, phone=obj.phone, is_removed=False).first()
         if rsvp:
             return rsvp.will_attend  # 'yes', 'no', or 'maybe'
-        
+
+        if obj.phone and normalize_phone_for_match(obj.phone):
+            for r in RSVP.objects.filter(event=obj.event, is_removed=False).order_by('-created_at'):
+                if phones_loosely_match(r.phone, obj.phone):
+                    return r.will_attend
+
         return None  # No RSVP yet
     
     def get_rsvp_will_attend(self, obj):
@@ -501,9 +674,99 @@ class GuestSerializer(serializers.ModelSerializer):
         rsvp = RSVP.objects.filter(event=obj.event, phone=obj.phone, is_removed=False).first()
         if rsvp:
             return rsvp.guests_count
-        
+
+        if obj.phone and normalize_phone_for_match(obj.phone):
+            for r in RSVP.objects.filter(event=obj.event, is_removed=False).order_by('-created_at'):
+                if phones_loosely_match(r.phone, obj.phone):
+                    return r.guests_count
+
         return None  # No RSVP yet
-    
+
+    def _get_confirmed_slot_booking(self, obj):
+        """
+        Return the latest confirmed SlotBooking for this guest+event.
+        Prefer joining on guest FK, but fall back to phone_snapshot when the RSVP/booking
+        was created without linking the guest FK.
+        """
+        slot_booking = (
+            SlotBooking.objects.filter(
+                event=obj.event,
+                guest=obj,
+                status=SlotBooking.STATUS_CONFIRMED,
+            )
+            .select_related('slot')
+            .order_by('-created_at')
+            .first()
+        )
+        if slot_booking:
+            return slot_booking
+
+        if not obj.phone:
+            return None
+
+        exact = (
+            SlotBooking.objects.filter(
+                event=obj.event,
+                phone_snapshot=obj.phone,
+                status=SlotBooking.STATUS_CONFIRMED,
+            )
+            .select_related('slot')
+            .order_by('-created_at')
+            .first()
+        )
+        if exact:
+            return exact
+
+        if not normalize_phone_for_match(obj.phone):
+            return None
+
+        qs = (
+            SlotBooking.objects.filter(
+                event=obj.event,
+                status=SlotBooking.STATUS_CONFIRMED,
+            )
+            .select_related('slot')
+            .order_by('-created_at')
+        )
+        for sb in qs:
+            if phones_loosely_match(obj.phone, sb.phone_snapshot):
+                return sb
+        return None
+
+    def get_slot_booking_selected_slot_label(self, obj):
+        slot_booking = self._get_confirmed_slot_booking(obj)
+        if not slot_booking or not slot_booking.slot:
+            return None
+        return _display_label_for_booking_slot(slot_booking.slot, obj.event)
+
+    def get_slot_booking_slot_date(self, obj):
+        slot_booking = self._get_confirmed_slot_booking(obj)
+        if not slot_booking or not slot_booking.slot:
+            return None
+        return str(slot_booking.slot.slot_date)
+
+    def get_slot_booking_status(self, obj):
+        slot_booking = self._get_confirmed_slot_booking(obj)
+        if not slot_booking:
+            return None
+        return 'confirmed'
+
+    def get_rsvp_notes(self, obj):
+        """Notes from the linked RSVP (slot / public flows store notes here, not on Guest)."""
+        rsvp = RSVP.objects.filter(event=obj.event, guest=obj, is_removed=False).first()
+        if not rsvp and obj.phone:
+            rsvp = RSVP.objects.filter(event=obj.event, phone=obj.phone, is_removed=False).first()
+        if not rsvp and obj.phone:
+            if normalize_phone_for_match(obj.phone):
+                for r in RSVP.objects.filter(event=obj.event, is_removed=False).order_by('-created_at'):
+                    if phones_loosely_match(r.phone, obj.phone):
+                        rsvp = r
+                        break
+        if not rsvp:
+            return None
+        text = (rsvp.notes or '').strip()
+        return text or None
+
     def get_country_code(self, obj):
         """Extract country code from phone number"""
         if not obj.phone or not obj.phone.startswith('+'):
@@ -609,6 +872,69 @@ class GuestSubEventInviteSerializer(serializers.ModelSerializer):
         model = GuestSubEventInvite
         fields = ('id', 'guest', 'guest_name', 'sub_event', 'sub_event_title', 'created_at')
         read_only_fields = ('id', 'guest_name', 'sub_event_title', 'created_at')
+
+
+class BookingScheduleSerializer(serializers.ModelSerializer):
+    def create(self, validated_data):
+        validated_data.setdefault('status_changed_at', timezone.now())
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        previous_enabled = instance.is_enabled
+        next_enabled = validated_data.get('is_enabled', previous_enabled)
+        if next_enabled != previous_enabled:
+            validated_data['status_changed_at'] = timezone.now()
+        return super().update(instance, validated_data)
+
+    class Meta:
+        model = BookingSchedule
+        fields = (
+            'id', 'event', 'is_enabled', 'seat_visibility_mode', 'allow_direct_bookings',
+            'allow_host_capacity_override', 'booking_open_days_before',
+            'booking_close_hours_before', 'timezone', 'status_changed_at', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'event', 'status_changed_at', 'created_at', 'updated_at')
+
+
+class BookingSlotSerializer(serializers.ModelSerializer):
+    remaining_seats = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BookingSlot
+        fields = (
+            'id', 'event', 'schedule', 'slot_date', 'start_at', 'end_at', 'label',
+            'display_order', 'capacity_total', 'status', 'metadata_json',
+            'remaining_seats', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'event', 'schedule', 'remaining_seats', 'created_at', 'updated_at')
+
+    def validate(self, data):
+        start_at = data.get('start_at', getattr(self.instance, 'start_at', None))
+        end_at = data.get('end_at', getattr(self.instance, 'end_at', None))
+        if start_at and end_at and end_at <= start_at:
+            raise serializers.ValidationError("end_at must be after start_at")
+        return data
+
+    def get_remaining_seats(self, obj):
+        confirmed_sum = obj.bookings.filter(status=SlotBooking.STATUS_CONFIRMED).aggregate(
+            total=models.Sum('seats_booked')
+        )['total'] or 0
+        return max(0, obj.capacity_total - confirmed_sum)
+
+
+class SlotBookingSerializer(serializers.ModelSerializer):
+    slot = BookingSlotSerializer(read_only=True)
+    slot_id = serializers.IntegerField(write_only=True, required=False)
+    guest_name = serializers.CharField(source='guest.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = SlotBooking
+        fields = (
+            'id', 'event', 'slot', 'slot_id', 'guest', 'guest_name', 'phone_snapshot',
+            'name_snapshot', 'email_snapshot', 'seats_booked', 'source', 'status',
+            'idempotency_key', 'booked_at', 'cancelled_at', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'event', 'guest', 'guest_name', 'booked_at', 'created_at', 'updated_at')
 
 
 class MessageTemplateSerializer(serializers.ModelSerializer):
@@ -775,6 +1101,7 @@ class MessageCampaignSerializer(serializers.ModelSerializer):
             'id', 'event', 'name', 'template', 'message_mode',
             'message_body', 'meta_template_name', 'meta_template_language',
             'guest_filter', 'filter_relationship', 'custom_guest_ids',
+            'filter_slot_id', 'filter_slot_date', 'filter_booking_status',
             'scheduled_at', 'status',
             'total_recipients', 'sent_count', 'delivered_count',
             'read_count', 'failed_count',
@@ -805,6 +1132,7 @@ class MessageCampaignCreateSerializer(serializers.ModelSerializer):
             'name', 'template', 'message_mode', 'message_body',
             'meta_template_name', 'meta_template_language',
             'guest_filter', 'filter_relationship', 'custom_guest_ids',
+            'filter_slot_id', 'filter_slot_date', 'filter_booking_status',
             'scheduled_at',
         )
 
@@ -835,6 +1163,21 @@ class MessageCampaignCreateSerializer(serializers.ModelSerializer):
             if not attrs.get('custom_guest_ids'):
                 raise serializers.ValidationError(
                     {'custom_guest_ids': 'At least one guest ID required for custom selection.'}
+                )
+        if attrs.get('guest_filter') == MessageCampaign.FILTER_BOOKING_SLOT:
+            if not attrs.get('filter_slot_id'):
+                raise serializers.ValidationError(
+                    {'filter_slot_id': 'Required when filtering by booking slot.'}
+                )
+        if attrs.get('guest_filter') == MessageCampaign.FILTER_BOOKING_DATE:
+            if not attrs.get('filter_slot_date'):
+                raise serializers.ValidationError(
+                    {'filter_slot_date': 'Required when filtering by booking date.'}
+                )
+        if attrs.get('guest_filter') == MessageCampaign.FILTER_BOOKING_STATUS:
+            if not attrs.get('filter_booking_status'):
+                raise serializers.ValidationError(
+                    {'filter_booking_status': 'Required when filtering by booking status.'}
                 )
         return attrs
 

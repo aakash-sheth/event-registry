@@ -413,12 +413,12 @@ export default function LandingPage() {
                   ref={el => { stepsRef.current[idx] = el }}
                   className={`flex flex-col ${idx % 2 === 1 ? 'md:flex-row-reverse' : 'md:flex-row'} items-center gap-12 opacity-0 transition-all duration-700 ${idx % 2 === 1 ? 'translate-x-8' : '-translate-x-8'}`}
                 >
-                  <div className="flex-1 space-y-4">
-                    <span className="text-base font-light" style={{ color: C.gold, fontFamily: SERIF }}>{step.number}</span>
-                    <h3 className="text-4xl md:text-5xl font-light" style={{ fontFamily: SERIF, color: C.dark }}>
+                  <div className="flex-1 space-y-4 flex flex-col items-center md:items-start">
+                    <span className="text-7xl md:text-8xl font-light leading-none" style={{ color: C.gold, fontFamily: SERIF, opacity: 0.85 }}>{step.number}</span>
+                    <h3 className="text-4xl md:text-5xl font-light text-center md:text-left" style={{ fontFamily: SERIF, color: C.dark }}>
                       {step.title}
                     </h3>
-                    <p className="text-lg leading-relaxed max-w-md" style={{ color: C.earth }}>{step.description}</p>
+                    <p className="text-lg leading-relaxed max-w-md text-center md:text-left" style={{ color: C.earth }}>{step.description}</p>
                   </div>
                   <div className="flex-1 w-full max-w-md">{step.visual}</div>
                 </div>

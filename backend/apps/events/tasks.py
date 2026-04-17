@@ -164,7 +164,7 @@ def _build_guest_queryset(campaign):
     Translate campaign.guest_filter into a Guest queryset.
     Base: is_removed=False, phone not empty.
     """
-    from apps.events.models import Guest, RSVP, MessageCampaign
+    from apps.events.models import Guest, RSVP, MessageCampaign, SlotBooking
 
     base = Guest.objects.filter(
         event=campaign.event, is_removed=False
@@ -210,5 +210,37 @@ def _build_guest_queryset(campaign):
 
     if f == MessageCampaign.FILTER_CUSTOM:
         return base.filter(pk__in=campaign.custom_guest_ids)
+
+    if f == MessageCampaign.FILTER_BOOKING_SLOT:
+        if not campaign.filter_slot_id:
+            return base.none()
+        guest_ids = SlotBooking.objects.filter(
+            event=campaign.event,
+            slot_id=campaign.filter_slot_id,
+            status=SlotBooking.STATUS_CONFIRMED,
+            guest__isnull=False,
+        ).values_list('guest_id', flat=True)
+        return base.filter(pk__in=guest_ids)
+
+    if f == MessageCampaign.FILTER_BOOKING_DATE:
+        if not campaign.filter_slot_date:
+            return base.none()
+        guest_ids = SlotBooking.objects.filter(
+            event=campaign.event,
+            slot__slot_date=campaign.filter_slot_date,
+            status=SlotBooking.STATUS_CONFIRMED,
+            guest__isnull=False,
+        ).values_list('guest_id', flat=True)
+        return base.filter(pk__in=guest_ids)
+
+    if f == MessageCampaign.FILTER_BOOKING_STATUS:
+        if not campaign.filter_booking_status:
+            return base.none()
+        guest_ids = SlotBooking.objects.filter(
+            event=campaign.event,
+            status=campaign.filter_booking_status,
+            guest__isnull=False,
+        ).values_list('guest_id', flat=True)
+        return base.filter(pk__in=guest_ids)
 
     return base  # fallback

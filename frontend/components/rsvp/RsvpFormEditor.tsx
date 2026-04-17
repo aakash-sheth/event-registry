@@ -8,6 +8,7 @@
    value?: RsvpFormConfig
    onChange: (next: RsvpFormConfig) => void
    customFieldsMetadata: Record<string, any>
+  activeMode?: 'standard' | 'sub_event' | 'slot_based'
  }
  
  function getDisplayLabel(metadata: Record<string, any>, key: string) {
@@ -17,7 +18,7 @@
    return key
  }
  
- export default function RsvpFormEditor({ value, onChange, customFieldsMetadata }: RsvpFormEditorProps) {
+export default function RsvpFormEditor({ value, onChange, customFieldsMetadata, activeMode = 'standard' }: RsvpFormEditorProps) {
    const form: RsvpFormConfig = value || { version: 1, customFields: [], systemFields: {} }
    const customFields = (form.customFields || []) as RsvpCustomFieldConfig[]
  
@@ -41,14 +42,25 @@
         <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
           <li>Full Name</li>
           <li>Phone Number</li>
-          <li>Will you attend? (Yes / Maybe / No)</li>
+          <li>
+            {activeMode === 'slot_based'
+              ? 'Slot selection or explicit decline'
+              : 'Will you attend? (Yes / Maybe / No)'}
+          </li>
         </ul>
         <p className="text-xs text-gray-500 mt-2">
           These fields are required for RSVP and can’t be hidden.
         </p>
-        <p className="text-xs text-gray-500 mt-1">
-          Sub-event selection may appear automatically depending on your event setup and guest permissions.
-        </p>
+        {activeMode === 'sub_event' && (
+          <p className="text-xs text-gray-500 mt-1">
+            Sub-event selection is shown to guests based on your sub-event setup and guest permissions.
+          </p>
+        )}
+        {activeMode === 'slot_based' && (
+          <p className="text-xs text-gray-500 mt-1">
+            Guests will select a slot during RSVP; keep slot settings updated before sharing.
+          </p>
+        )}
       </div>
 
        {/* System fields */}

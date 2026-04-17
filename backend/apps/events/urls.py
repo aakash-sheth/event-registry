@@ -13,6 +13,10 @@ from .views import (
     invite_page_by_event, attribution_redirect,
     RecordRegistryView,
     MessageCampaignViewSet, whatsapp_webhook, whatsapp_status,
+    booking_schedule_detail, booking_slots_collection, booking_slot_detail,
+    booking_slots_reorder, public_booking_calendar, public_booking_slots_by_date,
+    create_slot_booking, host_slot_bookings, host_update_slot_booking,
+    host_move_slot_booking, host_override_slot_booking_capacity,
 )
 
 router = DefaultRouter()
@@ -44,6 +48,18 @@ urlpatterns = [
     path('<int:event_id>/rsvp/check/', get_rsvp, name='event-rsvp-check'),
     path('<int:event_id>/rsvp/check/phone/', check_phone_for_rsvp, name='event-rsvp-check-phone'),
     path('<int:event_id>/rsvp/guest-by-token/', get_guest_by_token, name='event-rsvp-guest-by-token'),
+    # Slot booking endpoints
+    path('<int:event_id>/booking-schedule/', booking_schedule_detail, name='booking-schedule-detail'),
+    path('<int:event_id>/booking-slots/', booking_slots_collection, name='booking-slots-collection'),
+    path('<int:event_id>/booking-slots/reorder/', booking_slots_reorder, name='booking-slots-reorder'),
+    path('<int:event_id>/booking-slots/<int:slot_id>/', booking_slot_detail, name='booking-slot-detail'),
+    path('public/<slug:slug>/booking-calendar/', public_booking_calendar, name='public-booking-calendar'),
+    path('public/<slug:slug>/booking-slots/', public_booking_slots_by_date, name='public-booking-slots'),
+    path('<int:event_id>/slot-bookings/', create_slot_booking, name='slot-booking-create'),
+    path('<int:event_id>/host-slot-bookings/', host_slot_bookings, name='host-slot-bookings'),
+    path('<int:event_id>/host-slot-bookings/<int:booking_id>/', host_update_slot_booking, name='host-slot-booking-update'),
+    path('<int:event_id>/host-slot-bookings/<int:booking_id>/move/', host_move_slot_booking, name='host-slot-booking-move'),
+    path('<int:event_id>/host-slot-bookings/<int:booking_id>/override-capacity/', host_override_slot_booking_capacity, name='host-slot-booking-override'),
     # Registry view tracking (fire-and-forget, always 204)
     path('registry/<slug:slug>/view/', RecordRegistryView.as_view(), name='registry-page-view'),
     # Public invite routes

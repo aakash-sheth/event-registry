@@ -55,6 +55,32 @@ def detect_country_code_from_phone(phone_digits: str) -> tuple[str, str]:
     return None, phone_digits
 
 
+def normalize_phone_for_match(phone: str) -> str:
+    """
+    Digits-only form for comparing phones. '+91 7328…', '+917328…', and '917328…' all become
+    the same string so equality checks work (previous bug: '+' vs no '+' produced mismatches).
+    """
+    return ''.join(c for c in (phone or '') if c.isdigit())
+
+
+def phones_loosely_match(a: str, b: str, *, min_tail_digits: int = 10) -> bool:
+    """
+    True if two phone strings refer to the same number: exact digit match, or the longer ends
+    with the shorter (e.g. national 10 digits vs full country code + number). The shorter
+    string must have at least min_tail_digits to reduce false positives.
+    """
+    da = normalize_phone_for_match(a)
+    db = normalize_phone_for_match(b)
+    if not da or not db:
+        return False
+    if da == db:
+        return True
+    short, long = (da, db) if len(da) <= len(db) else (db, da)
+    if len(short) < min_tail_digits:
+        return False
+    return long.endswith(short)
+
+
 def format_phone_with_country_code(phone: str, country_code: str = None) -> str:
     """
     Format phone number with country code

@@ -142,11 +142,13 @@ def parse_vcf_bytes(raw_bytes: bytes) -> List[Tuple[str, Dict[str, str]]]:
 def process_guest_import_rows(
     event,
     labeled_rows: List[Tuple[str, Dict[str, str]]],
+    source: str,
 ) -> Tuple[int, List[str]]:
     """
     Create guests from pre-normalized row dicts (keys already normalized like CSV import).
 
     labeled_rows: list of (error_label, row_dict) e.g. ("Row 2", {...}).
+    source: one of Guest.source choices (e.g. file_import/contact_import/api_import).
     """
     created = 0
     errors: List[str] = []
@@ -219,6 +221,7 @@ def process_guest_import_rows(
                 notes=notes,
                 country_iso=country_iso[:2] if country_iso else '',
                 custom_fields=custom_fields,
+                source=source,
             )
             created += 1
         except Exception as e:

@@ -74,6 +74,15 @@ class Event(models.Model):
         ('PER_SUBEVENT', 'Per Sub-Event'),
         ('ONE_TAP_ALL', 'One Tap All'),
     ]
+
+    RSVP_EXPERIENCE_MODE_STANDARD = 'standard'
+    RSVP_EXPERIENCE_MODE_SUB_EVENT = 'sub_event'
+    RSVP_EXPERIENCE_MODE_SLOT_BASED = 'slot_based'
+    RSVP_EXPERIENCE_MODE_CHOICES = [
+        (RSVP_EXPERIENCE_MODE_STANDARD, 'Standard RSVP'),
+        (RSVP_EXPERIENCE_MODE_SUB_EVENT, 'Sub-event RSVP'),
+        (RSVP_EXPERIENCE_MODE_SLOT_BASED, 'Slot-based RSVP'),
+    ]
     
     host = models.ForeignKey(User, on_delete=models.CASCADE, related_name='events')
     slug = models.SlugField(unique=True, max_length=100)
@@ -93,6 +102,12 @@ class Event(models.Model):
     # Event structure and RSVP mode
     event_structure = models.CharField(max_length=20, choices=EVENT_STRUCTURE_CHOICES, default='SIMPLE', help_text="SIMPLE: single event, ENVELOPE: event with sub-events")
     rsvp_mode = models.CharField(max_length=20, choices=RSVP_MODE_CHOICES, default='ONE_TAP_ALL', help_text="PER_SUBEVENT: RSVP per sub-event, ONE_TAP_ALL: single confirmation for all")
+    rsvp_experience_mode = models.CharField(
+        max_length=20,
+        choices=RSVP_EXPERIENCE_MODE_CHOICES,
+        default=RSVP_EXPERIENCE_MODE_STANDARD,
+        help_text="Canonical RSVP mode used for host settings and guest rendering."
+    )
     
     # Cached sub-event counts for performance optimization
     public_sub_events_count = models.IntegerField(
@@ -180,6 +195,101 @@ class Event(models.Model):
     def __str__(self):
         return f"{self.title} ({self.slug})"
 
+    def get_canonical_rsvp_mode(self):
+        """
+        Return the active RSVP experience mode.
+
+        This preserves backward compatibility for historical rows where mode could be
+        inferred from legacy fields and slot-booking setup.
+        """
+        if self.event_structure == 'ENVELOPE':
+            return self.RSVP_EXPERIENCE_MODE_SUB_EVENT
+
+        if self.rsvp_experience_mode in {
+            self.RSVP_EXPERIENCE_MODE_STANDARD,
+            self.RSVP_EXPERIENCE_MODE_SUB_EVENT,
+            self.RSVP_EXPERIENCE_MODE_SLOT_BASED,
+        }:
+            return self.rsvp_experience_mode
+
+        schedule = getattr(self, 'booking_schedule', None)
+        if schedule and schedule.is_enabled:
+            has_active_slots = BookingSlot.objects.filter(
+                event=self,
+                status=BookingSlot.STATUS_AVAILABLE,
+            ).exists()
+            if has_active_slots:
+                return self.RSVP_EXPERIENCE_MODE_SLOT_BASED
+
+        return self.RSVP_EXPERIENCE_MODE_STANDARD
+
+    def get_rsvp_mode_readiness(self):
+        """Evaluate readiness for the currently active RSVP experience mode."""
+        mode = self.get_canonical_rsvp_mode()
+        reasons = []
+
+        if not self.has_rsvp:
+            reasons.append('RSVP is disabled for this event.')
+
+        if mode == self.RSVP_EXPERIENCE_MODE_STANDARD:
+            return {
+                'mode': mode,
+                'ready': bool(self.has_rsvp),
+                'reasons': reasons,
+            }
+
+        if mode == self.RSVP_EXPERIENCE_MODE_SUB_EVENT:
+            has_enabled_sub_events = SubEvent.objects.filter(
+                event=self,
+                is_removed=False,
+                rsvp_enabled=True,
+            ).exists()
+            if not has_enabled_sub_events:
+                reasons.append('Add at least one RSVP-enabled sub-event.')
+            return {
+                'mode': mode,
+                'ready': bool(self.has_rsvp and has_enabled_sub_events),
+                'reasons': reasons,
+            }
+
+        schedule = getattr(self, 'booking_schedule', None)
+        schedule_enabled = bool(schedule and schedule.is_enabled)
+        if not schedule_enabled:
+            reasons.append('Bookings are currently paused.')
+
+        has_active_slots = BookingSlot.objects.filter(
+            event=self,
+            status=BookingSlot.STATUS_AVAILABLE,
+        ).exists()
+        if not has_active_slots:
+            reasons.append('Add at least one active slot.')
+
+        return {
+            'mode': mode,
+            'ready': bool(self.has_rsvp and schedule_enabled and has_active_slots),
+            'reasons': reasons,
+        }
+
+    def get_mode_switch_lock_info(self):
+        """
+        Whether changing rsvp_experience_mode is blocked by existing guest data.
+        Matches EventSerializer mode-switch guardrail (non-removed RSVPs or confirmed bookings).
+        """
+        has_live_rsvps = RSVP.objects.filter(event=self, is_removed=False).exists()
+        has_live_bookings = SlotBooking.objects.filter(
+            event=self,
+            status=SlotBooking.STATUS_CONFIRMED,
+        ).exists()
+        reasons = []
+        if has_live_rsvps:
+            reasons.append('This event has RSVP responses.')
+        if has_live_bookings:
+            reasons.append('This event has confirmed slot bookings.')
+        return {
+            'locked': has_live_rsvps or has_live_bookings,
+            'reasons': reasons,
+        }
+
 
 class InvitePage(models.Model):
     """Interactive invitation page with floating elements and motion"""
@@ -264,6 +374,14 @@ class InvitePage(models.Model):
 
 class Guest(models.Model):
     """Invited guest list - managed by host"""
+    SOURCE_CHOICES = [
+        ('manual', 'Manual'),
+        ('file_import', 'File Import (CSV/TXT/XLS/XLSX)'),
+        ('contact_import', 'Contact Import (vCard/VCF)'),
+        ('api_import', 'API Import (JSON/contact-picker)'),
+        ('form_submission', 'Form Submission (RSVP/Slot Booking)'),
+    ]
+
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='guest_list')
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20)  # Required - format: +91XXXXXXXXXX (with country code)
@@ -282,6 +400,15 @@ class Guest(models.Model):
     # Invitation tracking
     invitation_sent = models.BooleanField(default=False, help_text="Whether invitation has been sent to this guest")
     invitation_sent_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when invitation was sent")
+
+    # Where this guest record originated from (unified host guest list filtering).
+    source = models.CharField(
+        max_length=20,
+        choices=SOURCE_CHOICES,
+        default='manual',
+        db_index=True,
+        help_text="Origin of guest record (manual/import/rsvp submission).",
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -647,6 +774,151 @@ class RSVP(models.Model):
         return f"{self.name} - {self.event.title}{sub_event_str} - {self.will_attend}"
 
 
+class BookingSchedule(models.Model):
+    """Event-level slot booking settings."""
+
+    VISIBILITY_EXACT = 'exact'
+    VISIBILITY_BUCKETED = 'bucketed'
+    VISIBILITY_HIDDEN = 'hidden'
+    SEAT_VISIBILITY_CHOICES = [
+        (VISIBILITY_EXACT, 'Exact'),
+        (VISIBILITY_BUCKETED, 'Bucketed'),
+        (VISIBILITY_HIDDEN, 'Hidden'),
+    ]
+
+    event = models.OneToOneField(Event, on_delete=models.CASCADE, related_name='booking_schedule')
+    is_enabled = models.BooleanField(default=False)
+    seat_visibility_mode = models.CharField(
+        max_length=20,
+        choices=SEAT_VISIBILITY_CHOICES,
+        default=VISIBILITY_EXACT,
+    )
+    allow_direct_bookings = models.BooleanField(default=True)
+    allow_host_capacity_override = models.BooleanField(default=True)
+    booking_open_days_before = models.IntegerField(null=True, blank=True)
+    booking_close_hours_before = models.IntegerField(null=True, blank=True)
+    timezone = models.CharField(max_length=64, blank=True, default='')
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'booking_schedules'
+
+    def __str__(self):
+        return f"Booking schedule - {self.event.title}"
+
+
+class BookingSlot(models.Model):
+    """Bookable slot for RSVP flow."""
+
+    STATUS_AVAILABLE = 'available'
+    STATUS_UNAVAILABLE = 'unavailable'
+    STATUS_SOLD_OUT = 'sold_out'
+    STATUS_HIDDEN = 'hidden'
+    STATUS_CHOICES = [
+        (STATUS_AVAILABLE, 'Available'),
+        (STATUS_UNAVAILABLE, 'Unavailable'),
+        (STATUS_SOLD_OUT, 'Sold Out'),
+        (STATUS_HIDDEN, 'Hidden'),
+    ]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='booking_slots')
+    schedule = models.ForeignKey(BookingSchedule, on_delete=models.CASCADE, related_name='slots')
+    slot_date = models.DateField(help_text='Event timezone date for this slot')
+    start_at = models.DateTimeField(help_text='Stored in UTC')
+    end_at = models.DateTimeField(help_text='Stored in UTC')
+    label = models.CharField(max_length=255, blank=True, default='')
+    display_order = models.IntegerField(default=0)
+    capacity_total = models.IntegerField(default=1)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_AVAILABLE)
+    metadata_json = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'booking_slots'
+        ordering = ['slot_date', 'display_order', 'start_at']
+        indexes = [
+            models.Index(fields=['event', 'slot_date', 'status'], name='bslot_evt_date_stat_idx'),
+            models.Index(fields=['event', 'slot_date', 'display_order', 'start_at'], name='booking_slots_event_order_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.event.title} - {self.slot_date} {self.start_at.isoformat()}"
+
+
+class SlotBooking(models.Model):
+    """Guest booking against a specific slot."""
+
+    SOURCE_INVITED = 'invited'
+    SOURCE_DIRECT = 'direct'
+    SOURCE_CHOICES = [
+        (SOURCE_INVITED, 'Invited'),
+        (SOURCE_DIRECT, 'Direct'),
+    ]
+
+    STATUS_CONFIRMED = 'confirmed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_NO_SHOW = 'no_show'
+    STATUS_CHOICES = [
+        (STATUS_CONFIRMED, 'Confirmed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_NO_SHOW, 'No Show'),
+    ]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='slot_bookings')
+    slot = models.ForeignKey(BookingSlot, on_delete=models.CASCADE, related_name='bookings')
+    guest = models.ForeignKey(Guest, on_delete=models.SET_NULL, null=True, blank=True, related_name='slot_bookings')
+    phone_snapshot = models.CharField(max_length=20)
+    name_snapshot = models.CharField(max_length=255, blank=True, default='')
+    email_snapshot = models.EmailField(blank=True, null=True)
+    seats_booked = models.IntegerField(default=1)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_DIRECT)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONFIRMED)
+    idempotency_key = models.CharField(max_length=100, blank=True, null=True)
+    booked_at = models.DateTimeField(auto_now_add=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_by_host = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_slot_bookings',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'slot_bookings'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['event', 'slot', 'status'], name='sbook_evt_slot_stat_idx'),
+            models.Index(fields=['event', 'guest'], name='slot_bookings_event_guest_idx'),
+            models.Index(fields=['event', 'phone_snapshot'], name='slot_bookings_event_phone_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['event', 'guest'],
+                condition=Q(status='confirmed', guest__isnull=False),
+                name='slot_bookings_event_guest_confirmed_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['event', 'phone_snapshot'],
+                condition=Q(status='confirmed', guest__isnull=True),
+                name='slot_bookings_event_phone_confirmed_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['event', 'idempotency_key'],
+                condition=Q(idempotency_key__isnull=False),
+                name='slot_bookings_event_idempotency_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.phone_snapshot} - {self.slot_id} ({self.status})"
+
+
 class MessageTemplate(models.Model):
     """Message templates for event updates - one event can have multiple templates"""
     
@@ -821,6 +1093,9 @@ class MessageCampaign(models.Model):
     FILTER_RSVP_PENDING = 'rsvp_pending'
     FILTER_RELATIONSHIP = 'relationship'
     FILTER_CUSTOM = 'custom_selection'
+    FILTER_BOOKING_SLOT = 'booking_slot'
+    FILTER_BOOKING_DATE = 'booking_date'
+    FILTER_BOOKING_STATUS = 'booking_status'
     FILTER_CHOICES = [
         ('all', 'All guests'),
         ('not_sent', 'Not yet invited'),
@@ -830,6 +1105,9 @@ class MessageCampaign(models.Model):
         ('rsvp_pending', 'No RSVP yet'),
         ('relationship', 'By relationship group'),
         ('custom_selection', 'Manually selected guests'),
+        ('booking_slot', 'By booking slot'),
+        ('booking_date', 'By booking date'),
+        ('booking_status', 'By booking status'),
     ]
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='campaigns')
@@ -862,6 +1140,18 @@ class MessageCampaign(models.Model):
     custom_guest_ids = models.JSONField(
         default=list, blank=True,
         help_text="Guest PKs when guest_filter = custom_selection"
+    )
+    filter_slot_id = models.IntegerField(
+        null=True, blank=True,
+        help_text="Only used when guest_filter = booking_slot",
+    )
+    filter_slot_date = models.DateField(
+        null=True, blank=True,
+        help_text="Only used when guest_filter = booking_date",
+    )
+    filter_booking_status = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="Only used when guest_filter = booking_status",
     )
     scheduled_at = models.DateTimeField(
         null=True, blank=True,

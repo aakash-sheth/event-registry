@@ -20,6 +20,7 @@ import { WhatsAppTemplate, incrementWhatsAppTemplateUsage } from '@/lib/api'
 import { isContactPickerSupported, selectContactsAsGuestRows } from '@/lib/contactPickerImport'
 import { isLikelyIOS } from '@/lib/contactImportUi'
 import dynamic from 'next/dynamic'
+import { Columns2, Filter } from 'lucide-react'
 
 const TemplateSelector = dynamic(
   () => import('@/components/communications/TemplateSelector'),
@@ -51,9 +52,14 @@ interface Guest {
   email: string
   relationship: string
   notes: string
+  source?: 'manual' | 'file_import' | 'contact_import' | 'api_import' | 'form_submission'
   rsvp_status: string | null
   rsvp_will_attend: string | null
   rsvp_guests_count: number | null
+  slot_booking_selected_slot_label?: string | null
+  slot_booking_slot_date?: string | null
+  slot_booking_status?: 'confirmed' | null
+  rsvp_notes?: string | null
   invitation_sent: boolean
   invitation_sent_at: string | null
   is_removed?: boolean
@@ -97,6 +103,7 @@ interface Event {
   whatsapp_message_template?: string
   event_structure?: 'SIMPLE' | 'ENVELOPE'
   rsvp_mode?: 'PER_SUBEVENT' | 'ONE_TAP_ALL'
+  rsvp_experience_mode?: 'standard' | 'sub_event' | 'slot_based'
   host_name?: string
   custom_fields_metadata?: Record<string, any>
   has_rsvp?: boolean
@@ -145,6 +152,7 @@ export default function GuestsPage() {
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
   const [rsvpFilter, setRsvpFilter] = useState<'all' | 'unconfirmed' | 'confirmed' | 'no'>('all')
   const [rsvpFilterMode, setRsvpFilterMode] = useState<'include' | 'exclude'>('include')
+  const [guestTab, setGuestTab] = useState<'all' | 'invited' | 'direct' | 'attending' | 'declined' | 'slot_booked' | 'no_response'>('all')
   type CategorySource = 'relationship' | `cf:${string}`
   const [categorySource, setCategorySource] = useState<CategorySource>('relationship')
   const [categoryValue, setCategoryValue] = useState<string>('all')
@@ -153,8 +161,8 @@ export default function GuestsPage() {
   const [inviteSentFilterMode, setInviteSentFilterMode] = useState<'include' | 'exclude'>('include')
   const [selectedSubEventFilterIds, setSelectedSubEventFilterIds] = useState<Set<number>>(new Set())
   const [subEventFilterMode, setSubEventFilterMode] = useState<'include' | 'exclude'>('include')
-  const [showSubEventFilterMenu, setShowSubEventFilterMenu] = useState(false)
-  const subEventFilterRef = useRef<HTMLDivElement>(null)
+  const [showFiltersPanel, setShowFiltersPanel] = useState(false)
+  const filtersPanelRef = useRef<HTMLDivElement>(null)
 
   // Column visibility (host configurable, middle-only)
   type MiddleColumnKey =
@@ -162,6 +170,7 @@ export default function GuestsPage() {
     | 'relationship'
     | 'guests_count'
     | 'notes'
+    | 'slot_selected'
     | 'sub_events_attending'
     | `cf:${string}`
 
@@ -202,10 +211,12 @@ export default function GuestsPage() {
   const [showAnalyticsSummary, setShowAnalyticsSummary] = useState(true)
   const [nameSearch, setNameSearch] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [openRowActionsGuestId, setOpenRowActionsGuestId] = useState<number | null>(null)
   const bulkActionsMenuRef = useRef<HTMLDivElement>(null)
   const [showBulkActionsMenu, setShowBulkActionsMenu] = useState(false)
   const hasInitializedFiltersRef = useRef(false)
   const contactPickerSupported = useMemo(() => isContactPickerSupported(), [])
+  const isSlotBasedEvent = event?.rsvp_experience_mode === 'slot_based'
 
   const makeDraftId = () => {
     try {
@@ -349,16 +360,31 @@ export default function GuestsPage() {
       if (bulkActionsMenuRef.current && !bulkActionsMenuRef.current.contains(event.target as Node)) {
         setShowBulkActionsMenu(false)
       }
-      if (subEventFilterRef.current && !subEventFilterRef.current.contains(event.target as Node)) {
-        setShowSubEventFilterMenu(false)
+      if (filtersPanelRef.current && !filtersPanelRef.current.contains(event.target as Node)) {
+        setShowFiltersPanel(false)
       }
       if (columnsMenuRef.current && !columnsMenuRef.current.contains(event.target as Node)) {
         setShowColumnsMenu(false)
       }
+      if (openRowActionsGuestId != null) {
+        const root = (event.target as HTMLElement).closest('[data-row-actions-root]')
+        if (!root || root.getAttribute('data-guest-id') !== String(openRowActionsGuestId)) {
+          setOpenRowActionsGuestId(null)
+        }
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  }, [openRowActionsGuestId])
+
+  useEffect(() => {
+    if (openRowActionsGuestId == null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenRowActionsGuestId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openRowActionsGuestId])
 
   // Initialize filter/sort state from URL query params (one-time)
   useEffect(() => {
@@ -437,6 +463,17 @@ export default function GuestsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId])
+
+  // Ensure slot-selected column is available for slot-based RSVP events.
+  useEffect(() => {
+    if (!isSlotBasedEvent) return
+    setVisibleMiddleColumns(prev => {
+      if (prev.includes('slot_selected')) return prev
+      if (prev.length >= MAX_MIDDLE_COLUMNS) return prev
+      return [...prev, 'slot_selected']
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSlotBasedEvent])
 
   // Persist visible columns to localStorage
   useEffect(() => {
@@ -584,8 +621,23 @@ export default function GuestsPage() {
       list = list.filter(g => (g.name || '').toLowerCase().includes(q))
     }
 
+    // Unified guest tabs
+    if (guestTab === 'invited') {
+      list = list.filter(g => g.source !== 'form_submission')
+    } else if (guestTab === 'direct') {
+      list = list.filter(g => g.source === 'form_submission')
+    } else if (guestTab === 'attending') {
+      list = list.filter(g => g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')
+    } else if (guestTab === 'declined') {
+      list = list.filter(g => g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')
+    } else if (guestTab === 'slot_booked') {
+      list = list.filter(g => g.slot_booking_status === 'confirmed')
+    } else if (guestTab === 'no_response') {
+      list = list.filter(g => !g.rsvp_status && !g.rsvp_will_attend)
+    }
+
     // RSVP status filter
-    if (rsvpFilter !== 'all') {
+    if (guestTab === 'all' && rsvpFilter !== 'all') {
       const matchesRsvp = (g: Guest) => {
         if (rsvpFilter === 'unconfirmed') {
           return !g.rsvp_status && !g.rsvp_will_attend
@@ -691,6 +743,7 @@ export default function GuestsPage() {
   }, [
     guests,
     nameSearch,
+    guestTab,
     rsvpFilter,
     rsvpFilterMode,
     categorySource,
@@ -732,7 +785,11 @@ export default function GuestsPage() {
   }
 
   const resetMiddleColumns = () => {
-    setVisibleMiddleColumns(['email', 'relationship', 'guests_count', 'notes'])
+    if (isSlotBasedEvent) {
+      setVisibleMiddleColumns(['email', 'relationship', 'guests_count', 'slot_selected', 'notes'])
+    } else {
+      setVisibleMiddleColumns(['email', 'relationship', 'guests_count', 'notes'])
+    }
   }
 
   const getDisplayPhone = (guest: Guest): string => {
@@ -750,6 +807,7 @@ export default function GuestsPage() {
     if (col === 'relationship') return 'Relationship'
     if (col === 'guests_count') return 'Guests Count'
     if (col === 'notes') return 'Notes'
+    if (col === 'slot_selected') return 'Slot Booked'
     if (col === 'sub_events_attending') return 'Sub-Events Attending'
     if (col.startsWith('cf:')) {
       const key = col.slice(3)
@@ -765,6 +823,10 @@ export default function GuestsPage() {
       { key: 'guests_count', label: 'Guests Count' },
       { key: 'notes', label: 'Notes' },
     ]
+
+    if (event?.rsvp_experience_mode === 'slot_based') {
+      opts.push({ key: 'slot_selected', label: 'Slot Booked' })
+    }
 
     if (event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT') {
       opts.push({ key: 'sub_events_attending', label: 'Sub-Events Attending' })
@@ -782,6 +844,50 @@ export default function GuestsPage() {
     return visibleMiddleColumns.filter(c => allowed.has(c)).slice(0, MAX_MIDDLE_COLUMNS)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleMiddleColumns, event?.event_structure, event?.rsvp_mode, event?.custom_fields_metadata])
+
+  const refinementFilterCount = useMemo(() => {
+    let n = 0
+    if (categorySource !== 'relationship' || categoryValue !== 'all') n++
+    if (inviteSentFilter !== 'all') n++
+    if (selectedSubEventFilterIds.size > 0) n++
+    if (guestTab === 'all' && rsvpFilter !== 'all') n++
+    return n
+  }, [
+    categorySource,
+    categoryValue,
+    inviteSentFilter,
+    selectedSubEventFilterIds,
+    guestTab,
+    rsvpFilter,
+  ])
+
+  const hasSomethingToReset = useMemo(() => {
+    if (nameSearch.trim()) return true
+    if (categorySource !== 'relationship' || categoryValue !== 'all') return true
+    if (categoryFilterMode === 'exclude') return true
+    if (inviteSentFilter !== 'all') return true
+    if (inviteSentFilterMode === 'exclude') return true
+    if (selectedSubEventFilterIds.size > 0) return true
+    if (subEventFilterMode === 'exclude') return true
+    if (guestTab === 'all' && rsvpFilter !== 'all') return true
+    if (rsvpFilterMode === 'exclude') return true
+    if (sortKey !== 'name' || sortDir !== 'asc') return true
+    return false
+  }, [
+    nameSearch,
+    categorySource,
+    categoryValue,
+    categoryFilterMode,
+    inviteSentFilter,
+    inviteSentFilterMode,
+    selectedSubEventFilterIds,
+    subEventFilterMode,
+    guestTab,
+    rsvpFilter,
+    rsvpFilterMode,
+    sortKey,
+    sortDir,
+  ])
 
   const tableColSpan =
     1 + // selection checkbox
@@ -2242,397 +2348,632 @@ export default function GuestsPage() {
           <CardHeader>
             <div>
               <CardTitle className="text-eco-green">
-                Invited Guests ({guests.length})
+                Guests ({guests.filter(g => !g.is_removed).length})
               </CardTitle>
               <CardDescription>
-                Guests from this list who RSVP or give gifts will be marked as "Core Guests"
+                Everyone you track via the guest list (invited + direct responders)
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            {/* Toolbar: search + RSVP tabs + filters */}
-            <div className="space-y-4">
-              {/* Search + RSVP status row */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <Input
-                  type="search"
-                  placeholder="Search by guest name..."
-                  value={nameSearch}
-                  onChange={(e) => setNameSearch(e.target.value)}
-                  className="w-full sm:max-w-sm border-eco-green-light focus:ring-eco-green focus:border-eco-green"
-                  aria-label="Search guests by name"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setRsvpFilter('all')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      rsvpFilter === 'all'
-                        ? 'bg-eco-green text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    All ({guests.filter(g => !g.is_removed).length})
-                  </button>
-                  <button
-                    onClick={() => setRsvpFilter('unconfirmed')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      rsvpFilter === 'unconfirmed'
-                        ? 'bg-eco-green text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Unconfirmed ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
-                  </button>
-                  <button
-                    onClick={() => setRsvpFilter('confirmed')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      rsvpFilter === 'confirmed'
-                        ? 'bg-eco-green text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Confirmed ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
-                  </button>
-                  <button
-                    onClick={() => setRsvpFilter('no')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      rsvpFilter === 'no'
-                        ? 'bg-eco-green text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
-                  </button>
-                  {rsvpFilter !== 'all' && (
-                    <div className="flex items-center gap-1 border-l border-gray-200 pl-2 ml-2">
-                      <button
-                        onClick={() => setRsvpFilterMode('include')}
-                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                          rsvpFilterMode === 'include'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title="Include guests matching this filter"
-                      >
-                        Include
-                      </button>
-                      <button
-                        onClick={() => setRsvpFilterMode('exclude')}
-                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                          rsvpFilterMode === 'exclude'
-                            ? 'bg-red-500 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title="Exclude guests matching this filter"
-                      >
-                        Exclude
-                      </button>
-                    </div>
-                  )}
+            {/* Toolbar: search, segments, filters + view menus */}
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+                <div className="w-full lg:max-w-[16.5rem] lg:shrink-0">
+                  <Input
+                    type="search"
+                    placeholder="Search by guest name..."
+                    value={nameSearch}
+                    onChange={(e) => setNameSearch(e.target.value)}
+                    className="h-9 w-full border-eco-green-light focus:ring-eco-green focus:border-eco-green"
+                    aria-label="Search guests by name"
+                  />
                 </div>
-              </div>
-
-              {/* Filter row: left group (controls) + right group (Showing, Reset) */}
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-600">Category</span>
-                <select
-                  value={categorySource}
-                  onChange={(e) => {
-                    setCategorySource(e.target.value as any)
-                    setCategoryValue('all')
-                  }}
-                  className="text-sm border rounded px-2 py-1 bg-white"
-                >
-                  {categorySourceOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={categoryValue}
-                  onChange={(e) => setCategoryValue(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-white"
-                >
-                  <option value="all">All</option>
-                  {categoryValueOptions.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-                {categoryValue !== 'all' && (
-                  <div className="flex items-center gap-1">
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="flex gap-2 overflow-x-auto py-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300"
+                    role="tablist"
+                    aria-label="Guest segments"
+                  >
                     <button
-                      onClick={() => setCategoryFilterMode('include')}
-                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        categoryFilterMode === 'include'
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      type="button"
+                      onClick={() => {
+                        setGuestTab('all')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'all'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
                       }`}
-                      title="Include guests matching this category"
                     >
-                      Include
+                      All ({guests.filter(g => !g.is_removed).length})
                     </button>
                     <button
-                      onClick={() => setCategoryFilterMode('exclude')}
-                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        categoryFilterMode === 'exclude'
-                          ? 'bg-red-500 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      type="button"
+                      onClick={() => {
+                        setGuestTab('invited')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'invited'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
                       }`}
-                      title="Exclude guests matching this category"
                     >
-                      Exclude
+                      Invited ({guests.filter(g => !g.is_removed && g.source !== 'form_submission').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuestTab('direct')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'direct'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                      }`}
+                    >
+                      Direct ({guests.filter(g => !g.is_removed && g.source === 'form_submission').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuestTab('attending')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'attending'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                      }`}
+                    >
+                      Attending ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'yes' || g.rsvp_will_attend === 'yes')).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuestTab('declined')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'declined'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                      }`}
+                    >
+                      Declined ({guests.filter(g => !g.is_removed && (g.rsvp_status === 'no' || g.rsvp_will_attend === 'no')).length})
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isSlotBasedEvent}
+                      onClick={() => {
+                        setGuestTab('slot_booked')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'slot_booked'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                      } ${!isSlotBasedEvent ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={isSlotBasedEvent ? 'Show confirmed slot bookings' : 'Only available for slot-based RSVP events'}
+                    >
+                      Slot booked ({guests.filter(g => !g.is_removed && g.slot_booking_status === 'confirmed').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuestTab('no_response')
+                        setRsvpFilter('all')
+                      }}
+                      className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
+                        guestTab === 'no_response'
+                          ? 'bg-eco-green text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                      }`}
+                    >
+                      No response ({guests.filter(g => !g.is_removed && !g.rsvp_status && !g.rsvp_will_attend).length})
                     </button>
                   </div>
-                )}
-              </div>
-
-              {event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
-                <div className="relative flex items-center gap-2" ref={subEventFilterRef}>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowSubEventFilterMenu((v) => !v)}
-                    className="border-purple-300 text-purple-700 hover:bg-purple-50"
-                  >
-                    Sub-Events{selectedSubEventFilterIds.size > 0 ? ` (${selectedSubEventFilterIds.size})` : ''}
-                  </Button>
-                  {selectedSubEventFilterIds.size > 0 && (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setSubEventFilterMode('include')}
-                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                          subEventFilterMode === 'include'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title="Include guests assigned to selected sub-events"
-                      >
-                        Include
-                      </button>
-                      <button
-                        onClick={() => setSubEventFilterMode('exclude')}
-                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                          subEventFilterMode === 'exclude'
-                            ? 'bg-red-500 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title="Exclude guests assigned to selected sub-events"
-                      >
-                        Exclude
-                      </button>
-                    </div>
-                  )}
-                  {showSubEventFilterMenu && (
-                    <div className="absolute left-0 mt-2 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-gray-700">Filter by assigned sub-events</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedSubEventFilterIds(new Set())
-                          }}
-                          className="text-xs text-gray-500 hover:underline"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      <div className="max-h-56 overflow-y-auto space-y-2">
-                        {subEvents.map((se) => {
-                          const checked = selectedSubEventFilterIds.has(se.id)
-                          return (
-                            <label key={se.id} className="flex items-center gap-2 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={checked}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 lg:shrink-0">
+                  <div className="relative" ref={filtersPanelRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowFiltersPanel((v) => !v)
+                        setShowColumnsMenu(false)
+                      }}
+                      className="h-9 gap-1.5 border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                      aria-expanded={showFiltersPanel}
+                      aria-haspopup="dialog"
+                    >
+                      <Filter className="h-4 w-4 shrink-0 text-gray-600" aria-hidden />
+                      Filters
+                      {refinementFilterCount > 0 ? (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-eco-green px-1.5 text-[10px] font-semibold leading-none text-white">
+                          {refinementFilterCount}
+                        </span>
+                      ) : null}
+                    </Button>
+                    {showFiltersPanel && (
+                      <div className="absolute right-0 z-50 mt-2 max-h-[min(32rem,75vh)] w-[min(calc(100vw-1.5rem),22rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-lg">
+                        <div className="mb-3 flex items-start justify-between gap-2 border-b border-gray-100 pb-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">Filters</p>
+                            <p className="mt-0.5 text-xs text-gray-500">Combine with search and segment chips.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowFiltersPanel(false)}
+                            className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                            aria-label="Close filters"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <div className="space-y-4">
+                          <div>
+                            <span className="mb-1.5 block text-xs font-medium text-gray-700">Category</span>
+                            <div className="space-y-2">
+                              <select
+                                value={categorySource}
                                 onChange={(e) => {
-                                  setSelectedSubEventFilterIds((prev) => {
-                                    const next = new Set(prev)
-                                    if (e.target.checked) next.add(se.id)
-                                    else next.delete(se.id)
-                                    return next
-                                  })
+                                  setCategorySource(e.target.value as CategorySource)
+                                  setCategoryValue('all')
                                 }}
-                              />
-                              <span className="truncate" title={se.title}>
-                                {se.title}
-                              </span>
-                            </label>
-                          )
-                        })}
+                                className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900"
+                              >
+                                {categorySourceOptions.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={categoryValue}
+                                onChange={(e) => setCategoryValue(e.target.value)}
+                                className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900"
+                              >
+                                <option value="all">All values</option>
+                                {categoryValueOptions.map((v) => (
+                                  <option key={v} value={v}>
+                                    {v}
+                                  </option>
+                                ))}
+                              </select>
+                              {categoryValue !== 'all' && (
+                                <div className="flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setCategoryFilterMode('include')}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      categoryFilterMode === 'include'
+                                        ? 'bg-blue-500 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    Include
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCategoryFilterMode('exclude')}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      categoryFilterMode === 'exclude'
+                                        ? 'bg-red-500 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    Exclude
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="mb-1.5 block text-xs font-medium text-gray-700">Invite sent</span>
+                            <select
+                              value={inviteSentFilter}
+                              onChange={(e) => setInviteSentFilter(e.target.value as 'all' | 'sent' | 'not_sent')}
+                              className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900"
+                            >
+                              <option value="all">All</option>
+                              <option value="sent">Sent</option>
+                              <option value="not_sent">Not sent</option>
+                            </select>
+                            {inviteSentFilter !== 'all' && (
+                              <div className="mt-2 flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setInviteSentFilterMode('include')}
+                                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    inviteSentFilterMode === 'include'
+                                      ? 'bg-blue-500 text-white'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  Include
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setInviteSentFilterMode('exclude')}
+                                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    inviteSentFilterMode === 'exclude'
+                                      ? 'bg-red-500 text-white'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  Exclude
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
+                            <div className="border-t border-gray-100 pt-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium text-gray-700">Sub-events assigned</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedSubEventFilterIds(new Set())}
+                                  className="text-xs text-gray-500 hover:text-gray-800 hover:underline"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                              <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                                {subEvents.map((se) => {
+                                  const checked = selectedSubEventFilterIds.has(se.id)
+                                  return (
+                                    <label key={se.id} className="flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          setSelectedSubEventFilterIds((prev) => {
+                                            const next = new Set(prev)
+                                            if (e.target.checked) next.add(se.id)
+                                            else next.delete(se.id)
+                                            return next
+                                          })
+                                        }}
+                                        className="rounded border-gray-300"
+                                      />
+                                      <span className="truncate" title={se.title}>
+                                        {se.title}
+                                      </span>
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                              {selectedSubEventFilterIds.size > 0 && (
+                                <div className="mt-2 flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSubEventFilterMode('include')}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      subEventFilterMode === 'include'
+                                        ? 'bg-blue-500 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    Include
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSubEventFilterMode('exclude')}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      subEventFilterMode === 'exclude'
+                                        ? 'bg-red-500 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    Exclude
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="border-t border-gray-100 pt-3">
+                            {guestTab === 'all' ? (
+                              <>
+                                <span className="mb-1.5 block text-xs font-medium text-gray-700">RSVP (refine)</span>
+                                <select
+                                  value={rsvpFilter}
+                                  onChange={(e) =>
+                                    setRsvpFilter(e.target.value as 'all' | 'unconfirmed' | 'confirmed' | 'no')
+                                  }
+                                  className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900"
+                                >
+                                  <option value="all">All</option>
+                                  <option value="unconfirmed">Unconfirmed / no response</option>
+                                  <option value="confirmed">Attending / confirmed</option>
+                                  <option value="no">Declined</option>
+                                </select>
+                                {rsvpFilter !== 'all' && (
+                                  <div className="mt-2 flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setRsvpFilterMode('include')}
+                                      className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                        rsvpFilterMode === 'include'
+                                          ? 'bg-blue-500 text-white'
+                                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                      }`}
+                                    >
+                                      Include
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setRsvpFilterMode('exclude')}
+                                      className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                        rsvpFilterMode === 'exclude'
+                                          ? 'bg-red-500 text-white'
+                                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                      }`}
+                                    >
+                                      Exclude
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-xs text-gray-500">
+                                RSVP refinements apply on the &quot;All&quot; segment only.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-4 flex justify-end border-t border-gray-100 pt-3">
+                          <Button type="button" size="sm" onClick={() => setShowFiltersPanel(false)}>
+                            Done
+                          </Button>
+                        </div>
                       </div>
-                      <div className="mt-3 flex justify-end">
-                        <Button type="button" size="sm" onClick={() => setShowSubEventFilterMenu(false)}>
-                          Done
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-600">Invite sent</span>
-                <select
-                  value={inviteSentFilter}
-                  onChange={(e) => setInviteSentFilter(e.target.value as any)}
-                  className="text-sm border rounded px-2 py-1 bg-white"
-                >
-                  <option value="all">All</option>
-                  <option value="sent">Sent</option>
-                  <option value="not_sent">Not sent</option>
-                </select>
-                {inviteSentFilter !== 'all' && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setInviteSentFilterMode('include')}
-                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        inviteSentFilterMode === 'include'
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                      title="Include guests matching this invite status"
-                    >
-                      Include
-                    </button>
-                    <button
-                      onClick={() => setInviteSentFilterMode('exclude')}
-                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        inviteSentFilterMode === 'exclude'
-                          ? 'bg-red-500 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                      title="Exclude guests matching this invite status"
-                    >
-                      Exclude
-                    </button>
+                    )}
                   </div>
-                )}
+                  <div className="relative" ref={columnsMenuRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowColumnsMenu((v) => !v)
+                        setShowFiltersPanel(false)
+                      }}
+                      className="h-9 gap-1.5 border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                      title="Optional middle columns only (name, phone, RSVP, actions stay fixed)"
+                      aria-expanded={showColumnsMenu}
+                      aria-haspopup="dialog"
+                    >
+                      <Columns2 className="h-4 w-4 shrink-0 text-gray-600" aria-hidden />
+                      View
+                    </Button>
+                    {showColumnsMenu && (
+                      <div className="absolute right-0 z-50 mt-2 w-[min(calc(100vw-1.5rem),20rem)] rounded-lg border border-gray-200 bg-white p-4 shadow-lg sm:w-80">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">Table view</p>
+                            <p className="text-xs text-gray-500">
+                              Columns {middleColumnsToRender.length}/{MAX_MIDDLE_COLUMNS} · middle only
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={resetMiddleColumns}
+                            className="shrink-0 text-xs text-gray-500 hover:text-gray-800 hover:underline"
+                          >
+                            Reset columns
+                          </button>
+                        </div>
+                        <div className="max-h-64 space-y-2 overflow-y-auto">
+                          {middleColumnOptions().map((opt) => {
+                            const checked = middleColumnsToRender.includes(opt.key)
+                            const atLimit = middleColumnsToRender.length >= MAX_MIDDLE_COLUMNS
+                            const disabled = !checked && atLimit
+                            return (
+                              <label
+                                key={opt.key}
+                                className={`flex cursor-pointer items-center gap-2 text-sm text-gray-800 ${disabled ? 'opacity-50' : ''}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={() => toggleMiddleColumn(opt.key)}
+                                  className="rounded border-gray-300"
+                                />
+                                <span className="truncate" title={opt.label}>
+                                  {opt.label}
+                                </span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                        <div className="mt-3 hidden border-t border-gray-100 pt-3 lg:block">
+                          <p className="text-xs text-gray-500">Tip: click column headers to sort on larger screens.</p>
+                        </div>
+                        <div className="mt-3 border-t border-gray-100 pt-3 lg:hidden">
+                          <span className="mb-1.5 block text-xs font-medium text-gray-700">Sort</span>
+                          <div className="flex gap-2">
+                            <select
+                              value={sortKey}
+                              onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+                              className="h-9 min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900"
+                            >
+                              <option value="name">Name</option>
+                              <option value="email">Email</option>
+                              <option value="category">Category</option>
+                              <option value="rsvp_status">RSVP Status</option>
+                              <option value="guests_count">Guests Count</option>
+                              <option value="invite_sent">Invite sent</option>
+                              {event?.event_structure === 'ENVELOPE' && (
+                                <option value="sub_events_assigned">Sub-events assigned</option>
+                              )}
+                              {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
+                                <option value="sub_events_attending">Sub-events attending</option>
+                              )}
+                              <option value="notes">Notes</option>
+                            </select>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9 shrink-0 px-3"
+                              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                              aria-label={sortDir === 'asc' ? 'Sort descending' : 'Sort ascending'}
+                            >
+                              {sortDir === 'asc' ? '↑' : '↓'}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                          <Button type="button" size="sm" onClick={() => setShowColumnsMenu(false)}>
+                            Done
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-xs tabular-nums text-gray-500">
+                    Showing {visibleGuests.length} of {guests.filter(g => !g.is_removed).length}
+                  </span>
+                  {hasSomethingToReset ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      onClick={() => {
+                        setNameSearch('')
+                        setCategorySource('relationship')
+                        setCategoryValue('all')
+                        setCategoryFilterMode('include')
+                        setInviteSentFilter('all')
+                        setInviteSentFilterMode('include')
+                        setSelectedSubEventFilterIds(new Set())
+                        setSubEventFilterMode('include')
+                        setRsvpFilter('all')
+                        setRsvpFilterMode('include')
+                        setSortKey('name')
+                        setSortDir('asc')
+                      }}
+                    >
+                      Reset
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-
-              {/* Columns picker (middle columns only, max 5) */}
-              <div className="relative" ref={columnsMenuRef}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowColumnsMenu((v) => !v)}
-                  className="border-gray-300 text-gray-800 hover:bg-gray-50"
-                >
-                  Columns ({middleColumnsToRender.length}/{MAX_MIDDLE_COLUMNS})
-                </Button>
-                {showColumnsMenu && (
-                  <div className="absolute left-0 mt-2 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium text-gray-700">Choose middle columns</span>
+              {(nameSearch.trim() ||
+                categorySource !== 'relationship' ||
+                categoryValue !== 'all' ||
+                inviteSentFilter !== 'all' ||
+                selectedSubEventFilterIds.size > 0 ||
+                (guestTab === 'all' && rsvpFilter !== 'all')) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {nameSearch.trim() ? (
+                    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-800">
+                      <span className="truncate">Search: &quot;{nameSearch.trim()}&quot;</span>
                       <button
                         type="button"
-                        onClick={resetMiddleColumns}
-                        className="text-xs text-gray-500 hover:underline"
+                        onClick={() => setNameSearch('')}
+                        className="shrink-0 rounded-full p-0.5 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        aria-label="Clear search"
                       >
-                        Reset
+                        ×
                       </button>
-                    </div>
-
-                    <div className="text-xs text-gray-500 mb-2">
-                      Selected {middleColumnsToRender.length} / {MAX_MIDDLE_COLUMNS}
-                    </div>
-
-                    <div className="max-h-64 overflow-y-auto space-y-2">
-                      {middleColumnOptions().map((opt) => {
-                        const checked = middleColumnsToRender.includes(opt.key)
-                        const atLimit = middleColumnsToRender.length >= MAX_MIDDLE_COLUMNS
-                        const disabled = !checked && atLimit
-                        return (
-                          <label
-                            key={opt.key}
-                            className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-50' : ''}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={disabled}
-                              onChange={() => toggleMiddleColumn(opt.key)}
-                            />
-                            <span className="truncate" title={opt.label}>
-                              {opt.label}
-                            </span>
-                          </label>
-                        )
-                      })}
-                    </div>
-
-                    <div className="mt-3 flex justify-end">
-                      <Button type="button" size="sm" onClick={() => setShowColumnsMenu(false)}>
-                        Done
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="hidden sm:block text-xs text-gray-500">
-                Tip: click column headers to sort
-              </div>
-
-              {/* Mobile fallback */}
-              <div className="flex items-center gap-2 sm:hidden">
-                <span className="text-xs text-gray-600">Sort</span>
-                <select
-                  value={sortKey}
-                  onChange={(e) => setSortKey(e.target.value as any)}
-                  className="text-sm border rounded px-2 py-1 bg-white"
-                >
-                  <option value="name">Name</option>
-                  <option value="email">Email</option>
-                  <option value="category">Category</option>
-                  <option value="rsvp_status">RSVP Status</option>
-                  <option value="guests_count">Guests Count</option>
-                  <option value="invite_sent">Invite sent</option>
-                  {event?.event_structure === 'ENVELOPE' && <option value="sub_events_assigned">Sub-events assigned</option>}
-                  {event?.event_structure === 'ENVELOPE' && event?.rsvp_mode === 'PER_SUBEVENT' && (
-                    <option value="sub_events_attending">Sub-events attending</option>
-                  )}
-                  <option value="notes">Notes</option>
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-                >
-                  {sortDir === 'asc' ? '↑' : '↓'}
-                </Button>
-              </div>
+                    </span>
+                  ) : null}
+                  {categorySource !== 'relationship' || categoryValue !== 'all' ? (
+                    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-800">
+                      <span className="truncate">
+                        {categorySourceOptions.find((o) => o.value === categorySource)?.label ?? 'Category'}
+                        {categoryValue !== 'all' ? `: ${categoryValue}` : ''}
+                        {categoryValue !== 'all' && categoryFilterMode === 'exclude' ? ' · exclude' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCategorySource('relationship')
+                          setCategoryValue('all')
+                          setCategoryFilterMode('include')
+                        }}
+                        className="shrink-0 rounded-full p-0.5 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        aria-label="Clear category filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : null}
+                  {inviteSentFilter !== 'all' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-800">
+                      <span>
+                        Invite: {inviteSentFilter === 'sent' ? 'Sent' : 'Not sent'}
+                        {inviteSentFilterMode === 'exclude' ? ' · exclude' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInviteSentFilter('all')
+                          setInviteSentFilterMode('include')
+                        }}
+                        className="shrink-0 rounded-full p-0.5 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        aria-label="Clear invite filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : null}
+                  {selectedSubEventFilterIds.size > 0 ? (
+                    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs text-purple-900">
+                      <span className="truncate">
+                        Sub-events ({selectedSubEventFilterIds.size})
+                        {subEventFilterMode === 'exclude' ? ' · exclude' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSubEventFilterIds(new Set())
+                          setSubEventFilterMode('include')
+                        }}
+                        className="shrink-0 rounded-full p-0.5 text-purple-600 hover:bg-purple-100 hover:text-purple-950"
+                        aria-label="Clear sub-event filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : null}
+                  {guestTab === 'all' && rsvpFilter !== 'all' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-800">
+                      <span>
+                        RSVP:{' '}
+                        {rsvpFilter === 'unconfirmed'
+                          ? 'Unconfirmed'
+                          : rsvpFilter === 'confirmed'
+                            ? 'Attending'
+                            : 'Declined'}
+                        {rsvpFilterMode === 'exclude' ? ' · exclude' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRsvpFilter('all')
+                          setRsvpFilterMode('include')
+                        }}
+                        className="shrink-0 rounded-full p-0.5 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        aria-label="Clear RSVP filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : null}
                 </div>
-
-                <div className="flex items-center gap-2 ml-auto">
-                  <div className="text-xs text-gray-500">
-                    Showing {visibleGuests.length} of {guests.filter(g => !g.is_removed).length}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setNameSearch('')
-                      setCategorySource('relationship')
-                      setCategoryValue('all')
-                      setInviteSentFilter('all')
-                      setSelectedSubEventFilterIds(new Set())
-                      setSortKey('name')
-                      setSortDir('asc')
-                    }}
-                  >
-                    Reset
-                  </Button>
-                </div>
-              </div>
+              )}
+              <p className="text-xs text-gray-500">
+                Search, segment chips, and filters narrow the same guest list.
+              </p>
             </div>
 
             <div className="border-t border-gray-200 pt-4 mt-4">
@@ -2655,8 +2996,8 @@ export default function GuestsPage() {
                 </Button>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                {/* Bulk Actions Bar - Show when guests are selected and event has subevents */}
+              <>
+                {/* Keep bulk bar outside horizontal scroll so the scrollbar sits under the table only */}
                 {selectedGuestIds.size > 0 && event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
                   <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -2682,10 +3023,11 @@ export default function GuestsPage() {
                     </Button>
                   </div>
                 )}
-                <table className="w-full">
+                <div className="overflow-x-auto pb-2">
+                <table className="w-full min-w-[56rem]">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left p-2 w-12">
+                      <th className="text-left p-2 w-12 align-top text-sm font-medium text-gray-700">
                         {(() => {
                           const allSelected =
                             visibleGuests.length > 0 && visibleGuests.every(g => selectedGuestIds.has(g.id))
@@ -2704,26 +3046,28 @@ export default function GuestsPage() {
                           )
                         })()}
                       </th>
-                      <th className="text-left p-2">
+                      <th className="text-left p-2 w-44 sm:w-52 align-top box-border overflow-hidden text-sm font-medium text-gray-700">
                         <button
                           type="button"
                           onClick={() => toggleSort('name')}
-                          className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                          className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                           title="Sort by name"
                         >
                           Name{sortArrow('name')}
                         </button>
                       </th>
-                      <th className="text-left p-2">Phone</th>
+                      <th className="text-left p-2 min-w-[11rem] whitespace-nowrap align-top text-sm font-medium text-gray-700">
+                        Phone
+                      </th>
 
                       {middleColumnsToRender.map((col) => {
                         if (col === 'email') {
                           return (
-                            <th key={col} className="text-left p-2">
+                            <th key={col} className="text-left p-2 align-top text-sm font-medium text-gray-700">
                               <button
                                 type="button"
                                 onClick={() => toggleSort('email')}
-                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                                 title="Sort by email"
                               >
                                 Email{sortArrow('email')}
@@ -2733,11 +3077,11 @@ export default function GuestsPage() {
                         }
                         if (col === 'relationship') {
                           return (
-                            <th key={col} className="text-left p-2">
+                            <th key={col} className="text-left p-2 align-top text-sm font-medium text-gray-700">
                               <button
                                 type="button"
                                 onClick={() => toggleSort('category')}
-                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                                 title="Sort by relationship"
                               >
                                 Relationship{sortArrow('category')}
@@ -2747,11 +3091,11 @@ export default function GuestsPage() {
                         }
                         if (col === 'guests_count') {
                           return (
-                            <th key={col} className="text-left p-2">
+                            <th key={col} className="text-left p-2 align-top text-sm font-medium text-gray-700">
                               <button
                                 type="button"
                                 onClick={() => toggleSort('guests_count')}
-                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                                 title="Sort by guests count"
                               >
                                 Guests Count{sortArrow('guests_count')}
@@ -2761,11 +3105,11 @@ export default function GuestsPage() {
                         }
                         if (col === 'notes') {
                           return (
-                            <th key={col} className="text-left p-2">
+                            <th key={col} className="text-left p-2 align-top text-sm font-medium text-gray-700">
                               <button
                                 type="button"
                                 onClick={() => toggleSort('notes')}
-                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                                 title="Sort by notes"
                               >
                                 Notes{sortArrow('notes')}
@@ -2775,11 +3119,11 @@ export default function GuestsPage() {
                         }
                         if (col === 'sub_events_attending') {
                           return (
-                            <th key={col} className="text-left p-2">
+                            <th key={col} className="text-left p-2 align-top text-sm font-medium text-gray-700">
                               <button
                                 type="button"
                                 onClick={() => toggleSort('sub_events_attending')}
-                                className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                                 title="Sort by sub-events attending"
                               >
                                 {getMiddleColumnLabel(col)}
@@ -2790,35 +3134,38 @@ export default function GuestsPage() {
                         }
 
                         return (
-                          <th key={col} className="text-left p-2">
+                          <th key={col} className="text-left p-2 align-top text-sm font-medium text-gray-700">
                             {getMiddleColumnLabel(col)}
                           </th>
                         )
                       })}
 
-                      <th className="text-left p-2">
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">
                         <button
                           type="button"
                           onClick={() => toggleSort('rsvp_status')}
-                          className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                          className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                           title="Sort by RSVP status"
                         >
                           RSVP Status{sortArrow('rsvp_status')}
                         </button>
                       </th>
 
-                      <th className="text-left p-2">
-                        <div className="flex flex-col gap-1" title="Tracks how many times the guest viewed their invite page and RSVP page">
-                          <span className="text-xs font-medium text-gray-700">Page Views</span>
-                          <span className="text-xs text-gray-500">Invite • RSVP</span>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">
+                        <div
+                          className="flex flex-col gap-0.5 leading-snug"
+                          title="Tracks how many times the guest viewed their invite page and RSVP page"
+                        >
+                          <span>Page views</span>
+                          <span className="text-gray-500 font-normal">Invite · RSVP</span>
                         </div>
                       </th>
 
-                      <th className="text-left p-2">
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">
                         <button
                           type="button"
                           onClick={() => toggleSort('invite_sent')}
-                          className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                          className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                           title="Sort by invite sent"
                         >
                           Invitation Sent{sortArrow('invite_sent')}
@@ -2826,18 +3173,18 @@ export default function GuestsPage() {
                       </th>
 
                       {event?.event_structure === 'ENVELOPE' && (
-                        <th className="text-left p-2">
+                        <th className="text-left p-2 align-top text-sm font-medium text-gray-700">
                           <button
                             type="button"
                             onClick={() => toggleSort('sub_events_assigned')}
-                            className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900"
+                            className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 p-0 h-auto bg-transparent border-0 cursor-pointer rounded-sm text-left shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-eco-green/30"
                             title="Sort by sub-events assigned"
                           >
                             Sub-Events{sortArrow('sub_events_assigned')}
                           </button>
                         </th>
                       )}
-                      <th className="text-left p-2">Actions</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2846,10 +3193,13 @@ export default function GuestsPage() {
                         return (
                           <tr>
                             <td colSpan={tableColSpan} className="p-8 text-center text-gray-500">
-                              {rsvpFilter === 'unconfirmed' && 'No unconfirmed guests'}
-                              {rsvpFilter === 'confirmed' && 'No confirmed guests'}
-                              {rsvpFilter === 'no' && 'No declined guests'}
-                              {rsvpFilter === 'all' && 'No guests yet'}
+                              {guestTab === 'no_response' && 'No guests without a response'}
+                              {guestTab === 'attending' && 'No attending guests'}
+                              {guestTab === 'declined' && 'No declined guests'}
+                              {guestTab === 'slot_booked' && 'No confirmed slot bookings'}
+                              {guestTab === 'invited' && 'No invited guests'}
+                              {guestTab === 'direct' && 'No direct guests'}
+                              {guestTab === 'all' && 'No guests yet'}
                             </td>
                           </tr>
                         )
@@ -2886,9 +3236,26 @@ export default function GuestsPage() {
                         )
                       }
                       
+                        const getSourceBadge = (source?: Guest['source']): JSX.Element => {
+                          const normalized = source || 'manual'
+                          const sourceConfig = {
+                            manual: { label: 'manual', className: 'bg-gray-100 text-gray-700' },
+                            file_import: { label: 'file_import', className: 'bg-blue-100 text-blue-700' },
+                            contact_import: { label: 'contact_import', className: 'bg-indigo-100 text-indigo-700' },
+                            api_import: { label: 'api_import', className: 'bg-purple-100 text-purple-700' },
+                            form_submission: { label: 'form_submission', className: 'bg-green-100 text-green-700' },
+                          } as const
+                          const config = (sourceConfig as any)[normalized] || sourceConfig.manual
+                          return (
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${config.className}`}>
+                              {config.label}
+                            </span>
+                          )
+                        }
+                        
                       return (
-                        <tr key={guest.id} className="border-b hover:bg-gray-50">
-                          <td className="p-2">
+                        <tr key={guest.id} className="border-b hover:bg-gray-50 group">
+                          <td className="p-2 w-12 align-top">
                             <input
                               type="checkbox"
                               checked={selectedGuestIds.has(guest.id)}
@@ -2896,14 +3263,29 @@ export default function GuestsPage() {
                               className="cursor-pointer"
                             />
                           </td>
-                          <td className="p-2 font-medium">{guest.name}</td>
-                          <td className="p-2 text-sm text-gray-600 font-mono">{getDisplayPhone(guest)}</td>
+                          <td className="p-2 font-medium w-44 sm:w-52 align-top box-border overflow-hidden">
+                            <div className="flex flex-col gap-1 items-start min-w-0 w-full sm:flex-row sm:items-center sm:gap-2">
+                              <span className="truncate max-w-full" title={guest.name}>
+                                {guest.name}
+                              </span>
+                              <span className="shrink-0 max-w-full">{getSourceBadge(guest.source)}</span>
+                            </div>
+                          </td>
+                          <td className="p-2 text-sm text-gray-600 font-mono min-w-[11rem] whitespace-nowrap align-top">
+                            {getDisplayPhone(guest)}
+                          </td>
 
                           {middleColumnsToRender.map((col) => {
                             if (col === 'email') {
                               return (
-                                <td key={col} className="p-2 text-sm text-gray-600">
-                                  {guest.email || '-'}
+                                <td key={col} className="p-2 text-sm text-gray-600 max-w-[10rem] sm:max-w-[14rem]">
+                                  {guest.email ? (
+                                    <span className="block truncate" title={guest.email}>
+                                      {guest.email}
+                                    </span>
+                                  ) : (
+                                    '-'
+                                  )}
                                 </td>
                               )
                             }
@@ -2923,10 +3305,50 @@ export default function GuestsPage() {
                                 </td>
                               )
                             }
-                            if (col === 'notes') {
+                            if (col === 'slot_selected') {
+                              const slotTitle =
+                                guest.slot_booking_selected_slot_label?.trim() || ''
+                              const slotDate = guest.slot_booking_slot_date
+                              const hasSlotRow =
+                                guest.slot_booking_status === 'confirmed' ||
+                                !!slotTitle ||
+                                !!slotDate
+                              const primary = slotTitle || 'Slot confirmed'
+                              const oneLine =
+                                hasSlotRow && slotDate
+                                  ? `${primary} · ${slotDate}`
+                                  : hasSlotRow
+                                    ? primary
+                                    : ''
                               return (
                                 <td key={col} className="p-2 text-sm text-gray-600">
-                                  {guest.notes || '-'}
+                                  {hasSlotRow ? (
+                                    <span
+                                      className="inline-flex max-w-[14rem] truncate text-xs px-2 py-1 bg-indigo-100 text-indigo-800 rounded whitespace-nowrap"
+                                      title={oneLine}
+                                    >
+                                      {oneLine}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">-</span>
+                                  )}
+                                </td>
+                              )
+                            }
+                            if (col === 'notes') {
+                              const noteText =
+                                (guest.notes && guest.notes.trim()) ||
+                                (guest.rsvp_notes && guest.rsvp_notes.trim()) ||
+                                ''
+                              return (
+                                <td key={col} className="p-2 text-sm text-gray-600 max-w-[12rem]">
+                                  {noteText ? (
+                                    <span className="line-clamp-2 break-words" title={noteText}>
+                                      {noteText}
+                                    </span>
+                                  ) : (
+                                    '-'
+                                  )}
                                 </td>
                               )
                             }
@@ -3064,47 +3486,83 @@ export default function GuestsPage() {
                               </Button>
                             </td>
                           )}
-                          <td className="p-2">
-                            <div className="flex gap-2 flex-wrap">
-                              {guest.guest_token && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleCopyGuestLink(guest)}
-                                  className="text-xs border-indigo-300 text-indigo-600 hover:bg-indigo-50"
-                                  title="Copy guest-specific invite link"
-                                >
-                                  {copiedGuestId === guest.id ? '✓ Copied' : 'Copy Link'}
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleShareWhatsApp(guest)}
-                                disabled={sharingWhatsApp === guest.id}
-                                className="text-xs border-green-300 text-green-600 hover:bg-green-50 flex items-center gap-1"
-                              >
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-                                </svg>
-                                {sharingWhatsApp === guest.id ? 'Opening...' : 'WhatsApp'}
-                              </Button>
+                          <td className="p-2 w-[1%] whitespace-nowrap">
+                            <div
+                              className="flex items-center gap-1"
+                              data-row-actions-root
+                              data-guest-id={guest.id}
+                            >
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleEdit(guest)}
-                                className="text-xs border-blue-300 text-blue-600 hover:bg-blue-50"
+                                className="text-xs border-blue-300 text-blue-600 hover:bg-blue-50 shrink-0"
                               >
                                 Edit
                               </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete(guest.id)}
-                                className="text-xs border-red-300 text-red-600 hover:bg-red-50"
-                              >
-                                {guest.rsvp_status || guest.rsvp_will_attend ? 'Remove' : 'Delete'}
-                              </Button>
+                              <div className="relative shrink-0">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  type="button"
+                                  aria-expanded={openRowActionsGuestId === guest.id}
+                                  aria-haspopup="menu"
+                                  onClick={() =>
+                                    setOpenRowActionsGuestId(
+                                      openRowActionsGuestId === guest.id ? null : guest.id
+                                    )
+                                  }
+                                  className="text-xs border-gray-300 text-gray-700 hover:bg-gray-50"
+                                >
+                                  More
+                                </Button>
+                                {openRowActionsGuestId === guest.id && (
+                                  <div
+                                    className="absolute right-0 top-full mt-1 z-50 min-w-[11rem] rounded-md border border-gray-200 bg-white shadow-lg py-1"
+                                    role="menu"
+                                  >
+                                    {guest.guest_token && (
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        className="w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-indigo-50"
+                                        onClick={() => {
+                                          handleCopyGuestLink(guest)
+                                          setOpenRowActionsGuestId(null)
+                                        }}
+                                      >
+                                        {copiedGuestId === guest.id ? '✓ Copied' : 'Copy Link'}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      className="w-full text-left px-3 py-2 text-xs text-green-700 hover:bg-green-50 flex items-center gap-2"
+                                      disabled={sharingWhatsApp === guest.id}
+                                      onClick={() => {
+                                        handleShareWhatsApp(guest)
+                                        setOpenRowActionsGuestId(null)
+                                      }}
+                                    >
+                                      <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                                      </svg>
+                                      {sharingWhatsApp === guest.id ? 'Opening...' : 'WhatsApp'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      className="w-full text-left px-3 py-2 text-xs text-red-700 hover:bg-red-50"
+                                      onClick={() => {
+                                        setOpenRowActionsGuestId(null)
+                                        handleDelete(guest.id)
+                                      }}
+                                    >
+                                      {guest.rsvp_status || guest.rsvp_will_attend ? 'Remove' : 'Delete'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -3115,12 +3573,17 @@ export default function GuestsPage() {
                     {removedGuestsList.length > 0 && (
                       <>
                         {removedGuestsList.map((guest) => (
-                          <tr key={guest.id} className="border-b bg-gray-50 opacity-60">
-                            <td className="p-2" />
-                            <td className="p-2 font-medium text-gray-500">
-                              {guest.name} <span className="text-xs text-gray-400">(Removed)</span>
+                          <tr key={guest.id} className="border-b bg-gray-50 opacity-60 group">
+                            <td className="p-2 w-12 align-top" />
+                            <td className="p-2 font-medium text-gray-500 w-44 sm:w-52 align-top box-border overflow-hidden">
+                              <span className="truncate block" title={`${guest.name} (Removed)`}>
+                                {guest.name}
+                              </span>{' '}
+                              <span className="text-xs text-gray-400">(Removed)</span>
                             </td>
-                            <td className="p-2 text-sm text-gray-500 font-mono">{getDisplayPhone(guest)}</td>
+                            <td className="p-2 text-sm text-gray-500 font-mono min-w-[11rem] whitespace-nowrap align-top">
+                              {getDisplayPhone(guest)}
+                            </td>
 
                             {middleColumnsToRender.map((col) => {
                               if (col === 'email') {
@@ -3246,7 +3709,8 @@ export default function GuestsPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             )}
             </div>
           </CardContent>
@@ -3257,32 +3721,38 @@ export default function GuestsPage() {
           <Card className="bg-white border-2 border-eco-green-light mt-8">
             <CardHeader>
               <CardTitle className="text-eco-green">
-                Other Guests ({otherGuests.filter(g => !g.is_removed).length})
-                {removedGuests.length > 0 && (
+                {otherGuests.filter(g => !g.is_removed).length > 0
+                  ? `Other Guests (${otherGuests.filter(g => !g.is_removed).length})`
+                  : `Removed Guests (${removedGuests.length})`}
+                {otherGuests.filter(g => !g.is_removed).length > 0 && removedGuests.length > 0 && (
                   <span className="text-sm font-normal text-gray-500 ml-2">
                     ({removedGuests.length} removed)
                   </span>
                 )}
               </CardTitle>
               <CardDescription>
-                People who RSVP'd but weren't in your original guest list
+                {otherGuests.filter(g => !g.is_removed).length > 0
+                  ? "People who RSVP'd but weren't in your original guest list"
+                  : 'Guests you removed from the guest list'}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto pb-2">
+                <table className="w-full min-w-[48rem]">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left p-2">Name</th>
-                      <th className="text-left p-2">Country Code</th>
-                      <th className="text-left p-2">Phone Number</th>
-                      <th className="text-left p-2">Email</th>
-                      <th className="text-left p-2">RSVP Status</th>
-                      <th className="text-left p-2">Guests Count</th>
-                      <th className="text-left p-2">Source</th>
-                      <th className="text-left p-2">Notes</th>
-                      <th className="text-left p-2">RSVP Date</th>
-                      <th className="text-left p-2">Actions</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700 w-40 sm:w-48 box-border overflow-hidden">
+                        Name
+                      </th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Country Code</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Phone Number</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Email</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">RSVP Status</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Guests Count</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Source</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Notes</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">RSVP Date</th>
+                      <th className="text-left p-2 align-top text-sm font-medium text-gray-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3316,15 +3786,27 @@ export default function GuestsPage() {
                       }
                       
                       return (
-                        <tr key={guest.id} className="border-b hover:bg-gray-50">
-                          <td className="p-2 font-medium">{guest.name}</td>
+                        <tr key={guest.id} className="border-b hover:bg-gray-50 group">
+                          <td className="p-2 font-medium w-40 sm:w-48 box-border overflow-hidden">
+                            <span className="truncate block" title={guest.name}>
+                              {guest.name}
+                            </span>
+                          </td>
                           <td className="p-2 text-sm text-gray-700 font-mono">
                             {guest.country_code || '-'}
                           </td>
                           <td className="p-2 text-sm text-gray-600 font-mono">
                             {guest.local_number || guest.phone || '-'}
                           </td>
-                          <td className="p-2 text-sm text-gray-600">{guest.email || '-'}</td>
+                          <td className="p-2 text-sm text-gray-600 max-w-[10rem] sm:max-w-[14rem]">
+                            {guest.email ? (
+                              <span className="block truncate" title={guest.email}>
+                                {guest.email}
+                              </span>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
                           <td className="p-2">
                             {getRsvpStatusBadge(guest.will_attend)}
                           </td>
@@ -3340,7 +3822,7 @@ export default function GuestsPage() {
                               day: 'numeric',
                             })}
                           </td>
-                          <td className="p-2">
+                          <td className="p-2 w-[1%] whitespace-nowrap">
                             <Button
                               variant="outline"
                               onClick={() => handleRemoveRSVP(guest.id)}
@@ -3354,8 +3836,13 @@ export default function GuestsPage() {
                     })}
                     {/* Removed Other Guests at Bottom */}
                     {removedGuests.map((guest) => (
-                      <tr key={guest.id} className="border-b bg-gray-50 opacity-60">
-                        <td className="p-2 font-medium text-gray-500">{guest.name} <span className="text-xs text-gray-400">(Removed)</span></td>
+                      <tr key={guest.id} className="border-b bg-gray-50 opacity-60 group">
+                        <td className="p-2 font-medium text-gray-500 w-40 sm:w-48 box-border overflow-hidden">
+                          <span className="truncate block" title={guest.name}>
+                            {guest.name}
+                          </span>{' '}
+                          <span className="text-xs text-gray-400">(Removed)</span>
+                        </td>
                         <td className="p-2 text-sm text-gray-500 font-mono">{guest.country_code || '-'}</td>
                         <td className="p-2 text-sm text-gray-500 font-mono">{guest.local_number || guest.phone || '-'}</td>
                         <td className="p-2 text-sm text-gray-500">{guest.email || '-'}</td>

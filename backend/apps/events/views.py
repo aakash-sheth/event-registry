@@ -13,11 +13,12 @@ from django.http import HttpResponse, Http404, HttpResponseRedirect
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
 import csv
 import re
 import os
 import hashlib
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 from urllib.parse import urlencode
 from apps.common.email_backend import send_email
@@ -25,7 +26,7 @@ from apps.common.whatsapp_backend import verify_webhook_signature
 from .tasks import dispatch_campaign
 
 logger = logging.getLogger(__name__)
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -38,6 +39,7 @@ from .serializers import (
     InviteDesignTemplateSerializer,
     GreetingCardSampleSerializer,
     MessageCampaignSerializer, MessageCampaignCreateSerializer, CampaignRecipientSerializer,
+    BookingScheduleSerializer, BookingSlotSerializer, SlotBookingSerializer,
 )
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
 from .guest_import import (
@@ -531,7 +533,8 @@ class EventViewSet(viewsets.ModelViewSet):
                 country_iso=(serializer.validated_data.get('country_iso') or '')[:2],
                 relationship=serializer.validated_data.get('relationship', ''),
                 notes=serializer.validated_data.get('notes', ''),
-                custom_fields=custom_fields
+                custom_fields=custom_fields,
+                source='manual',
             )
             created.append(guest)
 
@@ -913,7 +916,11 @@ class EventViewSet(viewsets.ModelViewSet):
                     labeled_rows = parse_vcf_bytes(raw_bytes)
                 except ValueError as e:
                     return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-                created, row_errors = process_guest_import_rows(event, labeled_rows)
+                created, row_errors = process_guest_import_rows(
+                    event,
+                    labeled_rows,
+                    source='contact_import',
+                )
                 response_data = {'created': created}
                 if row_errors:
                     response_data['errors'] = row_errors
@@ -1009,7 +1016,11 @@ class EventViewSet(viewsets.ModelViewSet):
 
                 labeled_rows.append((f'Row {idx}', normalized_row))
 
-            created, row_errors = process_guest_import_rows(event, labeled_rows)
+            created, row_errors = process_guest_import_rows(
+                event,
+                labeled_rows,
+                source='file_import',
+            )
             all_errors = errors + row_errors
             response_data = {'created': created}
             if all_errors:
@@ -1082,7 +1093,11 @@ class EventViewSet(viewsets.ModelViewSet):
                 (label, {'name': name_s, 'phone': phone_s, 'email': email_s})
             )
 
-        created, errors = process_guest_import_rows(event, labeled_rows)
+        created, errors = process_guest_import_rows(
+            event,
+            labeled_rows,
+            source='api_import',
+        )
         response_data = {'created': created}
         if errors:
             response_data['errors'] = errors
@@ -1740,7 +1755,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 'id', 'slug', 'background_url', 'config', 'is_published',
                 'event_id', 'created_at', 'updated_at',
                 'event__id', 'event__slug', 'event__event_structure',
-                'event__rsvp_mode', 'event__public_sub_events_count',
+                'event__rsvp_mode', 'event__rsvp_experience_mode', 'event__public_sub_events_count',
                 'event__total_sub_events_count', 'event__host_id'  # host_id needed for editor check
             ).get(slug=slug, is_published=True)
             event = invite_page.event
@@ -1763,7 +1778,7 @@ class PublicInviteViewSet(viewsets.ReadOnlyModelViewSet):
                     'id', 'slug', 'background_url', 'config', 'is_published',
                     'event_id', 'created_at', 'updated_at',
                     'event__id', 'event__slug', 'event__event_structure',
-                    'event__rsvp_mode', 'event__host_id'  # host_id needed for auth check
+                    'event__rsvp_mode', 'event__rsvp_experience_mode', 'event__host_id'  # host_id needed for auth check
                 ).get(slug=slug)
                 event = invite_page.event
                 query_time = time.time() - query_start
@@ -2796,6 +2811,28 @@ def create_rsvp(request, event_id):
                     guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
                     if not guest:
                         guest = Guest.objects.filter(event=event, name__iexact=name, is_removed=False).first()
+
+        # Guest context for eligibility logic (invited guest match only).
+        # For public direct responders we may create/link a Guest record later for host visibility.
+        rsvp_guest = guest
+
+        def ensure_form_submission_guest():
+            """
+            Create (or reuse) a Guest row for direct responders so hosts can see a unified list.
+
+            Note: this is not used for sub-event eligibility logic; call sites should create it
+            only after allowed sub-events are resolved.
+            """
+            existing_any = Guest.objects.filter(event=event, phone=phone).first()
+            if existing_any:
+                return existing_any
+            return Guest.objects.create(
+                event=event,
+                phone=phone,
+                name=name or 'Guest',
+                email=serializer.validated_data.get('email') or None,
+                source='form_submission',
+            )
         
         # Update phone in validated_data and remove country_code (not a model field)
         serializer.validated_data['phone'] = phone
@@ -2808,8 +2845,40 @@ def create_rsvp(request, event_id):
         # Copy RSVP custom fields into Guest.custom_fields (default behavior; host toggle removed)
         write_back_to_guest = True
         
-        # Handle ENVELOPE events with sub-events
-        if event.event_structure == 'ENVELOPE':
+        active_rsvp_mode = event.get_canonical_rsvp_mode()
+
+        if active_rsvp_mode == Event.RSVP_EXPERIENCE_MODE_SLOT_BASED:
+            # Slot mode accepts explicit declines in RSVP endpoint.
+            if rsvp_data.get('will_attend') == 'no':
+                if existing_rsvp:
+                    for key, value in rsvp_data.items():
+                        setattr(existing_rsvp, key, value)
+                    if rsvp_guest is None and event.is_public:
+                        rsvp_guest = ensure_form_submission_guest()
+                    if rsvp_guest:
+                        existing_rsvp.guest = rsvp_guest
+                    existing_rsvp.save()
+                    _notify_host_rsvp(event, existing_rsvp)
+                    return Response(RSVPSerializer(existing_rsvp).data, status=status.HTTP_200_OK)
+
+                if rsvp_guest is None and event.is_public:
+                    rsvp_guest = ensure_form_submission_guest()
+                rsvp = RSVP.objects.create(event=event, guest=rsvp_guest, **rsvp_data)
+                _notify_host_rsvp(event, rsvp)
+                return Response(RSVPSerializer(rsvp).data, status=status.HTTP_201_CREATED)
+
+            return Response(
+                {
+                    'error': (
+                        'This event uses slot-based RSVP. Please choose a slot to confirm attendance '
+                        'or select Can’t make it.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Handle sub-event mode with sub-events
+        if active_rsvp_mode == Event.RSVP_EXPERIENCE_MODE_SUB_EVENT:
             if event.rsvp_mode == 'PER_SUBEVENT':
                 # PER_SUBEVENT mode:
                 # - Always create/update a MAIN RSVP row (sub_event=NULL) for overall event attendance.
@@ -2876,6 +2945,11 @@ def create_rsvp(request, event_id):
                 allowed_ids = set(allowed_sub_events.values_list('id', flat=True))
 
                 # Sub-event selection is optional. If none selected, return MAIN RSVP only.
+                if rsvp_guest is None and event.is_public:
+                    rsvp_guest = ensure_form_submission_guest()
+                    if main_rsvp and main_rsvp.guest_id != rsvp_guest.id:
+                        main_rsvp.guest = rsvp_guest
+                        main_rsvp.save(update_fields=['guest', 'updated_at'])
                 if not selected_sub_event_ids:
                     _notify_host_rsvp(event, main_rsvp)
                     return Response(
@@ -2911,8 +2985,8 @@ def create_rsvp(request, event_id):
                         # Update existing RSVP
                         for key, value in rsvp_data_for_sub_events.items():
                             setattr(existing_sub_rsvp, key, value)
-                        if guest:
-                            existing_sub_rsvp.guest = guest
+                        if rsvp_guest:
+                            existing_sub_rsvp.guest = rsvp_guest
                         existing_sub_rsvp.save()
                         created_rsvps.append(existing_sub_rsvp)
                     else:
@@ -2920,7 +2994,7 @@ def create_rsvp(request, event_id):
                         rsvp = RSVP.objects.create(
                             event=event,
                             sub_event=sub_event,
-                            guest=guest,
+                            guest=rsvp_guest,
                             **rsvp_data_for_sub_events
                         )
                         created_rsvps.append(rsvp)
@@ -3006,6 +3080,12 @@ def create_rsvp(request, event_id):
                     if not event.is_public:
                         allowed_sub_events = allowed_sub_events.filter(is_public_visible=True)
 
+                if rsvp_guest is None and event.is_public:
+                    rsvp_guest = ensure_form_submission_guest()
+                    if main_rsvp and main_rsvp.guest_id != rsvp_guest.id:
+                        main_rsvp.guest = rsvp_guest
+                        main_rsvp.save(update_fields=['guest', 'updated_at'])
+
                 # If no sub-events are available for this guest/context, still allow MAIN RSVP.
                 if not allowed_sub_events.exists():
                     _notify_host_rsvp(event, main_rsvp)
@@ -3032,15 +3112,15 @@ def create_rsvp(request, event_id):
                     if existing_sub_rsvp:
                         for key, value in rsvp_data_for_sub_events.items():
                             setattr(existing_sub_rsvp, key, value)
-                        if guest:
-                            existing_sub_rsvp.guest = guest
+                        if rsvp_guest:
+                            existing_sub_rsvp.guest = rsvp_guest
                         existing_sub_rsvp.save()
                         created_rsvps.append(existing_sub_rsvp)
                     else:
                         rsvp = RSVP.objects.create(
                             event=event,
                             sub_event=sub_event,
-                            guest=guest,
+                            guest=rsvp_guest,
                             **rsvp_data_for_sub_events
                         )
                         created_rsvps.append(rsvp)
@@ -3052,7 +3132,7 @@ def create_rsvp(request, event_id):
                     status=status.HTTP_201_CREATED if (any_new_main_created or any_new_rsvp_created) else status.HTTP_200_OK
                 )
 
-        # SIMPLE event: Keep existing behavior (sub_event = NULL)
+        # Standard mode: keep existing behavior (sub_event = NULL)
         if existing_rsvp:
             # Check if RSVP itself is removed (shouldn't happen due to filter, but double-check)
             if existing_rsvp.is_removed:
@@ -3064,14 +3144,18 @@ def create_rsvp(request, event_id):
             # Update existing RSVP
             for key, value in rsvp_data.items():
                 setattr(existing_rsvp, key, value)
-            if guest:
-                existing_rsvp.guest = guest
+            if rsvp_guest is None and event.is_public:
+                rsvp_guest = ensure_form_submission_guest()
+            if rsvp_guest:
+                existing_rsvp.guest = rsvp_guest
             existing_rsvp.save()
             _notify_host_rsvp(event, existing_rsvp)
             return Response(RSVPSerializer(existing_rsvp).data, status=status.HTTP_200_OK)
         else:
             # Create new RSVP (sub_event will be NULL for SIMPLE events)
-            rsvp = RSVP.objects.create(event=event, guest=guest, **rsvp_data)
+            if rsvp_guest is None and event.is_public:
+                rsvp_guest = ensure_form_submission_guest()
+            rsvp = RSVP.objects.create(event=event, guest=rsvp_guest, **rsvp_data)
             _notify_host_rsvp(event, rsvp)
             return Response(RSVPSerializer(rsvp).data, status=status.HTTP_201_CREATED)
     
@@ -4289,6 +4373,9 @@ class MessageCampaignViewSet(viewsets.ModelViewSet):
             guest_filter=campaign.guest_filter,
             filter_relationship=campaign.filter_relationship,
             custom_guest_ids=[],   # Reset — custom selections are per-send
+            filter_slot_id=campaign.filter_slot_id,
+            filter_slot_date=campaign.filter_slot_date,
+            filter_booking_status=campaign.filter_booking_status,
             scheduled_at=None,  # Reset schedule on duplicate
             status=MessageCampaign.STATUS_PENDING,
             created_by=request.user,
@@ -4297,6 +4384,442 @@ class MessageCampaignViewSet(viewsets.ModelViewSet):
             MessageCampaignSerializer(new_campaign).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+# ---------------------------------------------------------------------------
+# Slot booking endpoints
+# ---------------------------------------------------------------------------
+
+def _bucket_for_hour(hour):
+    if 5 <= hour <= 11:
+        return 'morning'
+    if 12 <= hour <= 16:
+        return 'afternoon'
+    if 17 <= hour <= 21:
+        return 'evening'
+    return 'night'
+
+
+def _slot_remaining_seats(slot):
+    reserved = slot.bookings.filter(status=SlotBooking.STATUS_CONFIRMED).aggregate(
+        total=Sum('seats_booked')
+    )['total'] or 0
+    return max(0, slot.capacity_total - reserved)
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def booking_schedule_detail(request, event_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    now = timezone.now()
+    canonical_mode = event.get_canonical_rsvp_mode()
+    default_is_enabled = canonical_mode == Event.RSVP_EXPERIENCE_MODE_SLOT_BASED
+    schedule, _ = BookingSchedule.objects.get_or_create(
+        event=event,
+        defaults={
+            'timezone': event.timezone,
+            'is_enabled': default_is_enabled,
+            'status_changed_at': now,
+            'allow_direct_bookings': True,
+        },
+    )
+    if request.method == 'GET':
+        return Response(BookingScheduleSerializer(schedule).data)
+
+    serializer = BookingScheduleSerializer(schedule, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def booking_slots_collection(request, event_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    now = timezone.now()
+    canonical_mode = event.get_canonical_rsvp_mode()
+    default_is_enabled = canonical_mode == Event.RSVP_EXPERIENCE_MODE_SLOT_BASED
+    schedule, _ = BookingSchedule.objects.get_or_create(
+        event=event,
+        defaults={
+            'timezone': event.timezone,
+            'is_enabled': default_is_enabled,
+            'status_changed_at': now,
+            'allow_direct_bookings': True,
+        },
+    )
+    if request.method == 'GET':
+        qs = BookingSlot.objects.filter(event=event).order_by('slot_date', 'display_order', 'start_at')
+        return Response(BookingSlotSerializer(qs, many=True).data)
+
+    serializer = BookingSlotSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    serializer.save(event=event, schedule=schedule)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def booking_slot_detail(request, event_id, slot_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    slot = get_object_or_404(BookingSlot, id=slot_id, event=event)
+
+    if request.method == 'DELETE':
+        slot.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = BookingSlotSerializer(slot, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def booking_slots_reorder(request, event_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    slot_ids = request.data.get('slot_ids') or []
+    if not isinstance(slot_ids, list):
+        return Response({'error': 'slot_ids must be a list'}, status=status.HTTP_400_BAD_REQUEST)
+
+    slots = {s.id: s for s in BookingSlot.objects.filter(event=event, id__in=slot_ids)}
+    with transaction.atomic():
+        for idx, slot_id in enumerate(slot_ids):
+            slot = slots.get(slot_id)
+            if slot:
+                slot.display_order = idx
+                slot.save(update_fields=['display_order', 'updated_at'])
+
+    return Response({'message': 'Reordered successfully'})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_booking_calendar(request, slug):
+    event = get_object_or_404(Event, slug=slug)
+    schedule = BookingSchedule.objects.filter(event=event, is_enabled=True).first()
+    if not schedule:
+        return Response({'results': []})
+
+    month = (request.query_params.get('month') or '').strip()
+    base_qs = BookingSlot.objects.filter(
+        event=event,
+        status__in=[BookingSlot.STATUS_AVAILABLE, BookingSlot.STATUS_SOLD_OUT],
+    )
+    if month and re.match(r'^\d{4}-\d{2}$', month):
+        base_qs = base_qs.filter(slot_date__startswith=month)
+
+    grouped = {}
+    for slot in base_qs.order_by('slot_date', 'start_at'):
+        key = str(slot.slot_date)
+        payload = grouped.setdefault(key, {
+            'date': key,
+            'totalSlots': 0,
+            'availableSlots': 0,
+            'totalSeats': 0,
+            'remainingSeats': 0,
+            'status': 'sold_out',
+            'availabilityLabel': 'Sold out',
+        })
+        payload['totalSlots'] += 1
+        payload['totalSeats'] += slot.capacity_total
+        remaining = _slot_remaining_seats(slot)
+        payload['remainingSeats'] += remaining
+        if remaining > 0 and slot.status == BookingSlot.STATUS_AVAILABLE:
+            payload['availableSlots'] += 1
+
+    results = []
+    for _, payload in sorted(grouped.items(), key=lambda x: x[0]):
+        if payload['availableSlots'] > 0 and payload['remainingSeats'] > 0:
+            payload['status'] = 'available'
+            payload['availabilityLabel'] = 'Available'
+        if payload['remainingSeats'] <= 3 and payload['remainingSeats'] > 0:
+            payload['availabilityLabel'] = 'Few spots left'
+        if schedule.seat_visibility_mode == BookingSchedule.VISIBILITY_HIDDEN:
+            payload['totalSeats'] = None
+            payload['remainingSeats'] = None
+        results.append(payload)
+
+    return Response({'results': results})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_booking_slots_by_date(request, slug):
+    event = get_object_or_404(Event, slug=slug)
+    schedule = BookingSchedule.objects.filter(event=event, is_enabled=True).first()
+    if not schedule:
+        return Response({'results': []})
+
+    date = (request.query_params.get('date') or '').strip()
+    if not date:
+        return Response({'error': 'date query param is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    slots = BookingSlot.objects.filter(
+        event=event,
+        slot_date=date,
+    ).exclude(status=BookingSlot.STATUS_HIDDEN).order_by('display_order', 'start_at')
+
+    results = []
+    for slot in slots:
+        remaining = _slot_remaining_seats(slot)
+        event_tz = ZoneInfo(event.timezone or 'UTC')
+        bucket = _bucket_for_hour(slot.start_at.astimezone(event_tz).hour)
+        if schedule.seat_visibility_mode == BookingSchedule.VISIBILITY_HIDDEN:
+            remaining_val = None
+        else:
+            remaining_val = remaining
+        results.append({
+            'slotId': slot.id,
+            'date': str(slot.slot_date),
+            'startAt': slot.start_at,
+            'endAt': slot.end_at,
+            'label': slot.label,
+            'remainingSeats': remaining_val,
+            'capacityTotal': slot.capacity_total if schedule.seat_visibility_mode != BookingSchedule.VISIBILITY_HIDDEN else None,
+            'status': BookingSlot.STATUS_SOLD_OUT if remaining <= 0 else slot.status,
+            'bucket': bucket,
+        })
+    return Response({'results': results})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_slot_booking(request, event_id):
+    event = get_object_or_404(Event, id=event_id)
+    if event.get_canonical_rsvp_mode() != Event.RSVP_EXPERIENCE_MODE_SLOT_BASED:
+        return Response(
+            {'error': 'Slot booking is not active for this event'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    schedule = BookingSchedule.objects.filter(event=event, is_enabled=True).first()
+    if not schedule:
+        return Response({'error': 'Bookings are currently paused for this event.'}, status=status.HTTP_403_FORBIDDEN)
+
+    slot_id = request.data.get('slotId')
+    raw_seats_booked = request.data.get('seatsBooked')
+    if raw_seats_booked in [None, '']:
+        seats_booked = 1
+    else:
+        try:
+            seats_booked = int(raw_seats_booked)
+        except (TypeError, ValueError):
+            return Response({'error': 'seatsBooked must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+    phone = (request.data.get('phone') or '').strip()
+    name = (request.data.get('name') or '').strip()
+    email = (request.data.get('email') or '').strip() or None
+    notes = (request.data.get('notes') or '').strip()
+    custom_fields = request.data.get('custom_fields')
+    if custom_fields is None:
+        custom_fields = {}
+    if not isinstance(custom_fields, dict):
+        return Response({'error': 'custom_fields must be an object'}, status=status.HTTP_400_BAD_REQUEST)
+    idempotency_key = (request.data.get('idempotencyKey') or '').strip() or None
+    if not slot_id or not phone:
+        return Response({'error': 'slotId and phone are required'}, status=status.HTTP_400_BAD_REQUEST)
+    # Canonicalize so Guest rows, snapshots, and lookups stay aligned across clients.
+    _cc = (request.data.get('country_code') or '').strip() or get_country_code(event.country)
+    phone = format_phone_with_country_code(phone, _cc)
+    if seats_booked < 1:
+        return Response({'error': 'seatsBooked must be >= 1'}, status=status.HTTP_400_BAD_REQUEST)
+
+    existing_by_key = None
+    if idempotency_key:
+        existing_by_key = SlotBooking.objects.filter(
+            event=event,
+            idempotency_key=idempotency_key,
+        ).first()
+    if existing_by_key:
+        return Response({
+            'bookingId': existing_by_key.id,
+            'status': existing_by_key.status,
+            'slot': BookingSlotSerializer(existing_by_key.slot).data,
+            'seatsBooked': existing_by_key.seats_booked,
+            'remainingSeatsAfter': _slot_remaining_seats(existing_by_key.slot),
+            'rsvpId': None,
+        })
+
+    invited_guest = Guest.objects.filter(event=event, phone=phone, is_removed=False).first()
+    source = SlotBooking.SOURCE_INVITED if invited_guest else SlotBooking.SOURCE_DIRECT
+    if source == SlotBooking.SOURCE_DIRECT and not schedule.allow_direct_bookings:
+        return Response({'error': 'Direct booking is disabled for this event'}, status=status.HTTP_403_FORBIDDEN)
+
+    with transaction.atomic():
+        guest = invited_guest
+        if not guest:
+            # Create (or reuse) a Guest record for direct responders so hosts can see
+            # a unified guest list. Do not overwrite source for any existing record.
+            guest = Guest.objects.filter(event=event, phone=phone).first()
+            if not guest:
+                guest = Guest.objects.create(
+                    event=event,
+                    phone=phone,
+                    name=name or 'Guest',
+                    email=email,
+                    source='form_submission',
+                )
+
+        slot = BookingSlot.objects.select_for_update().filter(id=slot_id, event=event).first()
+        if not slot:
+            return Response({'error': 'Slot not found'}, status=status.HTTP_404_NOT_FOUND)
+        if slot.status in [BookingSlot.STATUS_UNAVAILABLE, BookingSlot.STATUS_HIDDEN, BookingSlot.STATUS_SOLD_OUT]:
+            return Response({'error': 'Slot is not available'}, status=status.HTTP_400_BAD_REQUEST)
+
+        remaining = _slot_remaining_seats(slot)
+        if remaining < seats_booked:
+            return Response(
+                {'errorCode': 'INSUFFICIENT_CAPACITY', 'remainingSeats': remaining},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        active = SlotBooking.objects.filter(
+            event=event,
+            status=SlotBooking.STATUS_CONFIRMED,
+        )
+        if guest:
+            active = active.filter(guest=guest)
+        else:
+            active = active.filter(guest__isnull=True, phone_snapshot=phone)
+        active_booking = active.select_for_update().first()
+        if active_booking:
+            active_booking.status = SlotBooking.STATUS_CANCELLED
+            active_booking.cancelled_at = timezone.now()
+            active_booking.save(update_fields=['status', 'cancelled_at', 'updated_at'])
+
+        booking = SlotBooking.objects.create(
+            event=event,
+            slot=slot,
+            guest=guest,
+            phone_snapshot=phone,
+            name_snapshot=name,
+            email_snapshot=email,
+            seats_booked=seats_booked,
+            source=source,
+            status=SlotBooking.STATUS_CONFIRMED,
+            idempotency_key=idempotency_key,
+        )
+
+        rsvp = RSVP.objects.filter(event=event, phone=phone, sub_event__isnull=True, is_removed=False).first()
+        if rsvp:
+            rsvp.will_attend = 'yes'
+            rsvp.name = name or rsvp.name
+            rsvp.email = email or rsvp.email
+            rsvp.guests_count = seats_booked
+            rsvp.guest = guest
+            rsvp.notes = notes
+            if custom_fields:
+                rsvp.custom_fields = custom_fields
+            rsvp.save()
+        else:
+            rsvp = RSVP.objects.create(
+                event=event,
+                sub_event=None,
+                name=name or (guest.name if guest else 'Guest'),
+                phone=phone,
+                email=email,
+                will_attend='yes',
+                guests_count=seats_booked,
+                guest=guest,
+                notes=notes,
+                custom_fields=custom_fields,
+            )
+
+        remaining_after = _slot_remaining_seats(slot)
+        return Response({
+            'bookingId': booking.id,
+            'status': booking.status,
+            'slot': BookingSlotSerializer(slot).data,
+            'seatsBooked': booking.seats_booked,
+            'remainingSeatsAfter': remaining_after,
+            'rsvpId': rsvp.id,
+        }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def host_slot_bookings(request, event_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    qs = SlotBooking.objects.filter(event=event).select_related('slot', 'guest')
+    slot_id = request.query_params.get('slotId')
+    slot_date = request.query_params.get('slotDate')
+    status_filter = request.query_params.get('status')
+    source = request.query_params.get('source')
+    if slot_id:
+        qs = qs.filter(slot_id=slot_id)
+    if slot_date:
+        qs = qs.filter(slot__slot_date=slot_date)
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if source:
+        qs = qs.filter(source=source)
+    return Response(SlotBookingSerializer(qs.order_by('-created_at'), many=True).data)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def host_update_slot_booking(request, event_id, booking_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    booking = get_object_or_404(SlotBooking, id=booking_id, event=event)
+    new_status = request.data.get('status')
+    new_seats = request.data.get('seats_booked')
+    with transaction.atomic():
+        slot = BookingSlot.objects.select_for_update().get(id=booking.slot_id)
+        if new_seats is not None:
+            new_seats = int(new_seats)
+            delta = new_seats - booking.seats_booked
+            if delta > 0 and _slot_remaining_seats(slot) < delta:
+                return Response(
+                    {'errorCode': 'INSUFFICIENT_CAPACITY', 'remainingSeats': _slot_remaining_seats(slot)},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            booking.seats_booked = new_seats
+        if new_status in [SlotBooking.STATUS_CONFIRMED, SlotBooking.STATUS_CANCELLED, SlotBooking.STATUS_NO_SHOW]:
+            booking.status = new_status
+            if new_status == SlotBooking.STATUS_CANCELLED:
+                booking.cancelled_at = timezone.now()
+        booking.save()
+    return Response(SlotBookingSerializer(booking).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def host_move_slot_booking(request, event_id, booking_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    booking = get_object_or_404(SlotBooking, id=booking_id, event=event)
+    target_slot_id = request.data.get('slot_id')
+    if not target_slot_id:
+        return Response({'error': 'slot_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    with transaction.atomic():
+        current_slot = BookingSlot.objects.select_for_update().get(id=booking.slot_id)
+        target_slot = BookingSlot.objects.select_for_update().get(id=target_slot_id, event=event)
+        if target_slot.id != current_slot.id:
+            remaining = _slot_remaining_seats(target_slot)
+            if booking.status == SlotBooking.STATUS_CONFIRMED and remaining < booking.seats_booked:
+                return Response(
+                    {'errorCode': 'INSUFFICIENT_CAPACITY', 'remainingSeats': remaining},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            booking.slot = target_slot
+            booking.save(update_fields=['slot', 'updated_at'])
+    return Response(SlotBookingSerializer(booking).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def host_override_slot_booking_capacity(request, event_id, booking_id):
+    event = get_object_or_404(Event, id=event_id, host=request.user)
+    booking = get_object_or_404(SlotBooking, id=booking_id, event=event)
+    slot = booking.slot
+    increment = int(request.data.get('increment') or 0)
+    if increment <= 0:
+        return Response({'error': 'increment must be > 0'}, status=status.HTTP_400_BAD_REQUEST)
+    slot.capacity_total += increment
+    slot.save(update_fields=['capacity_total', 'updated_at'])
+    return Response({
+        'bookingId': booking.id,
+        'slotId': slot.id,
+        'capacityTotal': slot.capacity_total,
+    })
 
 
 # ---------------------------------------------------------------------------

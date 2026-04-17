@@ -9,9 +9,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
 /**
  * Get user-friendly error message from error object
  * @param error - Error object from API call or exception
+ * @param fallbackMessage - Used as the final fallback instead of the generic default
  * @returns User-friendly error message
  */
-export function getErrorMessage(error: any): string {
+export function getErrorMessage(error: any, fallbackMessage?: string): string {
   // Handle network/connection errors
   // Check error code first (Axios uses error.code)
   const errorCode = error.code || ''
@@ -103,7 +104,7 @@ export function getErrorMessage(error: any): string {
   }
 
   // Fallback - never show technical details in production
-  return 'An unexpected error occurred. Please try again.'
+  return fallbackMessage ?? 'An unexpected error occurred. Please try again.'
 }
 
 /**
