@@ -5,7 +5,25 @@
       "Bash(ls -la frontend/components/invite/tiles/*.tsx)",
       "Bash(ls frontend/components/invite/tiles/*.tsx)",
       "WebFetch(domain:ekfern.com)",
-      "Bash(find '/Users/aakashsheth/Wedding registry code' -name globals.css -o -name tailwind.config.*)"
+      "Bash(find '/Users/aakashsheth/Wedding registry code' -name globals.css -o -name tailwind.config.*)",
+      "WebFetch(domain:altcarbon.com)",
+      "Bash(curl -s \"https://altcarbon.com/\")",
+      "Bash(curl -s \"https://altcarbon.com/_next/static/css/672cea460fa3abe6.css?dpl=dpl_CB75mKS2ewZyAjym5kXoidJppy3m\")",
+      "Bash(curl -s \"https://altcarbon.com/_next/static/css/20c2c6a5f7a04a60.css?dpl=dpl_CB75mKS2ewZyAjym5kXoidJppy3m\")",
+      "Bash(curl -s \"https://altcarbon.com/_next/static/css/517188e566aa5cef.css?dpl=dpl_CB75mKS2ewZyAjym5kXoidJppy3m\")",
+      "Bash(curl -s \"https://altcarbon.com/_next/static/css/20c2c6a5f7a04a60.css\")",
+      "Bash(curl -s \"https://altcarbon.com/_next/static/chunks/main-app-25dff76a1ae44ea8.js\")",
+      "Bash(curl -s https://altcarbon.com/_next/static/chunks/main-app-25dff76a1ae44ea8.js)",
+      "Bash(curl -s https://altcarbon.com/)",
+      "Read(//tmp/**)",
+      "Bash(curl -s https://altcarbon.com/_next/static/css/672cea460fa3abe6.css)",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s https://altcarbon.com/_next/static/css/20c2c6a5f7a04a60.css)",
+      "Bash(curl -s https://altcarbon.com/_next/static/css/517188e566aa5cef.css)",
+      "Bash(grep -o \"\\\\..*{\" /tmp/main.css)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }
