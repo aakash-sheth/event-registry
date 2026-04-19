@@ -17,7 +17,7 @@ export const PREVIEW_SAMPLE = {
 const CARD_SCALE = 0.28
 const INVERSE_SCALE = 1 / CARD_SCALE
 
-export interface TemplateCardPreviewProps {
+export interface PageLayoutCardPreviewProps {
   config: InviteConfig
   className?: string
 }
@@ -47,10 +47,10 @@ export function enrichConfigWithSampleData(config: InviteConfig): InviteConfig {
 }
 
 /**
- * Renders a live preview of an invite config inside a fixed aspect box (e.g. template library card).
+ * Renders a live preview of an invite config inside a fixed aspect box (e.g. page layout library card).
  * Uses inviting sample copy so the library looks professional; same pipeline as the invite page.
  */
-export default function TemplateCardPreview({ config, className = '' }: TemplateCardPreviewProps): React.ReactElement {
+export default function PageLayoutCardPreview({ config, className = '' }: PageLayoutCardPreviewProps): React.ReactElement {
   const theme = getTheme(config?.themeId ?? 'classic-noir')
   const backgroundColor = config?.customColors?.backgroundColor ?? theme.palette.bg
   const previewConfig = useMemo(() => enrichConfigWithSampleData(config), [config])

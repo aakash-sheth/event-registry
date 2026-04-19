@@ -3,7 +3,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InvitePageLayout, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, normalize_phone_for_match, phones_loosely_match
 import re
@@ -1034,8 +1034,8 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         return value.strip()
 
 
-class InviteDesignTemplateSerializer(serializers.ModelSerializer):
-    """Serializer for InviteDesignTemplate (Template Studio)."""
+class InvitePageLayoutSerializer(serializers.ModelSerializer):
+    """Serializer for InvitePageLayout (Page Layout Studio)."""
     created_by_name = serializers.CharField(source='created_by.name', read_only=True, allow_null=True)
     updated_by_name = serializers.CharField(source='updated_by.name', read_only=True, allow_null=True)
     # Override URLField with CharField so relative paths (e.g. /invite-templates/minimal.svg)
@@ -1043,7 +1043,7 @@ class InviteDesignTemplateSerializer(serializers.ModelSerializer):
     thumbnail = serializers.CharField(max_length=2000, allow_blank=True, required=False)
 
     class Meta:
-        model = InviteDesignTemplate
+        model = InvitePageLayout
         fields = (
             'id', 'name', 'description', 'thumbnail', 'preview_alt', 'config',
             'visibility', 'status', 'created_by', 'created_by_name', 'updated_by', 'updated_by_name',

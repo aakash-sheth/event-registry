@@ -1240,10 +1240,10 @@ class CampaignRecipient(models.Model):
         return f"Recipient {self.phone} in {self.campaign.name} - {self.status}"
 
 
-class InviteDesignTemplate(models.Model):
+class InvitePageLayout(models.Model):
     """
-    Backend-stored invite page design templates for the Template Studio.
-    Staff (and later creators) design templates using the tile system; hosts pick from the library.
+    Backend-stored invite page layouts for the Page Layout Studio.
+    Staff (and later creators) design layouts using the tile system; hosts pick from the library.
     """
     VISIBILITY_CHOICES = [
         ('internal', 'Internal'),
@@ -1262,13 +1262,13 @@ class InviteDesignTemplate(models.Model):
     config = models.JSONField(default=dict, help_text='Full InviteConfig: themeId, tiles, customColors, texture, etc.')
     visibility = models.CharField(max_length=20, choices=VISIBILITY_CHOICES, default='public')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_invite_design_templates')
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_invite_page_layouts')
     updated_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='updated_invite_design_templates',
+        related_name='updated_invite_page_layouts',
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1281,17 +1281,17 @@ class InviteDesignTemplate(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='creator_invite_design_templates',
+        related_name='creator_invite_page_layouts',
     )
     creator_share_percent = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        db_table = 'invite_design_templates'
+        db_table = 'invite_page_layouts'
         ordering = ['-updated_at']
         indexes = [
-            models.Index(fields=['visibility'], name='invite_dt_visibility_idx'),
-            models.Index(fields=['status'], name='invite_dt_status_idx'),
-            models.Index(fields=['visibility', 'status'], name='invite_dt_vis_status_idx'),
+            models.Index(fields=['visibility'], name='invite_pl_visibility_idx'),
+            models.Index(fields=['status'], name='invite_pl_status_idx'),
+            models.Index(fields=['visibility', 'status'], name='invite_pl_vis_status_idx'),
         ]
 
     def __str__(self):

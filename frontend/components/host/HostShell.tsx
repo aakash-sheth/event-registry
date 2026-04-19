@@ -240,10 +240,10 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
               {isStaff && (() => {
                 const link = (
                   <Link
-                    href="/host/templates"
+                    href="/host/page-layouts"
                     className={cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                      isActivePath(pathname, '/host/templates') && !pathname.startsWith('/host/templates/greeting-cards')
+                      isActivePath(pathname, '/host/page-layouts') && !pathname.startsWith('/host/page-layouts/greeting-cards')
                         ? 'bg-eco-green text-white'
                         : 'text-gray-700 hover:bg-eco-green-light',
                       isDesktopNavCollapsed && 'md:justify-center md:px-0'
@@ -251,14 +251,14 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
                     onClick={() => setIsMobileDrawerOpen(false)}
                   >
                     <Palette size={18} />
-                    <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>Template Studio</span>
+                    <span className={cn(isDesktopNavCollapsed && 'md:hidden')}>Page Layout Studio</span>
                   </Link>
                 )
                 return isDesktopNavCollapsed ? (
                   <div className="group relative">
                     {link}
                     <TooltipContent side="right">
-                      Template Studio
+                      Page Layout Studio
                     </TooltipContent>
                   </div>
                 ) : (
@@ -269,10 +269,10 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
               {isStaff && (() => {
                 const link = (
                   <Link
-                    href="/host/templates/greeting-cards"
+                    href="/host/page-layouts/greeting-cards"
                     className={cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                      pathname.startsWith('/host/templates/greeting-cards')
+                      pathname.startsWith('/host/page-layouts/greeting-cards')
                         ? 'bg-eco-green text-white'
                         : 'text-gray-700 hover:bg-eco-green-light',
                       isDesktopNavCollapsed && 'md:justify-center md:px-0'

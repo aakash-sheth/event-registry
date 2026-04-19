@@ -16,20 +16,20 @@ export interface DummyEventLike {
   has_registry: boolean
 }
 
-interface TemplateStudioDesignCanvasProps {
+interface PageLayoutStudioCanvasProps {
   config: InviteConfig
   setConfig: React.Dispatch<React.SetStateAction<InviteConfig>>
   eventLike: DummyEventLike
-  /** Pass 0 for template studio (no real event); image upload may not work */
+  /** Pass 0 for page layout studio (no real event); image upload may not work */
   eventIdForTiles: number
 }
 
-export default function TemplateStudioDesignCanvas({
+export default function PageLayoutStudioCanvas({
   config,
   setConfig,
   eventLike,
   eventIdForTiles,
-}: TemplateStudioDesignCanvasProps) {
+}: PageLayoutStudioCanvasProps) {
   const [previewOrder, setPreviewOrder] = useState<Map<string, number>>(new Map())
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null)
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)

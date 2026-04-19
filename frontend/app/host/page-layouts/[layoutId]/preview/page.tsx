@@ -4,23 +4,23 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { InviteConfig } from '@/lib/invite/schema'
-import { getInviteDesignTemplate } from '@/lib/invite/api'
+import { getInvitePageLayout } from '@/lib/invite/api'
 import LivingPosterPage from '@/components/invite/living-poster/LivingPosterPage'
 import {
   PREVIEW_SAMPLE,
   enrichConfigWithSampleData,
-} from '@/components/invite/TemplateCardPreview'
+} from '@/components/invite/PageLayoutCardPreview'
 import { logError } from '@/lib/error-handler'
 
 /**
  * Full-screen template preview page.
- * Opens in a new tab from the Template Studio edit page and stays in sync via
- * BroadcastChannel (`template-preview-${templateId}`).
- * Auth is enforced by the parent layout.tsx at /host/templates/.
+ * Opens in a new tab from the Page Layout Studio edit page and stays in sync via
+ * BroadcastChannel (`pageLayout-preview-${layoutId}`).
+ * Auth is enforced by the parent layout.tsx at /host/page-layouts/.
  */
-export default function TemplatePreviewPage() {
+export default function PageLayoutPreviewPage() {
   const params = useParams()
-  const templateId = params.templateId ? parseInt(params.templateId as string) : null
+  const layoutId = params.layoutId ? parseInt(params.layoutId as string) : null
 
   const [config, setConfig] = useState<InviteConfig | null>(null)
   const [templateName, setTemplateName] = useState<string>('')
@@ -29,18 +29,18 @@ export default function TemplatePreviewPage() {
 
   // Initial fetch to populate the preview even before the edit page broadcasts
   useEffect(() => {
-    if (!templateId || isNaN(templateId)) {
-      setError('Invalid template ID.')
+    if (!layoutId || isNaN(layoutId)) {
+      setError('Invalid layout ID.')
       setLoading(false)
       return
     }
 
-    getInviteDesignTemplate(templateId)
+    getInvitePageLayout(layoutId)
       .then((template) => {
         setTemplateName(template.name ?? '')
         // Prefer config stashed by the editor at click-time (reflects unsaved changes);
         // fall back to the API response if nothing was stashed.
-        const stashKey = `template-preview-config-${templateId}`
+        const stashKey = `pageLayout-preview-config-${layoutId}`
         const stashed = localStorage.getItem(stashKey)
         if (stashed) {
           try {
@@ -58,19 +58,19 @@ export default function TemplatePreviewPage() {
         }
       })
       .catch((e: unknown) => {
-        logError('Preview: load template failed', e)
-        setError('Could not load template.')
+        logError('Preview: load page layout failed', e)
+        setError('Could not load page layout.')
       })
       .finally(() => setLoading(false))
-  }, [templateId])
+  }, [layoutId])
 
   // BroadcastChannel listener — receives live config updates from the edit page
   useEffect(() => {
-    if (!templateId || isNaN(templateId)) return
+    if (!layoutId || isNaN(layoutId)) return
 
-    const channel = new BroadcastChannel(`template-preview-${templateId}`)
+    const channel = new BroadcastChannel(`pageLayout-preview-${layoutId}`)
     channel.addEventListener('message', (e: MessageEvent) => {
-      if (e.data?.type === 'TEMPLATE_CONFIG_UPDATE') {
+      if (e.data?.type === 'PAGE_LAYOUT_CONFIG_UPDATE') {
         setConfig(e.data.config as InviteConfig)
       }
     })
@@ -78,7 +78,7 @@ export default function TemplatePreviewPage() {
     return () => {
       channel.close()
     }
-  }, [templateId])
+  }, [layoutId])
 
   // Loading state
   if (loading) {
@@ -93,10 +93,10 @@ export default function TemplatePreviewPage() {
   if (error || !config) {
     return (
       <div className="min-h-screen bg-eco-beige flex flex-col items-center justify-center gap-3">
-        <p className="text-gray-600">{error ?? 'Template config unavailable.'}</p>
-        {templateId && (
+        <p className="text-gray-600">{error ?? 'Page layout config unavailable.'}</p>
+        {layoutId && (
           <Link
-            href={`/host/templates/${templateId}/edit`}
+            href={`/host/page-layouts/${layoutId}/edit`}
             className="text-eco-green underline text-sm"
           >
             Back to editing
@@ -113,7 +113,7 @@ export default function TemplatePreviewPage() {
       {/* Fixed top banner */}
       <div className="fixed top-0 left-0 right-0 z-50 h-10 bg-eco-green flex items-center justify-between px-4">
         <span className="text-white text-sm font-medium truncate mr-4">
-          {templateName || 'Template Preview'}
+          {templateName || 'Page Layout Preview'}
         </span>
 
         <div className="flex items-center gap-4 shrink-0">
@@ -124,9 +124,9 @@ export default function TemplatePreviewPage() {
           </span>
 
           {/* Back link */}
-          {templateId && (
+          {layoutId && (
             <Link
-              href={`/host/templates/${templateId}/edit`}
+              href={`/host/page-layouts/${layoutId}/edit`}
               className="text-sm text-white hover:text-green-200 transition-colors"
             >
               &larr; Back to editing

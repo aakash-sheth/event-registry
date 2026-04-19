@@ -12,10 +12,10 @@ interface MeResponse {
 }
 
 /**
- * Staff-only layout for Template Studio. Regular hosts are redirected to dashboard.
- * All routes under /host/templates/* are protected by this layout.
+ * Staff-only layout for Page Layout Studio. Regular hosts are redirected to dashboard.
+ * All routes under /host/page-layouts/* are protected by this layout.
  */
-export default function TemplateStudioLayout({
+export default function PageLayoutStudioLayout({
   children,
 }: {
   children: React.ReactNode
@@ -43,7 +43,6 @@ export default function TemplateStudioLayout({
       })
   }, [router])
 
-  // Still resolving auth; show minimal loading so we don't flash Template Studio content
   if (allowed !== true) {
     return (
       <div className="min-h-screen bg-eco-beige flex items-center justify-center">

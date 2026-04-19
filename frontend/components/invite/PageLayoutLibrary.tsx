@@ -5,9 +5,9 @@ import { Search } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { InviteTemplate } from '@/lib/invite/templates'
+import type { InvitePageLayout } from '@/lib/invite/pageLayouts'
 import { fuzzyFilter } from '@/lib/fuzzyFilter'
-import TemplateCardPreview from '@/components/invite/TemplateCardPreview'
+import PageLayoutCardPreview from '@/components/invite/PageLayoutCardPreview'
 
 class PreviewErrorBoundary extends Component<
   { children: ReactNode; fallback: ReactNode; onError: () => void },
@@ -29,27 +29,27 @@ class PreviewErrorBoundary extends Component<
   }
 }
 
-export interface TemplateLibraryProps {
-  templates: InviteTemplate[]
-  onSelect: (templateId: string) => void
+export interface PageLayoutLibraryProps {
+  layouts: InvitePageLayout[]
+  onSelect: (layoutId: string) => void
   onCancel?: () => void
   onBlankCanvas?: () => void
   selectedId?: string
 }
 
 function ThumbnailFallback({
-  template,
+  layout,
   onError,
   imageFallbackLabel,
 }: {
-  template: InviteTemplate
+  layout: InvitePageLayout
   onError: () => void
   imageFallbackLabel: string
 }) {
   return (
     <img
-      src={template.thumbnail}
-      alt={template.previewAlt || `${template.name} invitation preview`}
+      src={layout.thumbnail}
+      alt={layout.previewAlt || `${layout.name} invitation preview`}
       loading="lazy"
       decoding="async"
       className="h-full w-full object-cover"
@@ -89,32 +89,32 @@ function LazyPreviewWrapper({
 }
 
 function CardPreviewContent({
-  template,
+  layout,
   failedImageIds,
   setFailedImageIds,
   failedPreviewIds,
   setFailedPreviewIds,
   imageFallbackLabel,
 }: {
-  template: InviteTemplate
+  layout: InvitePageLayout
   failedImageIds: Record<string, boolean>
   setFailedImageIds: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   failedPreviewIds: Record<string, boolean>
   setFailedPreviewIds: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   imageFallbackLabel: string
 }) {
-  const hasConfig = template.config?.tiles && template.config.tiles.length > 0
-  const useLivePreview = hasConfig && !failedPreviewIds[template.id]
+  const hasConfig = layout.config?.tiles && layout.config.tiles.length > 0
+  const useLivePreview = hasConfig && !failedPreviewIds[layout.id]
 
   const thumbnailFallback = (
     <ThumbnailFallback
-      template={template}
-      onError={() => setFailedImageIds(prev => ({ ...prev, [template.id]: true }))}
+      layout={layout}
+      onError={() => setFailedImageIds(prev => ({ ...prev, [layout.id]: true }))}
       imageFallbackLabel={imageFallbackLabel}
     />
   )
 
-  if (failedImageIds[template.id] || (!hasConfig && failedPreviewIds[template.id])) {
+  if (failedImageIds[layout.id] || (!hasConfig && failedPreviewIds[layout.id])) {
     return (
       <div className="h-full w-full flex items-center justify-center px-4 text-center text-sm text-gray-500 bg-gray-50">
         {imageFallbackLabel}
@@ -127,10 +127,10 @@ function CardPreviewContent({
       <LazyPreviewWrapper fallback={thumbnailFallback}>
         <PreviewErrorBoundary
           fallback={thumbnailFallback}
-          onError={() => setFailedPreviewIds(prev => ({ ...prev, [template.id]: true }))}
+          onError={() => setFailedPreviewIds(prev => ({ ...prev, [layout.id]: true }))}
         >
-          <TemplateCardPreview
-            config={template.config}
+          <PageLayoutCardPreview
+            config={layout.config}
             className="h-full w-full"
           />
         </PreviewErrorBoundary>
@@ -141,31 +141,31 @@ function CardPreviewContent({
   return thumbnailFallback
 }
 
-export default function TemplateLibrary({
-  templates,
+export default function PageLayoutLibrary({
+  layouts,
   onSelect,
   onCancel,
   onBlankCanvas,
   selectedId,
-}: TemplateLibraryProps): React.ReactElement {
+}: PageLayoutLibraryProps): React.ReactElement {
   const [failedImageIds, setFailedImageIds] = useState<Record<string, boolean>>({})
   const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState('')
 
   const imageFallbackLabel = useMemo(
-    () => 'Template preview unavailable',
+    () => 'Page layout preview unavailable',
     []
   )
 
-  const filteredTemplates = useMemo(
+  const filteredLayouts = useMemo(
     () =>
-      fuzzyFilter(templates, searchQuery, [
+      fuzzyFilter(layouts, searchQuery, [
         'name',
         'description',
         'previewAlt',
         'createdByName',
       ]),
-    [templates, searchQuery]
+    [layouts, searchQuery]
   )
 
   return (
@@ -176,9 +176,9 @@ export default function TemplateLibrary({
           type="search"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search templates (typos OK)"
+          placeholder="Search page layouts (typos OK)"
           className="pl-9"
-          aria-label="Search templates"
+          aria-label="Search page layouts"
         />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -222,34 +222,33 @@ export default function TemplateLibrary({
             </div>
           </div>
         )}
-        {filteredTemplates.length === 0 && templates.length > 0 && (
+        {filteredLayouts.length === 0 && layouts.length > 0 && (
           <p className="col-span-full text-center text-sm text-gray-500 py-6">
-            No templates match your search. Try different words or check spelling.
+            No page layouts match your search. Try different words or check spelling.
           </p>
         )}
-        {filteredTemplates.map((template) => (
+        {filteredLayouts.map((layout) => (
           <Card
-            key={template.id}
+            key={layout.id}
             role="button"
             tabIndex={0}
-            aria-label={`Select ${template.name} template`}
-            className={`cursor-pointer transition-all duration-200 hover:shadow-xl overflow-hidden focus:outline-none focus:ring-2 focus:ring-eco-green focus:ring-offset-2 rounded-xl bg-white ${selectedId === template.id ? 'border-2 border-eco-green shadow-xl ring-2 ring-eco-green ring-offset-2' : 'border border-gray-200 hover:border-eco-green'}`}
-            onClick={() => onSelect(template.id)}
+            aria-label={`Select ${layout.name} page layout`}
+            className={`cursor-pointer transition-all duration-200 hover:shadow-xl overflow-hidden focus:outline-none focus:ring-2 focus:ring-eco-green focus:ring-offset-2 rounded-xl bg-white ${selectedId === layout.id ? 'border-2 border-eco-green shadow-xl ring-2 ring-eco-green ring-offset-2' : 'border border-gray-200 hover:border-eco-green'}`}
+            onClick={() => onSelect(layout.id)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                onSelect(template.id)
+                onSelect(layout.id)
               }
             }}
           >
-            {/* Preview as an invite card: framed, elevated, so it feels like a real invite */}
             <div
               className="relative w-full aspect-[9/16] overflow-hidden bg-gradient-to-b from-gray-50 to-gray-100 flex items-center justify-center p-4"
-              aria-label={template.previewAlt || `${template.name} invitation preview`}
+              aria-label={layout.previewAlt || `${layout.name} invitation preview`}
             >
               <div className="w-full max-w-[200px] mx-auto aspect-[9/16] rounded-xl shadow-xl overflow-hidden border border-gray-200/90 bg-white ring-1 ring-black/5">
                 <CardPreviewContent
-                  template={template}
+                  layout={layout}
                   failedImageIds={failedImageIds}
                   setFailedImageIds={setFailedImageIds}
                   failedPreviewIds={failedPreviewIds}
@@ -259,14 +258,14 @@ export default function TemplateLibrary({
               </div>
             </div>
             <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-xl font-semibold text-gray-900">{template.name}</CardTitle>
-              {template.description && (
+              <CardTitle className="text-xl font-semibold text-gray-900">{layout.name}</CardTitle>
+              {layout.description && (
                 <CardDescription className="text-sm text-gray-600 mt-0.5 leading-snug">
-                  {template.description}
+                  {layout.description}
                 </CardDescription>
               )}
-              {template.createdByName && (
-                <p className="text-xs text-gray-500 mt-1.5">By {template.createdByName}</p>
+              {layout.createdByName && (
+                <p className="text-xs text-gray-500 mt-1.5">By {layout.createdByName}</p>
               )}
             </CardHeader>
             <CardContent className="pt-0 pb-5">
@@ -274,16 +273,16 @@ export default function TemplateLibrary({
                 type="button"
                 size="sm"
                 className={`w-full font-medium rounded-lg py-2 transition-colors ${
-                  selectedId === template.id
+                  selectedId === layout.id
                     ? 'bg-eco-green text-white border-2 border-eco-green'
                     : 'border-2 border-eco-green text-eco-green bg-white hover:bg-eco-green hover:text-white'
                 }`}
                 onClick={(e) => {
                   e.stopPropagation()
-                  onSelect(template.id)
+                  onSelect(layout.id)
                 }}
               >
-                {selectedId === template.id ? '✓ Selected' : 'Select'}
+                {selectedId === layout.id ? '✓ Selected' : 'Select'}
               </Button>
             </CardContent>
           </Card>

@@ -4,7 +4,7 @@
 
 import api from '@/lib/api'
 import { InvitePage, InviteConfig } from './schema'
-import type { InviteTemplate } from './templates'
+import type { InvitePageLayout } from './pageLayouts'
 
 export async function getInvitePage(eventId: number): Promise<InvitePage | null> {
   try {
@@ -47,8 +47,8 @@ export async function publishInvitePage(slug: string, isPublished: boolean): Pro
   return response.data
 }
 
-/** API response shape for one invite design template */
-export interface InviteDesignTemplateResponse {
+/** API response shape for one invite page layout */
+export interface InvitePageLayoutResponse {
   id: number
   name: string
   description?: string
@@ -66,15 +66,15 @@ export interface InviteDesignTemplateResponse {
 }
 
 /**
- * Fetch invite design templates from API (published + public for host library).
- * Returns empty array on failure so static templates can be used as fallback.
+ * Fetch invite page layouts from API (published + public for host library).
+ * Returns empty array on failure so static layouts can be used as fallback.
  */
-export async function getInviteDesignTemplates(): Promise<InviteTemplate[]> {
+export async function getInvitePageLayouts(): Promise<InvitePageLayout[]> {
   try {
-    const response = await api.get<InviteDesignTemplateResponse[] | { results: InviteDesignTemplateResponse[] }>('/api/events/invite-templates/')
+    const response = await api.get<InvitePageLayoutResponse[] | { results: InvitePageLayoutResponse[] }>('/api/events/invite-page-layouts/')
     const raw = response.data
     const list = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' && Array.isArray((raw as any).results) ? (raw as any).results : [])
-    return list.map((item: InviteDesignTemplateResponse) => ({
+    return list.map((item: InvitePageLayoutResponse) => ({
       id: String(item.id),
       name: item.name,
       description: item.description ?? undefined,
@@ -88,24 +88,24 @@ export async function getInviteDesignTemplates(): Promise<InviteTemplate[]> {
   }
 }
 
-/** Fetch all templates for Template Studio (staff); optional ?mine=1 for current user's only */
-export async function getInviteDesignTemplatesForStudio(mine?: boolean): Promise<InviteDesignTemplateResponse[]> {
-  const response = await api.get<InviteDesignTemplateResponse[] | { results: InviteDesignTemplateResponse[] }>('/api/events/invite-templates/', {
+/** Fetch all page layouts for Page Layout Studio (staff); optional ?mine=1 for current user's only */
+export async function getInvitePageLayoutsForStudio(mine?: boolean): Promise<InvitePageLayoutResponse[]> {
+  const response = await api.get<InvitePageLayoutResponse[] | { results: InvitePageLayoutResponse[] }>('/api/events/invite-page-layouts/', {
     params: mine ? { mine: '1' } : undefined,
   })
   if (Array.isArray(response.data)) return response.data
-  const paginated = response.data as { results?: InviteDesignTemplateResponse[] }
+  const paginated = response.data as { results?: InvitePageLayoutResponse[] }
   return Array.isArray(paginated?.results) ? paginated.results : []
 }
 
-/** Fetch one template by id (for Studio edit) */
-export async function getInviteDesignTemplate(id: number): Promise<InviteDesignTemplateResponse> {
-  const response = await api.get<InviteDesignTemplateResponse>(`/api/events/invite-templates/${id}/`)
+/** Fetch one page layout by id (for Studio edit) */
+export async function getInvitePageLayout(id: number): Promise<InvitePageLayoutResponse> {
+  const response = await api.get<InvitePageLayoutResponse>(`/api/events/invite-page-layouts/${id}/`)
   return response.data
 }
 
-/** Create template (staff only) */
-export async function createInviteDesignTemplate(data: {
+/** Create page layout (staff only) */
+export async function createInvitePageLayout(data: {
   name: string
   description?: string
   thumbnail?: string
@@ -113,13 +113,13 @@ export async function createInviteDesignTemplate(data: {
   config: InviteConfig
   visibility?: string
   status?: string
-}): Promise<InviteDesignTemplateResponse> {
-  const response = await api.post<InviteDesignTemplateResponse>('/api/events/invite-templates/', data)
+}): Promise<InvitePageLayoutResponse> {
+  const response = await api.post<InvitePageLayoutResponse>('/api/events/invite-page-layouts/', data)
   return response.data
 }
 
-/** Update template (staff only) */
-export async function updateInviteDesignTemplate(
+/** Update page layout (staff only) */
+export async function updateInvitePageLayout(
   id: number,
   data: Partial<{
     name: string
@@ -130,14 +130,14 @@ export async function updateInviteDesignTemplate(
     visibility: string
     status: string
   }>
-): Promise<InviteDesignTemplateResponse> {
-  const response = await api.put<InviteDesignTemplateResponse>(`/api/events/invite-templates/${id}/`, data)
+): Promise<InvitePageLayoutResponse> {
+  const response = await api.put<InvitePageLayoutResponse>(`/api/events/invite-page-layouts/${id}/`, data)
   return response.data
 }
 
-/** Delete template (staff only) */
-export async function deleteInviteDesignTemplate(id: number): Promise<void> {
-  await api.delete(`/api/events/invite-templates/${id}/`)
+/** Delete page layout (staff only) */
+export async function deleteInvitePageLayout(id: number): Promise<void> {
+  await api.delete(`/api/events/invite-page-layouts/${id}/`)
 }
 
 // ---------------------------------------------------------------------------

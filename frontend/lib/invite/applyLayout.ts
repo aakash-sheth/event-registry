@@ -1,5 +1,5 @@
 /**
- * Apply an invite template: clone config, assign unique tile IDs, optionally merge event data,
+ * Apply an invite page layout: clone config, assign unique tile IDs, optionally merge event data,
  * and set tileSetComplete so the design page does not merge in default tiles.
  */
 
@@ -9,24 +9,24 @@ function uniqueTileId(type: string): string {
   return `tile-${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-export interface EventDataForTemplate {
+export interface EventDataForLayout {
   title?: string
   date?: string
   city?: string
 }
 
 /**
- * Clone template config with unique tile IDs, optional event merge, and tileSetComplete flag.
- * Use when applying a template from the library or when switching templates in the editor.
+ * Clone layout config with unique tile IDs, optional event merge, and tileSetComplete flag.
+ * Use when applying a layout from the library or when switching layouts in the editor.
  */
-export function applyTemplate(
-  templateConfig: InviteConfig,
-  event?: EventDataForTemplate
+export function applyLayout(
+  layoutConfig: InviteConfig,
+  event?: EventDataForLayout
 ): InviteConfig {
-  const tiles = templateConfig.tiles
+  const tiles = layoutConfig.tiles
   if (!tiles || tiles.length === 0) {
     return {
-      ...templateConfig,
+      ...layoutConfig,
       tileSetComplete: true,
     }
   }
@@ -72,9 +72,9 @@ export function applyTemplate(
   }
 
   return {
-    ...templateConfig,
+    ...layoutConfig,
     tiles: mergedTiles,
     tileSetComplete: true,
-    customColors: templateConfig.customColors ?? {},
+    customColors: layoutConfig.customColors ?? {},
   }
 }

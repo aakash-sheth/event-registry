@@ -4,7 +4,7 @@ from .views import (
     EventViewSet, create_rsvp, get_rsvp, check_phone_for_rsvp, get_guest_by_token,
     InvitePageViewSet, PublicInviteViewSet, upload_image,
     SubEventViewSet, GuestInviteViewSet, MessageTemplateViewSet,
-    InviteDesignTemplateViewSet,
+    InvitePageLayoutViewSet,
     GreetingCardSampleViewSet, upload_greeting_card_image,
     whatsapp_template_preview, whatsapp_template_duplicate,
     whatsapp_template_archive, whatsapp_template_activate,
@@ -26,9 +26,9 @@ router.register(r'guest-invites', GuestInviteViewSet, basename='guest-invite')
 
 urlpatterns = [
     # Put custom paths BEFORE router.urls so they take precedence
-    # Invite design templates (Template Studio) - list/create and retrieve/update/delete
-    path('invite-templates/', InviteDesignTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='invite-templates-list'),
-    path('invite-templates/<int:id>/', InviteDesignTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='invite-template-detail'),
+    # Invite page layouts (Page Layout Studio) - list/create and retrieve/update/delete
+    path('invite-page-layouts/', InvitePageLayoutViewSet.as_view({'get': 'list', 'post': 'create'}), name='invite-page-layouts-list'),
+    path('invite-page-layouts/<int:id>/', InvitePageLayoutViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='invite-page-layout-detail'),
     # Greeting card samples (staff-curated card backgrounds)
     path('greeting-card-samples/upload-image/', upload_greeting_card_image, name='greeting-card-upload-image'),
     path('greeting-card-samples/', GreetingCardSampleViewSet.as_view({'get': 'list', 'post': 'create'}), name='greeting-card-samples-list'),

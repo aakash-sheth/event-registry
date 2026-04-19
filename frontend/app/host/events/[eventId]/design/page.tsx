@@ -15,13 +15,13 @@ import api, { uploadImage } from '@/lib/api'
 import { InviteConfig, Tile, TileType, InvitePage } from '@/lib/invite/schema'
 import { InvitePageState, getInvitePageState } from '@/lib/invite/types'
 import { updateEventPageConfig, getEventPageConfig } from '@/lib/event/api'
-import { getInviteDesignTemplates } from '@/lib/invite/api'
+import { getInvitePageLayouts } from '@/lib/invite/api'
 import { getInvitePage, createInvitePage, publishInvitePage, getPublicInvite } from '@/lib/invite/api'
 import { migrateToTileConfig } from '@/lib/invite/migrateConfig'
-import { applyTemplate } from '@/lib/invite/applyTemplate'
-import type { InviteTemplate } from '@/lib/invite/templates'
+import { applyLayout } from '@/lib/invite/applyLayout'
+import type { InvitePageLayout } from '@/lib/invite/pageLayouts'
 import { getTheme } from '@/lib/invite/themes'
-import TemplateLibrary from '@/components/invite/TemplateLibrary'
+import PageLayoutLibrary from '@/components/invite/PageLayoutLibrary'
 import TileList from '@/components/invite/tiles/TileList'
 import TileSettingsList from '@/components/invite/tiles/TileSettingsList'
 import { ThemeProvider } from '@/components/invite/living-poster/ThemeProvider'
@@ -151,16 +151,16 @@ export default function DesignInvitationPage(): JSX.Element {
   const [isPublishing, setIsPublishing] = useState(false)
   const [showPublishModal, setShowPublishModal] = useState(false)
   const [showDesignStartView, setShowDesignStartView] = useState(false)
-  const [showTemplateLibraryOnStart, setShowTemplateLibraryOnStart] = useState(false)
-  const [apiTemplates, setApiTemplates] = useState<InviteTemplate[]>([])
-  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [showLayoutLibraryOnStart, setShowLayoutLibraryOnStart] = useState(false)
+  const [apiLayouts, setApiLayouts] = useState<InvitePageLayout[]>([])
+  const [layoutsLoading, setLayoutsLoading] = useState(true)
 
-  // Fetch invite design templates from API (single source of truth)
+  // Fetch invite page layouts from API (single source of truth)
   useEffect(() => {
-    getInviteDesignTemplates()
-      .then(setApiTemplates)
-      .catch(() => setApiTemplates([]))
-      .finally(() => setTemplatesLoading(false))
+    getInvitePageLayouts()
+      .then(setApiLayouts)
+      .catch(() => setApiLayouts([]))
+      .finally(() => setLayoutsLoading(false))
   }, [])
 
   useEffect(() => {
@@ -1328,9 +1328,9 @@ export default function DesignInvitationPage(): JSX.Element {
 
 
 
-  // Single source of truth: templates from API only
-  const getTemplateFromList = (templateId: string): InviteTemplate | undefined =>
-    apiTemplates.find((t) => String(t.id) === String(templateId))
+  // Single source of truth: layouts from API only
+  const getLayoutFromList = (layoutId: string): InvitePageLayout | undefined =>
+    apiLayouts.find((t) => String(t.id) === String(layoutId))
   const displayBackgroundColor = config.customColors?.backgroundColor ?? getTheme(config?.themeId ?? 'classic-noir').palette.bg
 
   if (loading) {
@@ -1367,13 +1367,13 @@ export default function DesignInvitationPage(): JSX.Element {
             </Button>
           </Link>
           <h1 className="text-2xl font-bold text-eco-green mb-2">Design your invitation</h1>
-          <p className="text-gray-600 mb-8">Start from a template or build from scratch.</p>
+          <p className="text-gray-600 mb-8">Start from a page layout or build from scratch.</p>
           <div className="flex flex-wrap gap-4 mb-8">
             <Button
-              onClick={() => setShowTemplateLibraryOnStart(true)}
+              onClick={() => setShowLayoutLibraryOnStart(true)}
               className="bg-eco-green hover:bg-green-600 text-white"
             >
-              Start from template
+              Start from page layout
             </Button>
             <Button
               onClick={() => setShowDesignStartView(false)}
@@ -1383,34 +1383,34 @@ export default function DesignInvitationPage(): JSX.Element {
               Start from scratch
             </Button>
           </div>
-          {showTemplateLibraryOnStart && (
+          {showLayoutLibraryOnStart && (
             <div className="mt-8">
-              {templatesLoading ? (
-                <p className="text-gray-600">Loading templates...</p>
-              ) : apiTemplates.length === 0 ? (
-                <p className="text-gray-600">No templates yet. Run the seed command or add templates in Template Studio.</p>
+              {layoutsLoading ? (
+                <p className="text-gray-600">Loading page layouts...</p>
+              ) : apiLayouts.length === 0 ? (
+                <p className="text-gray-600">No page layouts yet. Run the seed command or add layouts in Page Layout Studio.</p>
               ) : (
-                <TemplateLibrary
-                  templates={apiTemplates}
-                  onSelect={async (templateId) => {
-                    const t = getTemplateFromList(templateId)
+                <PageLayoutLibrary
+                  layouts={apiLayouts}
+                  onSelect={async (layoutId) => {
+                    const t = getLayoutFromList(layoutId)
                     if (!t) {
-                      showToast('Template no longer available.', 'error')
+                      showToast('Page layout no longer available.', 'error')
                       return
                     }
                     if (event) {
-                      const templateHasGC = t.config?.tiles?.some((tile: { type: string }) => tile.type === 'greeting-card')
+                      const layoutHasGC = t.config?.tiles?.some((tile: { type: string }) => tile.type === 'greeting-card')
 
-                      // Warn if the current config has an enabled GC tile but the new template doesn't
+                      // Warn if the current config has an enabled GC tile but the new layout doesn't
                       const currentHasEnabledGC = config.tiles?.some(tile => tile.type === 'greeting-card' && tile.enabled)
-                      if (currentHasEnabledGC && !templateHasGC) {
+                      if (currentHasEnabledGC && !layoutHasGC) {
                         const confirmed = confirm(
-                          "This template doesn't include a greeting card. Your greeting card will be disabled — you can re-enable it manually from Tile Settings."
+                          "This page layout doesn't include a greeting card. Your greeting card will be disabled — you can re-enable it manually from Tile Settings."
                         )
                         if (!confirmed) return
                       }
 
-                      let next = applyTemplate(t.config, {
+                      let next = applyLayout(t.config, {
                         title: event.title,
                         date: event.date,
                         city: event.city,
@@ -1419,16 +1419,16 @@ export default function DesignInvitationPage(): JSX.Element {
                       setConfig(next)
                       if (next.tiles?.length) {
                         const order = new Map<string, number>()
-                        next.tiles.forEach((tile, i) => order.set(tile.id, tile.order ?? i))
+                        next.tiles.forEach((tile: { id: string; order?: number }, i: number) => order.set(tile.id, tile.order ?? i))
                         setPreviewOrder(order)
-                        const first = next.tiles.find((tile) => tile.enabled)
+                        const first = next.tiles.find((tile: { enabled: boolean }) => tile.enabled)
                         if (first) setSelectedTileId(first.id)
                       }
                       setShowDesignStartView(false)
-                      setShowTemplateLibraryOnStart(false)
+                      setShowLayoutLibraryOnStart(false)
                     }
                   }}
-                  onCancel={() => setShowTemplateLibraryOnStart(false)}
+                  onCancel={() => setShowLayoutLibraryOnStart(false)}
                 />
               )}
             </div>

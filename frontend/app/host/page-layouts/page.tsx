@@ -12,8 +12,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { fuzzyFilter } from '@/lib/fuzzyFilter'
 import {
-  getInviteDesignTemplatesForStudio,
-  type InviteDesignTemplateResponse,
+  getInvitePageLayoutsForStudio,
+  type InvitePageLayoutResponse,
 } from '@/lib/invite/api'
 import { logError } from '@/lib/error-handler'
 
@@ -24,16 +24,16 @@ interface MeResponse {
   is_staff?: boolean
 }
 
-export default function TemplateStudioListPage() {
+export default function PageLayoutStudioListPage() {
   const router = useRouter()
-  const [templates, setTemplates] = useState<InviteDesignTemplateResponse[]>([])
+  const [layouts, setLayouts] = useState<InvitePageLayoutResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [isStaff, setIsStaff] = useState<boolean | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const filteredTemplates = useMemo(
+  const filteredLayouts = useMemo(
     () =>
-      fuzzyFilter(templates, searchQuery, [
+      fuzzyFilter(layouts, searchQuery, [
         'name',
         'description',
         'preview_alt',
@@ -41,7 +41,7 @@ export default function TemplateStudioListPage() {
         'visibility',
         'status',
       ]),
-    [templates, searchQuery]
+    [layouts, searchQuery]
   )
 
   useEffect(() => {
@@ -61,12 +61,12 @@ export default function TemplateStudioListPage() {
           router.push('/host/dashboard')
           return
         }
-        const list = await getInviteDesignTemplatesForStudio()
+        const list = await getInvitePageLayoutsForStudio()
         if (cancelled) return
-        setTemplates(list)
+        setLayouts(list)
       } catch (e: any) {
         if (cancelled) return
-        logError('Template Studio list failed', e)
+        logError('Page Layout Studio list failed', e)
         if (e?.response?.status === 401) {
           router.push('/host/login')
           return
@@ -75,7 +75,7 @@ export default function TemplateStudioListPage() {
           router.push('/host/dashboard')
           return
         }
-        setTemplates([])
+        setLayouts([])
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -99,41 +99,41 @@ export default function TemplateStudioListPage() {
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-eco-green">Template Studio</h1>
+            <h1 className="text-2xl font-bold text-eco-green">Page Layout Studio</h1>
             <p className="text-gray-600 mt-1 text-sm">
-              Design invite templates for the host library. Only staff can access this page.
+              Design invite page layouts for the host library. Only staff can access this page.
             </p>
           </div>
-          <Link href="/host/templates/new">
-            <Button className="bg-eco-green hover:bg-green-600 text-white">New template</Button>
+          <Link href="/host/page-layouts/new">
+            <Button className="bg-eco-green hover:bg-green-600 text-white">New page layout</Button>
           </Link>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Templates</CardTitle>
-            <CardDescription>All invite design templates. Edit or create new ones.</CardDescription>
+            <CardTitle>Page Layouts</CardTitle>
+            <CardDescription>All invite page layouts. Edit or create new ones.</CardDescription>
           </CardHeader>
           <CardContent>
-            {templates.length > 0 && (
+            {layouts.length > 0 && (
               <div className="relative mb-4 max-w-md">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
                 <Input
                   type="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search templates (typos OK)"
+                  placeholder="Search page layouts (typos OK)"
                   className="pl-9"
-                  aria-label="Search templates"
+                  aria-label="Search page layouts"
                 />
               </div>
             )}
-            {templates.length === 0 ? (
+            {layouts.length === 0 ? (
               <p className="text-gray-500 py-8 text-center">
-                No templates yet. Create one with &quot;New template&quot;.
+                No layouts yet. Create one with &quot;New page layout&quot;.
               </p>
-            ) : filteredTemplates.length === 0 ? (
-              <p className="text-gray-500 py-8 text-center">No templates match your search.</p>
+            ) : filteredLayouts.length === 0 ? (
+              <p className="text-gray-500 py-8 text-center">No page layouts match your search.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -149,7 +149,7 @@ export default function TemplateStudioListPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTemplates.map((t) => (
+                    {filteredLayouts.map((t) => (
                       <tr key={t.id} className="border-b">
                         <td className="py-3 pr-4">
                           {t.thumbnail ? (
@@ -188,7 +188,7 @@ export default function TemplateStudioListPage() {
                             : '—'}
                         </td>
                         <td className="py-3">
-                          <Link href={`/host/templates/${t.id}/edit`}>
+                          <Link href={`/host/page-layouts/${t.id}/edit`}>
                             <Button variant="outline" size="sm">
                               Edit
                             </Button>

@@ -1,17 +1,17 @@
 """
-Django management command to seed the four default invite design templates into the database.
+Django management command to seed the four default invite page layouts into the database.
 
 Creates Minimal, Classic, Emerald Mist, and Garden Soirée if they do not already exist
 (keyed by name). Idempotent: re-running does not create duplicates.
 
 Usage:
-    python manage.py seed_invite_templates
+    python manage.py seed_page_layouts
 
 Requires at least one staff user (created_by). Create a staff user first if needed.
 """
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from apps.events.models import InviteDesignTemplate
+from apps.events.models import InvitePageLayout
 
 User = get_user_model()
 
@@ -276,40 +276,40 @@ def get_garden_config():
     }
 
 
-DEFAULT_TEMPLATES = [
+DEFAULT_PAGE_LAYOUTS = [
     {
         'name': 'Minimal',
         'description': 'Clean and simple: title, date & place, and actions.',
         'thumbnail': '/invite-templates/minimal.svg',
-        'preview_alt': 'Minimal invite template preview with light background and clean typography',
+        'preview_alt': 'Minimal invite page layout preview with light background and clean typography',
         'config_fn': get_minimal_config,
     },
     {
         'name': 'Classic',
         'description': 'Full layout with hero image, countdown, details, and footer.',
         'thumbnail': '/invite-templates/classic.svg',
-        'preview_alt': 'Classic invite template preview with dark elegant styling and countdown',
+        'preview_alt': 'Classic invite page layout preview with dark elegant styling and countdown',
         'config_fn': get_classic_config,
     },
     {
         'name': 'Emerald Mist',
         'description': 'Elegant green theme with countdown and details.',
         'thumbnail': '/invite-templates/emerald.svg',
-        'preview_alt': 'Emerald Mist invite template preview with rich green theme',
+        'preview_alt': 'Emerald Mist invite page layout preview with rich green theme',
         'config_fn': get_emerald_config,
     },
     {
         'name': 'Garden Soirée',
         'description': 'Light, refined layout with description block and map-ready details.',
         'thumbnail': '/invite-templates/minimal.svg',
-        'preview_alt': 'Garden Soirée invite with description and borders',
+        'preview_alt': 'Garden Soirée page layout with description and borders',
         'config_fn': get_garden_config,
     },
 ]
 
 
 class Command(BaseCommand):
-    help = 'Seed the four default invite design templates (Minimal, Classic, Emerald Mist, Garden Soirée)'
+    help = 'Seed the four default invite page layouts (Minimal, Classic, Emerald Mist, Garden Soirée)'
 
     def handle(self, *args, **options):
         seed_user = User.objects.filter(is_staff=True).first() or User.objects.filter(is_superuser=True).first()
@@ -320,9 +320,9 @@ class Command(BaseCommand):
             return
 
         created_count = 0
-        for spec in DEFAULT_TEMPLATES:
+        for spec in DEFAULT_PAGE_LAYOUTS:
             config = spec['config_fn']()
-            obj, created = InviteDesignTemplate.objects.get_or_create(
+            obj, created = InvitePageLayout.objects.get_or_create(
                 name=spec['name'],
                 defaults={
                     'description': spec['description'],
@@ -336,8 +336,8 @@ class Command(BaseCommand):
             )
             if created:
                 created_count += 1
-                self.stdout.write(self.style.SUCCESS(f'Created template: {obj.name} (id={obj.id})'))
+                self.stdout.write(self.style.SUCCESS(f'Created page layout: {obj.name} (id={obj.id})'))
             else:
-                self.stdout.write(f'Template already exists: {obj.name}')
+                self.stdout.write(f'Page layout already exists: {obj.name}')
 
-        self.stdout.write(self.style.SUCCESS(f'Done. Created {created_count} new template(s).'))
+        self.stdout.write(self.style.SUCCESS(f'Done. Created {created_count} new page layout(s).'))

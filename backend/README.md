@@ -22,12 +22,12 @@ Django + Django REST Framework backend for the event registry MVP.
    python manage.py createsuperuser
    ```
 
-5. **Seed invite design templates (optional):**
-   The design page shows templates from the database only. To populate the four default templates (Minimal, Classic, Emerald Mist, Garden Soirée), run:
+5. **Seed invite page layouts (optional):**
+   The design page shows page layouts from the database only. To populate the four default layouts (Minimal, Classic, Emerald Mist, Garden Soirée), run:
    ```bash
-   python manage.py seed_invite_templates
+   python manage.py seed_page_layouts
    ```
-   Requires at least one staff user (e.g. superuser). Idempotent: re-running does not create duplicates. Staff can also add or edit templates via Template Studio in the app.
+   Requires at least one staff user (e.g. superuser). Idempotent: re-running does not create duplicates. Staff can also add or edit layouts via Page Layout Studio in the app.
 
 6. **Run development server:**
    ```bash

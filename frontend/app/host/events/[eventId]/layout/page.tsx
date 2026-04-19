@@ -6,15 +6,15 @@ import { useParams, useRouter } from 'next/navigation'
 import { useToast } from '@/components/ui/toast'
 import { getErrorMessage, logError } from '@/lib/error-handler'
 import WizardProgress from '@/components/host/WizardProgress'
-import TemplateLibrary from '@/components/invite/TemplateLibrary'
+import PageLayoutLibrary from '@/components/invite/PageLayoutLibrary'
 import {
-  getInviteDesignTemplates,
+  getInvitePageLayouts,
   getInvitePage,
   createInvitePage,
   updateInvitePage,
 } from '@/lib/invite/api'
-import { applyTemplate } from '@/lib/invite/applyTemplate'
-import type { InviteTemplate } from '@/lib/invite/templates'
+import { applyLayout } from '@/lib/invite/applyLayout'
+import type { InvitePageLayout } from '@/lib/invite/pageLayouts'
 import type { ImageTileSettings, GreetingCardTileSettings, TextOverlay, InviteConfig } from '@/lib/invite/schema'
 import { updateEventPageConfig } from '@/lib/event/api'
 import api from '@/lib/api'
@@ -87,24 +87,24 @@ export default function LayoutSelectPage(): React.ReactElement {
 
   const eventId = params.eventId ? parseInt(params.eventId as string, 10) : 0
 
-  const [templates, setTemplates] = useState<InviteTemplate[]>([])
-  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [layouts, setLayouts] = useState<InvitePageLayout[]>([])
+  const [layoutsLoading, setLayoutsLoading] = useState(true)
   const [applying, setApplying] = useState(false)
   const [applyingId, setApplyingId] = useState<string | null>(null)
   const [event, setEvent] = useState<EventData | null>(null)
-  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null)
+  const [pendingLayoutId, setPendingLayoutId] = useState<string | null>(null)
 
-  // Load templates and event data in parallel
+  // Load layouts and event data in parallel
   useEffect(() => {
     if (!eventId || isNaN(eventId)) return
 
     Promise.all([
-      getInviteDesignTemplates().catch(() => [] as InviteTemplate[]),
+      getInvitePageLayouts().catch(() => [] as InvitePageLayout[]),
       api.get<EventData>(`/api/events/${eventId}/`).catch(() => null),
-    ]).then(([tmplList, eventRes]) => {
-      setTemplates(tmplList)
+    ]).then(([layoutList, eventRes]) => {
+      setLayouts(layoutList)
       if (eventRes) setEvent(eventRes.data)
-    }).finally(() => setTemplatesLoading(false))
+    }).finally(() => setLayoutsLoading(false))
   }, [eventId])
 
   function readCardDesignFromStorage(): { bgUrl: string | null; bgGradient: string | null; textBoxes: TextOverlay[] | null } {
@@ -118,17 +118,17 @@ export default function LayoutSelectPage(): React.ReactElement {
     return { bgUrl, bgGradient, textBoxes }
   }
 
-  async function handleTemplateSelect(templateId: string): Promise<void> {
-    const template = templates.find((t) => t.id === templateId)
-    if (!template) {
-      showToast('Template not found.', 'error')
+  async function handleLayoutSelect(layoutId: string): Promise<void> {
+    const layout = layouts.find((t) => t.id === layoutId)
+    if (!layout) {
+      showToast('Layout not found.', 'error')
       return
     }
 
     setApplying(true)
-    setApplyingId(templateId)
+    setApplyingId(layoutId)
     try {
-      let appliedConfig = applyTemplate(template.config, {
+      let appliedConfig = applyLayout(layout.config, {
         title: event?.title,
         date: event?.date,
         city: event?.city,
@@ -140,7 +140,7 @@ export default function LayoutSelectPage(): React.ReactElement {
         appliedConfig = applyCardDesignToConfig(appliedConfig, bgUrl, bgGradient, textBoxes)
       }
 
-      // Save to Event.page_config so the design page reads the template + card bg
+      // Save to Event.page_config so the design page reads the layout + card bg
       await updateEventPageConfig(eventId, appliedConfig)
 
       // Also sync to InvitePage model for publish flow
@@ -151,10 +151,10 @@ export default function LayoutSelectPage(): React.ReactElement {
         await createInvitePage(eventId, { config: appliedConfig })
       }
 
-      showToast('Template applied! Customize it on the next step.', 'success')
+      showToast('Layout applied! Customize it on the next step.', 'success')
       router.push(`/host/events/${eventId}/design`)
     } catch (err: unknown) {
-      logError('Failed to apply template:', err)
+      logError('Failed to apply layout:', err)
       showToast(getErrorMessage(err), 'error')
     } finally {
       setApplying(false)
@@ -193,7 +193,7 @@ export default function LayoutSelectPage(): React.ReactElement {
     )
   }
 
-  const pendingTemplate = templates.find((t) => t.id === pendingTemplateId)
+  const pendingLayout = layouts.find((t) => t.id === pendingLayoutId)
 
   return (
     <div className="min-h-screen bg-eco-beige pb-24">
@@ -214,7 +214,7 @@ export default function LayoutSelectPage(): React.ReactElement {
           Pick a starting point. You can customize everything on the next step.
         </p>
 
-        {templatesLoading ? (
+        {layoutsLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-4 border-eco-green border-t-transparent rounded-full animate-spin" />
           </div>
@@ -225,16 +225,16 @@ export default function LayoutSelectPage(): React.ReactElement {
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-start pt-24 gap-3">
                 <div className="w-10 h-10 border-4 border-eco-green border-t-transparent rounded-full animate-spin" />
                 <p className="text-sm font-medium text-eco-green bg-white/80 px-3 py-1 rounded-full">
-                  {applyingId === 'blank' ? 'Opening canvas...' : 'Applying template...'}
+                  {applyingId === 'blank' ? 'Opening canvas...' : 'Applying layout...'}
                 </p>
               </div>
             )}
 
-            {/* Templates grid with blank canvas as first item */}
-            <TemplateLibrary
-              templates={templates}
-              onSelect={setPendingTemplateId}
-              selectedId={pendingTemplateId ?? undefined}
+            {/* Layouts grid with blank canvas as first item */}
+            <PageLayoutLibrary
+              layouts={layouts}
+              onSelect={setPendingLayoutId}
+              selectedId={pendingLayoutId ?? undefined}
               onBlankCanvas={handleBlankCanvas}
             />
           </div>
@@ -242,16 +242,16 @@ export default function LayoutSelectPage(): React.ReactElement {
       </div>
 
       {/* Sticky apply bar */}
-      {pendingTemplate && (
+      {pendingLayout && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-lg">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
             <p className="text-sm font-medium text-gray-800 truncate">
-              <span className="text-gray-500 font-normal">Selected: </span>{pendingTemplate.name}
+              <span className="text-gray-500 font-normal">Selected: </span>{pendingLayout.name}
             </p>
             <div className="flex gap-3 flex-shrink-0">
               <button
                 type="button"
-                onClick={() => setPendingTemplateId(null)}
+                onClick={() => setPendingLayoutId(null)}
                 className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2"
               >
                 Cancel
@@ -259,10 +259,10 @@ export default function LayoutSelectPage(): React.ReactElement {
               <button
                 type="button"
                 disabled={applying}
-                onClick={() => handleTemplateSelect(pendingTemplate.id)}
+                onClick={() => handleLayoutSelect(pendingLayout.id)}
                 className="bg-eco-green hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
               >
-                {applying ? 'Applying...' : 'Apply template →'}
+                {applying ? 'Applying...' : 'Apply layout →'}
               </button>
             </div>
           </div>

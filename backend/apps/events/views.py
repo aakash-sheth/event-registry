@@ -26,7 +26,7 @@ from apps.common.whatsapp_backend import verify_webhook_signature
 from .tasks import dispatch_campaign
 
 logger = logging.getLogger(__name__)
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InviteDesignTemplate, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InvitePageLayout, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -36,7 +36,7 @@ from .serializers import (
     GuestSubEventInviteSerializer,
     MessageTemplateSerializer,
     AttributionLinkSerializer,
-    InviteDesignTemplateSerializer,
+    InvitePageLayoutSerializer,
     GreetingCardSampleSerializer,
     MessageCampaignSerializer, MessageCampaignCreateSerializer, CampaignRecipientSerializer,
     BookingScheduleSerializer, BookingSlotSerializer, SlotBookingSerializer,
@@ -3804,15 +3804,15 @@ class MessageTemplateViewSet(viewsets.ModelViewSet):
         })
 
 
-class InviteDesignTemplateViewSet(viewsets.ModelViewSet):
+class InvitePageLayoutViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for invite design templates (Template Studio).
+    ViewSet for invite page layouts (Page Layout Studio).
     List: hosts see published+public; staff see all (optional ?mine=1).
     Create/Update/Delete: staff only. created_by/updated_by set from request.user.
     """
     # Full list for host library + staff search (global PAGE_SIZE=20 would truncate).
     pagination_class = None
-    serializer_class = InviteDesignTemplateSerializer
+    serializer_class = InvitePageLayoutSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
     lookup_url_kwarg = 'id'
@@ -3820,11 +3820,11 @@ class InviteDesignTemplateViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if getattr(user, 'is_staff', False):
-            qs = InviteDesignTemplate.objects.all().select_related('created_by', 'updated_by')
+            qs = InvitePageLayout.objects.all().select_related('created_by', 'updated_by')
             if self.request.query_params.get('mine') == '1':
                 qs = qs.filter(created_by=user)
             return qs
-        return InviteDesignTemplate.objects.filter(
+        return InvitePageLayout.objects.filter(
             status='published',
             visibility='public',
         ).select_related('created_by')
@@ -3836,21 +3836,21 @@ class InviteDesignTemplateViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         if not getattr(request.user, 'is_staff', False) and (obj.status != 'published' or obj.visibility != 'public'):
             raise PermissionDenied("Not found or not available.")
-        return Response(InviteDesignTemplateSerializer(obj).data)
+        return Response(InvitePageLayoutSerializer(obj).data)
 
     def create(self, request, *args, **kwargs):
         if not getattr(request.user, 'is_staff', False):
-            raise PermissionDenied("Only staff can create invite design templates.")
+            raise PermissionDenied("Only staff can create invite page layouts.")
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         if not getattr(request.user, 'is_staff', False):
-            raise PermissionDenied("Only staff can update invite design templates.")
+            raise PermissionDenied("Only staff can update invite page layouts.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         if not getattr(request.user, 'is_staff', False):
-            raise PermissionDenied("Only staff can delete invite design templates.")
+            raise PermissionDenied("Only staff can delete invite page layouts.")
         return super().destroy(request, *args, **kwargs)
 
     def perform_create(self, serializer):

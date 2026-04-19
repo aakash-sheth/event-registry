@@ -7,9 +7,9 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/toast'
-import TemplateStudioDesignCanvas from '@/components/invite/TemplateStudioDesignCanvas'
+import PageLayoutStudioCanvas from '@/components/invite/PageLayoutStudioCanvas'
 import { InviteConfig, Tile } from '@/lib/invite/schema'
-import { createInviteDesignTemplate } from '@/lib/invite/api'
+import { createInvitePageLayout } from '@/lib/invite/api'
 import { getErrorMessage, logError } from '@/lib/error-handler'
 
 const DUMMY_EVENT = {
@@ -52,7 +52,7 @@ interface MeResponse {
   is_staff?: boolean
 }
 
-export default function NewTemplatePage() {
+export default function NewPageLayoutPage() {
   const router = useRouter()
   const { showToast } = useToast()
   const [config, setConfig] = useState<InviteConfig>(DEFAULT_CONFIG)
@@ -91,13 +91,13 @@ export default function NewTemplatePage() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      showToast('Template name is required.', 'error')
+      showToast('Page layout name is required.', 'error')
       return
     }
     const toSave = buildConfigToSave(config)
     setSaving(true)
     try {
-      const created = await createInviteDesignTemplate({
+      const created = await createInvitePageLayout({
         name: name.trim(),
         description: description.trim() || undefined,
         thumbnail: thumbnail.trim() || undefined,
@@ -106,10 +106,10 @@ export default function NewTemplatePage() {
         visibility,
         status,
       })
-      showToast('Template created.', 'success')
-      router.push(`/host/templates/${created.id}/edit`)
+      showToast('Page layout created.', 'success')
+      router.push(`/host/page-layouts/${created.id}/edit`)
     } catch (e: any) {
-      logError('Create template failed', e)
+      logError('Create page layout failed', e)
       showToast(getErrorMessage(e), 'error')
     } finally {
       setSaving(false)
@@ -129,21 +129,21 @@ export default function NewTemplatePage() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-eco-green">New Template</h1>
-            <p className="text-gray-600 mt-1 text-sm">Create a new invite design template.</p>
+            <h1 className="text-2xl font-bold text-eco-green">New Page Layout</h1>
+            <p className="text-gray-600 mt-1 text-sm">Create a new invite page layout.</p>
           </div>
           <div className="flex gap-2">
-            <Link href="/host/templates">
+            <Link href="/host/page-layouts">
               <Button variant="outline">Cancel</Button>
             </Link>
             <Button onClick={handleSave} disabled={saving} className="bg-eco-green hover:bg-green-600 text-white">
-              {saving ? 'Saving…' : 'Save template'}
+              {saving ? 'Saving…' : 'Save page layout'}
             </Button>
           </div>
         </div>
 
         <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-          <h2 className="text-lg font-semibold text-eco-green mb-3">Template metadata</h2>
+          <h2 className="text-lg font-semibold text-eco-green mb-3">Page layout metadata</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Name *</label>
@@ -187,7 +187,7 @@ export default function NewTemplatePage() {
           </div>
         </div>
 
-        <TemplateStudioDesignCanvas
+        <PageLayoutStudioCanvas
           config={config}
           setConfig={setConfig}
           eventLike={DUMMY_EVENT}

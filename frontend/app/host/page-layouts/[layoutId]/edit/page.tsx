@@ -7,9 +7,9 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/toast'
-import TemplateStudioDesignCanvas from '@/components/invite/TemplateStudioDesignCanvas'
+import PageLayoutStudioCanvas from '@/components/invite/PageLayoutStudioCanvas'
 import { InviteConfig } from '@/lib/invite/schema'
-import { getInviteDesignTemplate, updateInviteDesignTemplate } from '@/lib/invite/api'
+import { getInvitePageLayout, updateInvitePageLayout } from '@/lib/invite/api'
 import { getErrorMessage, logError } from '@/lib/error-handler'
 
 const DUMMY_EVENT = {
@@ -19,6 +19,15 @@ const DUMMY_EVENT = {
   slug: 'sample',
   has_rsvp: true,
   has_registry: true,
+}
+
+/** Single dynamic segment from App Router (string | string[]) → finite integer or null. */
+function parseRouteSegmentInt(segment: string | string[] | undefined): number | null {
+  if (segment === undefined) return null
+  const raw = Array.isArray(segment) ? segment[0] : segment
+  if (raw === undefined || raw === '') return null
+  const n = Number.parseInt(raw, 10)
+  return Number.isFinite(n) ? n : null
 }
 
 function buildConfigToSave(config: InviteConfig): InviteConfig {
@@ -36,10 +45,10 @@ interface MeResponse {
 
 type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
-export default function EditTemplatePage() {
+export default function EditPageLayoutPage() {
   const params = useParams()
   const router = useRouter()
-  const templateId = params.templateId ? parseInt(params.templateId as string) : null
+  const layoutId = parseRouteSegmentInt(params.layoutId as string | string[] | undefined)
   const { showToast } = useToast()
   const [config, setConfig] = useState<InviteConfig | null>(null)
   const [name, setName] = useState('')
@@ -64,17 +73,17 @@ export default function EditTemplatePage() {
   // Keep a persistent BroadcastChannel open for the lifetime of this page so
   // postMessage() is never called on a channel that was immediately closed.
   useEffect(() => {
-    if (!templateId || isNaN(templateId)) return
-    const ch = new BroadcastChannel(`template-preview-${templateId}`)
+    if (layoutId === null) return
+    const ch = new BroadcastChannel(`pageLayout-preview-${layoutId}`)
     broadcastChannelRef.current = ch
     return () => {
       ch.close()
       broadcastChannelRef.current = null
     }
-  }, [templateId])
+  }, [layoutId])
 
   useEffect(() => {
-    if (!templateId || isNaN(templateId)) {
+    if (layoutId === null) {
       setLoading(false)
       return
     }
@@ -85,7 +94,7 @@ export default function EditTemplatePage() {
     }
     Promise.all([
       api.get<MeResponse>('/api/auth/me/'),
-      getInviteDesignTemplate(templateId),
+      getInvitePageLayout(layoutId),
     ])
       .then(([meRes, template]) => {
         if (!meRes.data?.is_staff) {
@@ -103,36 +112,36 @@ export default function EditTemplatePage() {
       })
       .catch((e: any) => {
         if (e?.response?.status === 401) router.push('/host/login')
-        else if (e?.response?.status === 403 || e?.response?.status === 404) router.push('/host/templates')
+        else if (e?.response?.status === 403 || e?.response?.status === 404) router.push('/host/page-layouts')
         else {
-          logError('Load template failed', e)
+          logError('Load page layout failed', e)
           showToast(getErrorMessage(e), 'error')
         }
       })
       .finally(() => setLoading(false))
-  }, [templateId, router])
+  }, [layoutId, router])
 
   // Broadcast config changes to the full-screen preview tab (debounced 500ms).
   // Uses the persistent channel so the message is never dropped by a premature close().
   useEffect(() => {
-    if (!templateId || !config) return
+    if (layoutId === null || !config) return
     const timer = setTimeout(() => {
-      broadcastChannelRef.current?.postMessage({ type: 'TEMPLATE_CONFIG_UPDATE', config })
+      broadcastChannelRef.current?.postMessage({ type: 'PAGE_LAYOUT_CONFIG_UPDATE', config })
     }, 500)
     return () => clearTimeout(timer)
-  }, [config, templateId])
+  }, [config, layoutId])
 
   // Autosave: fires 2s after the last user-initiated change.
   // Skipped on initial load (hasUserEditedRef stays false until user edits).
   // isSavingRef prevents concurrent execution with the manual Save button.
   useEffect(() => {
-    if (!hasUserEditedRef.current || !templateId || !config || !name.trim()) return
+    if (!hasUserEditedRef.current || layoutId === null || !config || !name.trim()) return
     const timer = setTimeout(async () => {
       if (isSavingRef.current) return
       isSavingRef.current = true
       setAutoSaveStatus('saving')
       try {
-        await updateInviteDesignTemplate(templateId, {
+        await updateInvitePageLayout(layoutId, {
           name: name.trim(),
           description: description.trim() || undefined,
           thumbnail: thumbnail.trim() || undefined,
@@ -150,7 +159,7 @@ export default function EditTemplatePage() {
       }
     }, 2000)
     return () => clearTimeout(timer)
-  }, [config, name, description, thumbnail, previewAlt, visibility, status, templateId])
+  }, [config, name, description, thumbnail, previewAlt, visibility, status, layoutId])
 
   // Auto-dismiss the "Saved ✓" indicator after 3s
   useEffect(() => {
@@ -159,7 +168,7 @@ export default function EditTemplatePage() {
     return () => clearTimeout(timer)
   }, [autoSaveStatus])
 
-  // Wrapper passed to TemplateStudioDesignCanvas so tile edits mark the page dirty.
+  // Wrapper passed to PageLayoutStudioCanvas so tile edits mark the page dirty.
   const handleConfigChange = useCallback((action: React.SetStateAction<InviteConfig>) => {
     hasUserEditedRef.current = true
     setConfig((prev) => {
@@ -168,18 +177,18 @@ export default function EditTemplatePage() {
     })
   }, [])
 
-  // Shared save logic used by both the manual Save button and the "← Templates" nav guard.
+  // Shared save logic used by both the manual Save button and the "← Page Layouts" nav guard.
   const performSave = async () => {
-    if (!templateId || !config || isSavingRef.current) return
+    if (layoutId === null || !config || isSavingRef.current) return
     if (!name.trim()) {
-      showToast('Template name is required.', 'error')
+      showToast('Page layout name is required.', 'error')
       return
     }
     isSavingRef.current = true
     setSaving(true)
     setAutoSaveStatus('saving')
     try {
-      await updateInviteDesignTemplate(templateId, {
+      await updateInvitePageLayout(layoutId, {
         name: name.trim(),
         description: description.trim() || undefined,
         thumbnail: thumbnail.trim() || undefined,
@@ -191,7 +200,7 @@ export default function EditTemplatePage() {
       setAutoSaveStatus('saved')
       hasUserEditedRef.current = false
     } catch (e: any) {
-      logError('Update template failed', e)
+      logError('Update page layout failed', e)
       showToast(getErrorMessage(e), 'error')
       setAutoSaveStatus('error')
     } finally {
@@ -206,7 +215,7 @@ export default function EditTemplatePage() {
   // Navigation guard: flush any pending changes before leaving.
   const handleNavigateBack = async () => {
     if (hasUserEditedRef.current) await performSave()
-    router.push('/host/templates')
+    router.push('/host/page-layouts')
   }
 
   if (loading || isStaff === null) {
@@ -217,12 +226,12 @@ export default function EditTemplatePage() {
     )
   }
 
-  if (!templateId || isNaN(templateId) || config === null) {
+  if (layoutId === null || config === null) {
     return (
       <div className="min-h-screen bg-eco-beige flex flex-col items-center justify-center gap-2">
-        <p className="text-gray-600">Template not found.</p>
-        <Link href="/host/templates">
-          <Button variant="outline">Back to templates</Button>
+        <p className="text-gray-600">Page layout not found.</p>
+        <Link href="/host/page-layouts">
+          <Button variant="outline">Back to page layouts</Button>
         </Link>
       </div>
     )
@@ -233,8 +242,8 @@ export default function EditTemplatePage() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-eco-green">Edit Template</h1>
-            <p className="text-gray-600 mt-1 text-sm">Update template metadata and design.</p>
+            <h1 className="text-2xl font-bold text-eco-green">Edit Page Layout</h1>
+            <p className="text-gray-600 mt-1 text-sm">Update page layout metadata and design.</p>
           </div>
           <div className="flex items-center gap-3">
             {/* Autosave status indicator */}
@@ -252,20 +261,20 @@ export default function EditTemplatePage() {
             </span>
 
             <Button variant="outline" onClick={handleNavigateBack}>
-              ← Templates
+              ← Page Layouts
             </Button>
             <Button
               variant="outline"
               onClick={() => {
-                const url = `/host/templates/${templateId}/preview`
+                const url = `/host/page-layouts/${layoutId}/preview`
                 if (config) {
-                  localStorage.setItem(`template-preview-config-${templateId}`, JSON.stringify(config))
+                  localStorage.setItem(`pageLayout-preview-config-${layoutId}`, JSON.stringify(config))
                 }
                 if (previewWindowRef.current && !previewWindowRef.current.closed) {
                   previewWindowRef.current.focus()
-                  broadcastChannelRef.current?.postMessage({ type: 'TEMPLATE_CONFIG_UPDATE', config })
+                  broadcastChannelRef.current?.postMessage({ type: 'PAGE_LAYOUT_CONFIG_UPDATE', config })
                 } else {
-                  const win = window.open(url, `template-preview-${templateId}`)
+                  const win = window.open(url, `pageLayout-preview-${layoutId}`)
                   if (!win) {
                     showToast('Popup blocked — please allow popups for this site to use preview.', 'error')
                   } else {
@@ -273,7 +282,7 @@ export default function EditTemplatePage() {
                   }
                 }
               }}
-              disabled={!templateId}
+              disabled={layoutId === null}
             >
               Preview
             </Button>
@@ -295,7 +304,7 @@ export default function EditTemplatePage() {
         </div>
 
         <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-          <h2 className="text-lg font-semibold text-eco-green mb-3">Template metadata</h2>
+          <h2 className="text-lg font-semibold text-eco-green mb-3">Page layout metadata</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Name *</label>
@@ -344,7 +353,7 @@ export default function EditTemplatePage() {
           </div>
         </div>
 
-        <TemplateStudioDesignCanvas
+        <PageLayoutStudioCanvas
           config={config!}
           setConfig={handleConfigChange as React.Dispatch<React.SetStateAction<InviteConfig>>}
           eventLike={DUMMY_EVENT}
