@@ -12,7 +12,7 @@ from .views import (
     get_event_impact, get_overall_impact,
     invite_page_by_event, attribution_redirect,
     RecordRegistryView,
-    MessageCampaignViewSet, whatsapp_webhook, whatsapp_status,
+    MessageCampaignViewSet, whatsapp_webhook, whatsapp_status, whatsapp_test_send,
     booking_schedule_detail, booking_slots_collection, booking_slot_detail,
     booking_slots_reorder, public_booking_calendar, public_booking_slots_by_date,
     create_slot_booking, host_slot_bookings, host_update_slot_booking,
@@ -116,5 +116,6 @@ urlpatterns = [
     # WhatsApp global endpoints
     path('whatsapp/webhook/', whatsapp_webhook, name='whatsapp-webhook'),
     path('whatsapp/status/', whatsapp_status, name='whatsapp-status'),
+    path('whatsapp/test-send/', whatsapp_test_send, name='whatsapp-test-send'),
     path('', include(router.urls)),
 ]

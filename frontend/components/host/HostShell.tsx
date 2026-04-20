@@ -243,7 +243,7 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
                     href="/host/page-layouts"
                     className={cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                      isActivePath(pathname, '/host/page-layouts') && !pathname.startsWith('/host/page-layouts/greeting-cards')
+                      isActivePath(pathname, '/host/page-layouts') && !pathname.startsWith('/host/templates/greeting-cards')
                         ? 'bg-eco-green text-white'
                         : 'text-gray-700 hover:bg-eco-green-light',
                       isDesktopNavCollapsed && 'md:justify-center md:px-0'
@@ -269,10 +269,10 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
               {isStaff && (() => {
                 const link = (
                   <Link
-                    href="/host/page-layouts/greeting-cards"
+                    href="/host/templates/greeting-cards"
                     className={cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                      pathname.startsWith('/host/page-layouts/greeting-cards')
+                      pathname.startsWith('/host/templates/greeting-cards')
                         ? 'bg-eco-green text-white'
                         : 'text-gray-700 hover:bg-eco-green-light',
                       isDesktopNavCollapsed && 'md:justify-center md:px-0'

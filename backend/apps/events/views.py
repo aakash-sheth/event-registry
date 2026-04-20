@@ -4945,4 +4945,56 @@ def whatsapp_status(request):
     })
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def whatsapp_test_send(request):
+    """
+    Send a single test WhatsApp message to verify credentials.
+    Staff only — not intended for end-hosts.
+
+    Body:
+        to_phone (str): Recipient phone in +CCXXXXXXXXXX format.
+        message_body (str): Message text (max 1024 chars).
+        message_mode (str): 'freeform' or 'approved_template' (default: 'freeform').
+        meta_template_name (str): Required when mode is 'approved_template'.
+        meta_template_language (str): Default 'en'.
+    """
+    if not request.user.is_staff:
+        return Response({'error': 'Staff access required.'}, status=403)
+
+    to_phone = (request.data.get('to_phone') or '').strip()
+    message_body = (request.data.get('message_body') or '').strip()
+    message_mode = request.data.get('message_mode', 'freeform')
+    meta_template_name = (request.data.get('meta_template_name') or '').strip()
+    meta_template_language = request.data.get('meta_template_language', 'en')
+
+    import re
+    if not re.match(r'^\+\d{9,15}$', to_phone):
+        return Response(
+            {'error': 'Invalid phone number. Use +CCXXXXXXXXXX format (e.g. +919876543210).'},
+            status=400,
+        )
+    if not message_body:
+        return Response({'error': 'message_body is required.'}, status=400)
+    if len(message_body) > 1024:
+        return Response({'error': 'message_body must be 1024 characters or fewer.'}, status=400)
+    if message_mode == 'approved_template' and not meta_template_name:
+        return Response(
+            {'error': 'meta_template_name is required for approved_template mode.'},
+            status=400,
+        )
+
+    from apps.common.whatsapp_backend import send_whatsapp_message
+    result = send_whatsapp_message(
+        to_phone,
+        message_body,
+        message_mode=message_mode,
+        meta_template_name=meta_template_name,
+        meta_template_language=meta_template_language,
+    )
+
+    status_code = 200 if result['success'] else 502
+    return Response(result, status=status_code)
+
+
 
