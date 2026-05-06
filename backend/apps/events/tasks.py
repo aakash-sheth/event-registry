@@ -23,16 +23,14 @@ logger = logging.getLogger(__name__)
 @background(schedule=0)
 def dispatch_campaign(campaign_id: int):
     """
-    Background task: resolve recipients and dispatch WhatsApp messages.
+    Background task: resolve recipients and dispatch messages.
 
-    Called by the campaign launch API endpoint. Idempotent — if re-queued
-    on a partially-sent campaign it only sends to PENDING recipients.
+    Branches on campaign.channel — 'whatsapp' or 'email'.
+    Idempotent: if re-queued on a partially-sent campaign it only retries PENDING rows.
 
-    State machine:
-        pending -> sending -> completed (or failed if 0 sent)
+    State machine: pending -> sending -> completed (or failed if 0 sent)
     """
-    from apps.events.models import MessageCampaign, CampaignRecipient, Guest
-    from apps.common.whatsapp_backend import send_whatsapp_message, replace_template_variables
+    from apps.events.models import MessageCampaign
 
     try:
         campaign = MessageCampaign.objects.select_related(
@@ -51,52 +49,57 @@ def dispatch_campaign(campaign_id: int):
     campaign.started_at = timezone.now()
     campaign.save(update_fields=['status', 'started_at', 'updated_at'])
 
+    if campaign.channel == MessageCampaign.CHANNEL_EMAIL:
+        _run_email_campaign(campaign)
+    else:
+        _run_whatsapp_campaign(campaign)
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp dispatch
+# ---------------------------------------------------------------------------
+
+def _run_whatsapp_campaign(campaign):
+    from apps.events.models import CampaignRecipient, Guest
+    from apps.common.whatsapp_backend import send_whatsapp_message, replace_template_variables
+
     event = campaign.event
 
-    # Build recipient rows on first run
     if campaign.total_recipients == 0:
+        all_qs = _build_guest_queryset(campaign, channel='whatsapp', require_contact=False)
+        campaign.qualified_count = all_qs.count()
         guest_qs = _build_guest_queryset(campaign)
-        recipients_to_create = []
+        to_create = []
         for guest in guest_qs:
-            if not guest.phone:
+            phone = (guest.phone or '').strip()
+            if not phone:
                 continue
-            phone = guest.phone.strip()
             if not _PHONE_RE.match(phone):
-                recipients_to_create.append(CampaignRecipient(
-                    campaign=campaign,
-                    guest=guest,
-                    phone=phone,
+                to_create.append(CampaignRecipient(
+                    campaign=campaign, guest=guest, phone=phone,
                     status=CampaignRecipient.STATUS_SKIPPED,
-                    error_message='Invalid phone format — must start with + and country code (e.g. +919876543210)',
+                    error_message='Invalid phone — must start with + and country code',
                 ))
                 continue
-            recipients_to_create.append(CampaignRecipient(
-                campaign=campaign,
-                guest=guest,
-                phone=phone,
+            to_create.append(CampaignRecipient(
+                campaign=campaign, guest=guest, phone=phone,
                 status=CampaignRecipient.STATUS_PENDING,
             ))
-        if recipients_to_create:
-            CampaignRecipient.objects.bulk_create(
-                recipients_to_create, ignore_conflicts=True
-            )
-        campaign.total_recipients = len(recipients_to_create)
-        campaign.save(update_fields=['total_recipients', 'updated_at'])
+        if to_create:
+            CampaignRecipient.objects.bulk_create(to_create, ignore_conflicts=True)
+        campaign.total_recipients = len(to_create)
+        campaign.save(update_fields=['qualified_count', 'total_recipients', 'updated_at'])
 
-    # Send pending recipients
     delay = getattr(settings, 'WHATSAPP_SEND_DELAY_SECONDS', 0.2)
-    pending_recipients = CampaignRecipient.objects.filter(
+    pending = CampaignRecipient.objects.filter(
         campaign=campaign, status=CampaignRecipient.STATUS_PENDING
     ).select_related('guest')
 
-    sent = 0
-    failed = 0
+    sent = failed = 0
 
-    for recipient in pending_recipients:
+    for recipient in pending:
         resolved = replace_template_variables(
-            campaign.message_body,
-            guest=recipient.guest,
-            event=event,
+            campaign.message_body, guest=recipient.guest, event=event,
         )
         recipient.resolved_message = resolved
 
@@ -114,11 +117,9 @@ def dispatch_campaign(campaign_id: int):
             recipient.whatsapp_message_id = result['whatsapp_message_id'] or ''
             recipient.sent_at = timezone.now()
             sent += 1
-            # Update Guest.invitation_sent for invitation-type campaigns
             if campaign.template and campaign.template.message_type == 'invitation':
                 Guest.objects.filter(pk=recipient.guest_id).update(
-                    invitation_sent=True,
-                    invitation_sent_at=timezone.now(),
+                    invitation_sent=True, invitation_sent_at=timezone.now(),
                 )
         else:
             recipient.status = CampaignRecipient.STATUS_FAILED
@@ -127,12 +128,106 @@ def dispatch_campaign(campaign_id: int):
 
         recipient.save(update_fields=[
             'resolved_message', 'status', 'whatsapp_message_id',
-            'sent_at', 'error_message', 'updated_at'
+            'sent_at', 'error_message', 'updated_at',
         ])
-
         time.sleep(delay)
 
-    # Final campaign status
+    _finalise_campaign(campaign)
+    logger.info('[WhatsApp Campaign] %d done — sent=%d failed=%d', campaign.id, sent, failed)
+
+
+# ---------------------------------------------------------------------------
+# Email dispatch
+# ---------------------------------------------------------------------------
+
+def _run_email_campaign(campaign):
+    from apps.events.models import CampaignRecipient, Guest
+    from apps.common.whatsapp_backend import replace_template_variables
+    from apps.common.email_backend import send_campaign_email, get_flyer_image_url
+
+    event = campaign.event
+    is_rich_text = campaign.template.is_rich_text if campaign.template else False
+    subject = campaign.subject or (campaign.template.subject if campaign.template else '') or campaign.name
+    from_name = getattr(event.host, 'name', '') or ''
+
+    # Resolve [flyer_image_url] once per campaign
+    flyer_url = get_flyer_image_url(event)
+    extra_vars = {'[flyer_image_url]': flyer_url}
+
+    if campaign.total_recipients == 0:
+        all_qs = _build_guest_queryset(campaign, channel='email', require_contact=False)
+        campaign.qualified_count = all_qs.count()
+        guest_qs = _build_guest_queryset(campaign, channel='email')
+        to_create = []
+        for guest in guest_qs:
+            email = (guest.email or '').strip()
+            if not email:
+                continue
+            to_create.append(CampaignRecipient(
+                campaign=campaign,
+                guest=guest,
+                email=email,
+                phone=(guest.phone or '').strip(),
+                status=CampaignRecipient.STATUS_PENDING,
+            ))
+        if to_create:
+            CampaignRecipient.objects.bulk_create(to_create, ignore_conflicts=True)
+        campaign.total_recipients = len(to_create)
+        campaign.save(update_fields=['qualified_count', 'total_recipients', 'updated_at'])
+
+    delay = getattr(settings, 'EMAIL_SEND_DELAY_SECONDS', 0.05)
+    pending = CampaignRecipient.objects.filter(
+        campaign=campaign, status=CampaignRecipient.STATUS_PENDING
+    ).select_related('guest')
+
+    sent = failed = 0
+
+    for recipient in pending:
+        resolved = replace_template_variables(
+            campaign.message_body, guest=recipient.guest, event=event, extra=extra_vars,
+        )
+        recipient.resolved_message = resolved
+
+        result = send_campaign_email(
+            to_email=recipient.email,
+            subject=subject,
+            body=resolved,
+            is_rich_text=is_rich_text,
+            recipient_id=recipient.pk,
+            from_name=from_name,
+        )
+
+        if result['success']:
+            recipient.status = CampaignRecipient.STATUS_SENT
+            recipient.email_message_id = result['email_message_id'] or ''
+            recipient.sent_at = timezone.now()
+            sent += 1
+            if campaign.template and campaign.template.message_type == 'invitation':
+                Guest.objects.filter(pk=recipient.guest_id).update(
+                    invitation_sent=True, invitation_sent_at=timezone.now(),
+                )
+        else:
+            recipient.status = CampaignRecipient.STATUS_FAILED
+            recipient.error_message = result['error'] or ''
+            failed += 1
+
+        recipient.save(update_fields=[
+            'resolved_message', 'status', 'email_message_id',
+            'sent_at', 'error_message', 'updated_at',
+        ])
+        time.sleep(delay)
+
+    _finalise_campaign(campaign)
+    logger.info('[Email Campaign] %d done — sent=%d failed=%d', campaign.id, sent, failed)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _finalise_campaign(campaign):
+    from apps.events.models import CampaignRecipient
+
     campaign.sent_count = CampaignRecipient.objects.filter(
         campaign=campaign,
         status__in=[
@@ -146,29 +241,31 @@ def dispatch_campaign(campaign_id: int):
     ).count()
 
     if campaign.sent_count == 0 and campaign.failed_count > 0:
-        campaign.status = MessageCampaign.STATUS_FAILED
+        campaign.status = campaign.STATUS_FAILED
     else:
-        campaign.status = MessageCampaign.STATUS_COMPLETED
+        campaign.status = campaign.STATUS_COMPLETED
 
     campaign.completed_at = timezone.now()
     campaign.save(update_fields=[
-        'status', 'sent_count', 'failed_count', 'completed_at', 'updated_at'
+        'status', 'sent_count', 'failed_count', 'completed_at', 'updated_at',
     ])
-    logger.info(
-        '[Campaign] %d completed — sent=%d failed=%d', campaign_id, sent, failed
-    )
 
 
-def _build_guest_queryset(campaign):
+def _build_guest_queryset(campaign, channel: str = 'whatsapp', require_contact: bool = True):
     """
     Translate campaign.guest_filter into a Guest queryset.
-    Base: is_removed=False, phone not empty.
+
+    require_contact=True  (default): excludes guests missing the channel contact field.
+    require_contact=False: applies only the filter logic, no contact field exclusion.
     """
     from apps.events.models import Guest, RSVP, MessageCampaign, SlotBooking
 
-    base = Guest.objects.filter(
-        event=campaign.event, is_removed=False
-    ).exclude(phone='')
+    base = Guest.objects.filter(event=campaign.event, is_removed=False)
+    if require_contact:
+        if channel == 'email':
+            base = base.exclude(email__isnull=True).exclude(email='')
+        else:
+            base = base.exclude(phone='')
 
     f = campaign.guest_filter
 
@@ -179,25 +276,25 @@ def _build_guest_queryset(campaign):
         return base.filter(invitation_sent=False)
 
     if f == MessageCampaign.FILTER_RSVP_YES:
-        rsvp_guest_ids = RSVP.objects.filter(
+        ids = RSVP.objects.filter(
             event=campaign.event, will_attend='yes',
             is_removed=False, guest__isnull=False,
         ).values_list('guest_id', flat=True)
-        return base.filter(pk__in=rsvp_guest_ids)
+        return base.filter(pk__in=ids)
 
     if f == MessageCampaign.FILTER_RSVP_NO:
-        rsvp_guest_ids = RSVP.objects.filter(
+        ids = RSVP.objects.filter(
             event=campaign.event, will_attend='no',
             is_removed=False, guest__isnull=False,
         ).values_list('guest_id', flat=True)
-        return base.filter(pk__in=rsvp_guest_ids)
+        return base.filter(pk__in=ids)
 
     if f == MessageCampaign.FILTER_RSVP_MAYBE:
-        rsvp_guest_ids = RSVP.objects.filter(
+        ids = RSVP.objects.filter(
             event=campaign.event, will_attend='maybe',
             is_removed=False, guest__isnull=False,
         ).values_list('guest_id', flat=True)
-        return base.filter(pk__in=rsvp_guest_ids)
+        return base.filter(pk__in=ids)
 
     if f == MessageCampaign.FILTER_RSVP_PENDING:
         guests_with_rsvp = RSVP.objects.filter(
@@ -214,33 +311,33 @@ def _build_guest_queryset(campaign):
     if f == MessageCampaign.FILTER_BOOKING_SLOT:
         if not campaign.filter_slot_id:
             return base.none()
-        guest_ids = SlotBooking.objects.filter(
+        ids = SlotBooking.objects.filter(
             event=campaign.event,
             slot_id=campaign.filter_slot_id,
             status=SlotBooking.STATUS_CONFIRMED,
             guest__isnull=False,
         ).values_list('guest_id', flat=True)
-        return base.filter(pk__in=guest_ids)
+        return base.filter(pk__in=ids)
 
     if f == MessageCampaign.FILTER_BOOKING_DATE:
         if not campaign.filter_slot_date:
             return base.none()
-        guest_ids = SlotBooking.objects.filter(
+        ids = SlotBooking.objects.filter(
             event=campaign.event,
             slot__slot_date=campaign.filter_slot_date,
             status=SlotBooking.STATUS_CONFIRMED,
             guest__isnull=False,
         ).values_list('guest_id', flat=True)
-        return base.filter(pk__in=guest_ids)
+        return base.filter(pk__in=ids)
 
     if f == MessageCampaign.FILTER_BOOKING_STATUS:
         if not campaign.filter_booking_status:
             return base.none()
-        guest_ids = SlotBooking.objects.filter(
+        ids = SlotBooking.objects.filter(
             event=campaign.event,
             status=campaign.filter_booking_status,
             guest__isnull=False,
         ).values_list('guest_id', flat=True)
-        return base.filter(pk__in=guest_ids)
+        return base.filter(pk__in=ids)
 
     return base  # fallback

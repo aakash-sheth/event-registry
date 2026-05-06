@@ -12,7 +12,9 @@ from .views import (
     get_event_impact, get_overall_impact,
     invite_page_by_event, attribution_redirect,
     RecordRegistryView,
-    MessageCampaignViewSet, whatsapp_webhook, whatsapp_status, whatsapp_test_send,
+    MessageCampaignViewSet, whatsapp_webhook, whatsapp_status, whatsapp_test_send, join_waitlist,
+    MetaApprovedTemplateViewSet, GuestSegmentViewSet, HostSendQuotaViewSet,
+    ses_webhook, email_click_redirect,
     booking_schedule_detail, booking_slots_collection, booking_slot_detail,
     booking_slots_reorder, public_booking_calendar, public_booking_slots_by_date,
     create_slot_booking, host_slot_bookings, host_update_slot_booking,
@@ -29,6 +31,13 @@ urlpatterns = [
     # Invite page layouts (Page Layout Studio) - list/create and retrieve/update/delete
     path('invite-page-layouts/', InvitePageLayoutViewSet.as_view({'get': 'list', 'post': 'create'}), name='invite-page-layouts-list'),
     path('invite-page-layouts/<int:id>/', InvitePageLayoutViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='invite-page-layout-detail'),
+    # Meta-approved WhatsApp templates (staff-managed)
+    path('meta-approved-templates/', MetaApprovedTemplateViewSet.as_view({'get': 'list', 'post': 'create'}), name='meta-approved-templates-list'),
+    path('meta-approved-templates/<int:pk>/', MetaApprovedTemplateViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='meta-approved-template-detail'),
+    # Host send quotas (staff CRUD + host my-quota)
+    path('send-quotas/', HostSendQuotaViewSet.as_view({'get': 'list', 'post': 'create'}), name='send-quotas-list'),
+    path('send-quotas/my-quota/', HostSendQuotaViewSet.as_view({'get': 'my_quota'}), name='send-quota-my'),
+    path('send-quotas/<int:pk>/', HostSendQuotaViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='send-quota-detail'),
     # Greeting card samples (staff-curated card backgrounds)
     path('greeting-card-samples/upload-image/', upload_greeting_card_image, name='greeting-card-upload-image'),
     path('greeting-card-samples/', GreetingCardSampleViewSet.as_view({'get': 'list', 'post': 'create'}), name='greeting-card-samples-list'),
@@ -113,9 +122,18 @@ urlpatterns = [
     path('<int:event_id>/campaigns/<int:id>/preview-recipients/',
          MessageCampaignViewSet.as_view({'get': 'preview_recipients'}),
          name='event-campaign-preview-recipients'),
+    # Guest Segment endpoints
+    path('<int:event_id>/guest-segments/', GuestSegmentViewSet.as_view({'get': 'list', 'post': 'create'}), name='event-guest-segments'),
+    path('<int:event_id>/guest-segments/<int:pk>/resolve/', GuestSegmentViewSet.as_view({'post': 'resolve'}), name='event-guest-segment-resolve'),
+    path('<int:event_id>/guest-segments/<int:pk>/', GuestSegmentViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='event-guest-segment-detail'),
     # WhatsApp global endpoints
     path('whatsapp/webhook/', whatsapp_webhook, name='whatsapp-webhook'),
+    path('waitlist/', join_waitlist, name='join-waitlist'),
     path('whatsapp/status/', whatsapp_status, name='whatsapp-status'),
     path('whatsapp/test-send/', whatsapp_test_send, name='whatsapp-test-send'),
+    # SES delivery webhook (token in URL keeps it private)
+    path('email/webhook/<str:token>/', ses_webhook, name='ses-webhook'),
+    # Email click-tracking redirect
+    path('r/', email_click_redirect, name='email-click-redirect'),
     path('', include(router.urls)),
 ]

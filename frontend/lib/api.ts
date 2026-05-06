@@ -638,6 +638,7 @@ export async function createAttributionLink(eventId: number, payload: CreateAttr
 
 // --- Campaign Types ---
 export type CampaignStatus = 'pending' | 'sending' | 'completed' | 'failed' | 'cancelled'
+export type CampaignChannel = 'whatsapp' | 'email'
 export type CampaignGuestFilter =
   | 'all' | 'not_sent' | 'rsvp_yes' | 'rsvp_no' | 'rsvp_maybe'
   | 'rsvp_pending' | 'relationship' | 'custom_selection'
@@ -648,9 +649,11 @@ export interface MessageCampaign {
   id: number
   event: number
   name: string
+  channel: CampaignChannel
   template: number | null
   message_mode: CampaignMessageMode
   message_body: string
+  subject: string
   meta_template_name: string
   meta_template_language: string
   guest_filter: CampaignGuestFilter
@@ -658,6 +661,7 @@ export interface MessageCampaign {
   custom_guest_ids: number[]
   scheduled_at: string | null
   status: CampaignStatus
+  qualified_count: number
   total_recipients: number
   sent_count: number
   delivered_count: number
@@ -679,9 +683,11 @@ export interface CampaignRecipient {
   guest: number | null
   guest_name: string | null
   phone: string
+  email: string
   resolved_message: string
   status: RecipientStatus
   whatsapp_message_id: string
+  email_message_id: string
   error_message: string
   sent_at: string | null
   delivered_at: string | null
@@ -696,8 +702,9 @@ export interface WhatsAppStatusResponse {
 }
 
 // --- Campaign API ---
-export async function getCampaigns(eventId: number): Promise<MessageCampaign[]> {
-  const r = await api.get(`/api/events/${eventId}/campaigns/`)
+export async function getCampaigns(eventId: number, statuses?: string[]): Promise<MessageCampaign[]> {
+  const params = statuses?.length ? { status: statuses.join(',') } : {}
+  const r = await api.get(`/api/events/${eventId}/campaigns/`, { params })
   return r.data.results ?? r.data ?? []
 }
 
@@ -735,13 +742,105 @@ export async function getCampaignReport(
   return { results: r.data.results ?? r.data ?? [], count: r.data.count ?? 0 }
 }
 
+export interface CampaignRecipientPreview {
+  eligible_count: number
+  total_filter_count: number
+  missing_contact_count: number
+  contact_field: 'email' | 'phone'
+  guests: { id: number; name: string; contact: string }[]
+}
+
 export async function previewCampaignRecipients(
   eventId: number,
   campaignId: number
-): Promise<{ count: number; guests: any[] }> {
+): Promise<CampaignRecipientPreview> {
   return (await api.get(`/api/events/${eventId}/campaigns/${campaignId}/preview-recipients/`)).data
 }
 
 export async function getWhatsAppStatus(): Promise<WhatsAppStatusResponse> {
   return (await api.get('/api/events/whatsapp/status/')).data
+}
+
+export async function checkWaitlist(featureSlug: string): Promise<boolean> {
+  const r = await api.get(`/api/events/waitlist/?feature_slug=${featureSlug}`)
+  return r.data.joined
+}
+
+export async function joinWaitlist(featureSlug: string, eventId?: number): Promise<void> {
+  await api.post('/api/events/waitlist/', { feature_slug: featureSlug, event_id: eventId ?? null })
+}
+
+// --- Meta Approved Templates ---
+
+export interface MetaApprovedTemplate {
+  id: number
+  display_name: string
+  description: string
+  preview_text: string
+  meta_template_name: string
+  meta_template_language: string
+  message_type: string
+  is_active: boolean
+  created_by_name: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function getMetaApprovedTemplates(): Promise<MetaApprovedTemplate[]> {
+  return (await api.get('/api/events/meta-approved-templates/')).data
+}
+
+export async function createMetaApprovedTemplate(data: Partial<MetaApprovedTemplate>): Promise<MetaApprovedTemplate> {
+  return (await api.post('/api/events/meta-approved-templates/', data)).data
+}
+
+export async function updateMetaApprovedTemplate(id: number, data: Partial<MetaApprovedTemplate>): Promise<MetaApprovedTemplate> {
+  return (await api.patch(`/api/events/meta-approved-templates/${id}/`, data)).data
+}
+
+export async function deleteMetaApprovedTemplate(id: number): Promise<void> {
+  await api.delete(`/api/events/meta-approved-templates/${id}/`)
+}
+
+// --- Guest Segments ---
+
+export interface GuestSegment {
+  id: number
+  name: string
+  segment_type: 'fixed' | 'dynamic'
+  filter_config: Record<string, any>
+  guest_ids: number[]
+  guest_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface GuestSegmentInput {
+  name: string
+  segment_type: 'fixed' | 'dynamic'
+  filter_config: Record<string, any>
+}
+
+export async function getGuestSegments(eventId: number): Promise<GuestSegment[]> {
+  const res = await api.get(`/api/events/${eventId}/guest-segments/`)
+  return res.data.results ?? res.data ?? []
+}
+
+export async function createGuestSegment(eventId: number, data: GuestSegmentInput): Promise<GuestSegment> {
+  const res = await api.post(`/api/events/${eventId}/guest-segments/`, data)
+  return res.data
+}
+
+export async function updateGuestSegment(eventId: number, id: number, data: Partial<GuestSegmentInput>): Promise<GuestSegment> {
+  const res = await api.patch(`/api/events/${eventId}/guest-segments/${id}/`, data)
+  return res.data
+}
+
+export async function deleteGuestSegment(eventId: number, id: number): Promise<void> {
+  await api.delete(`/api/events/${eventId}/guest-segments/${id}/`)
+}
+
+export async function resolveGuestSegment(eventId: number, id: number): Promise<{ guest_ids: number[]; count: number }> {
+  const res = await api.post(`/api/events/${eventId}/guest-segments/${id}/resolve/`)
+  return res.data
 }

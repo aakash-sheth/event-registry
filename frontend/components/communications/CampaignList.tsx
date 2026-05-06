@@ -11,18 +11,40 @@ import {
   duplicateCampaign,
   getWhatsAppStatus,
   MessageCampaign,
+  CampaignChannel,
   CampaignStatus,
 } from '@/lib/api'
 import { useToast } from '@/components/ui/toast'
 
+const OUTBOX_STATUSES: CampaignStatus[] = ['pending', 'sending']
+const REPORTS_STATUSES: CampaignStatus[] = ['completed', 'failed', 'cancelled']
+
 interface Props {
   eventId: number
+  mode: 'outbox' | 'reports'
+  channelFilter?: CampaignChannel | 'all'
   onNewCampaign: () => void
   onViewReport: (campaign: MessageCampaign) => void
   onEdit: (campaign: MessageCampaign) => void
+  refreshKey?: number
 }
 
-function StatusBadge({ status }: { status: CampaignStatus }) {
+function isScheduledFuture(campaign: MessageCampaign): boolean {
+  return (
+    campaign.status === 'sending' &&
+    !!campaign.scheduled_at &&
+    new Date(campaign.scheduled_at) > new Date()
+  )
+}
+
+function StatusBadge({ campaign }: { campaign: MessageCampaign }) {
+  if (isScheduledFuture(campaign)) {
+    return (
+      <span className="px-2 py-0.5 text-xs rounded font-semibold inline-flex items-center gap-1.5 bg-amber-100 text-amber-700">
+        Scheduled
+      </span>
+    )
+  }
   const styles: Record<CampaignStatus, string> = {
     pending:   'bg-gray-200 text-gray-700',
     sending:   'bg-blue-100 text-blue-700',
@@ -38,12 +60,43 @@ function StatusBadge({ status }: { status: CampaignStatus }) {
     cancelled: 'Cancelled',
   }
   return (
-    <span className={`px-2 py-0.5 text-xs rounded font-semibold inline-flex items-center gap-1.5 ${styles[status]}`}>
-      {status === 'sending' && (
+    <span className={`px-2 py-0.5 text-xs rounded font-semibold inline-flex items-center gap-1.5 ${styles[campaign.status]}`}>
+      {campaign.status === 'sending' && (
         <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
       )}
-      {labels[status]}
+      {labels[campaign.status]}
     </span>
+  )
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString(undefined, {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function CampaignTimestamp({ campaign }: { campaign: MessageCampaign }) {
+  if (campaign.scheduled_at && campaign.status === 'pending') {
+    return (
+      <p className="text-xs text-amber-600 mt-0.5">
+        Scheduled for {formatDateTime(campaign.scheduled_at)}
+      </p>
+    )
+  }
+  if (campaign.started_at) {
+    return (
+      <p className="text-xs text-gray-400 mt-0.5">
+        Sent {formatDateTime(campaign.started_at)}
+        {campaign.completed_at && ` · Completed ${formatDateTime(campaign.completed_at)}`}
+      </p>
+    )
+  }
+  return (
+    <p className="text-xs text-gray-400 mt-0.5">
+      Created {formatDateTime(campaign.created_at)}
+    </p>
   )
 }
 
@@ -61,8 +114,23 @@ function filterLabel(campaign: MessageCampaign): string {
   return labels[campaign.guest_filter] ?? campaign.guest_filter
 }
 
-export default function CampaignList({ eventId, onNewCampaign, onViewReport, onEdit }: Props) {
-  const [campaigns, setCampaigns] = useState<MessageCampaign[]>([])
+function ChannelBadge({ channel }: { channel: CampaignChannel }) {
+  if (channel === 'email') {
+    return (
+      <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-blue-50 text-blue-600">
+        Email
+      </span>
+    )
+  }
+  return (
+    <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-green-50 text-green-700">
+      WhatsApp
+    </span>
+  )
+}
+
+export default function CampaignList({ eventId, mode, channelFilter = 'all', onNewCampaign, onViewReport, onEdit, refreshKey }: Props) {
+  const [allCampaigns, setAllCampaigns] = useState<MessageCampaign[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [whatsappReady, setWhatsappReady] = useState(false)
@@ -75,9 +143,9 @@ export default function CampaignList({ eventId, onNewCampaign, onViewReport, onE
   const fetchCampaigns = async () => {
     try {
       const data = await getCampaigns(eventId)
-      setCampaigns(data)
+      setAllCampaigns(data)
     } catch {
-      // silent — page-level error handling is sufficient
+      // silent
     } finally {
       setLoading(false)
     }
@@ -85,20 +153,27 @@ export default function CampaignList({ eventId, onNewCampaign, onViewReport, onE
 
   useEffect(() => {
     fetchCampaigns()
-  }, [eventId])
+  }, [eventId, refreshKey])
 
-  // Poll every 10s when any campaign is in SENDING state
+  // Poll every 10s when any campaign is sending
   useEffect(() => {
-    const hasSending = campaigns.some(c => c.status === 'sending')
+    const hasSending = allCampaigns.some(c => c.status === 'sending')
     if (!hasSending) return
     const interval = setInterval(async () => {
       try {
         const updated = await getCampaigns(eventId)
-        setCampaigns(updated)
+        setAllCampaigns(updated)
       } catch { /* silent */ }
     }, 10000)
     return () => clearInterval(interval)
-  }, [campaigns, eventId])
+  }, [allCampaigns, eventId])
+
+  // Filter based on current tab + channel
+  const statusFilter = mode === 'outbox' ? OUTBOX_STATUSES : REPORTS_STATUSES
+  const visibleCampaigns = allCampaigns.filter(c =>
+    statusFilter.includes(c.status) &&
+    (channelFilter === 'all' || c.channel === channelFilter)
+  )
 
   const handleLaunch = async (campaign: MessageCampaign) => {
     setActionLoading(campaign.id)
@@ -131,7 +206,7 @@ export default function CampaignList({ eventId, onNewCampaign, onViewReport, onE
     setActionLoading(campaign.id)
     try {
       await deleteCampaign(eventId, campaign.id)
-      setCampaigns(prev => prev.filter(c => c.id !== campaign.id))
+      setAllCampaigns(prev => prev.filter(c => c.id !== campaign.id))
       showToast('Campaign deleted.', 'info')
     } catch {
       showToast('Failed to delete campaign', 'error')
@@ -144,7 +219,7 @@ export default function CampaignList({ eventId, onNewCampaign, onViewReport, onE
     setActionLoading(campaign.id)
     try {
       const dup = await duplicateCampaign(eventId, campaign.id)
-      setCampaigns(prev => [dup, ...prev])
+      setAllCampaigns(prev => [dup, ...prev])
       showToast(`"${dup.name}" is ready to edit.`, 'success')
     } catch {
       showToast('Failed to duplicate campaign', 'error')
@@ -157,133 +232,96 @@ export default function CampaignList({ eventId, onNewCampaign, onViewReport, onE
     return <div className="text-gray-400 text-sm py-8 text-center">Loading campaigns...</div>
   }
 
-  if (campaigns.length === 0) {
+  if (visibleCampaigns.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-400 mb-4">No campaigns yet.</p>
-        <Button onClick={onNewCampaign} className="bg-eco-green hover:bg-green-600 text-white">
-          + New Campaign
-        </Button>
+        {mode === 'outbox' ? (
+          <>
+            <p className="text-gray-400 mb-4">Nothing in your outbox yet.</p>
+            <Button onClick={onNewCampaign} className="bg-eco-green hover:bg-green-600 text-white">
+              Send to guests
+            </Button>
+          </>
+        ) : (
+          <p className="text-gray-400">No completed sends yet. Launch a message from the Outbox.</p>
+        )}
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      {campaigns.map(campaign => {
+      {visibleCampaigns.map(campaign => {
         const isLoading = actionLoading === campaign.id
         return (
           <Card key={campaign.id} className="border border-gray-200">
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
-                  <p className="font-semibold text-gray-900">{campaign.name}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{filterLabel(campaign)}</p>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="font-semibold text-gray-900">{campaign.name}</p>
+                    <ChannelBadge channel={campaign.channel} />
+                  </div>
+                  <p className="text-xs text-gray-500">{filterLabel(campaign)}</p>
+                  <CampaignTimestamp campaign={campaign} />
                 </div>
-                <StatusBadge status={campaign.status} />
+                <StatusBadge campaign={campaign} />
               </div>
 
               <div className="text-xs text-gray-400 flex flex-wrap gap-3 mb-3">
-                <span>
-                  Recipients: <strong className="text-gray-600">{campaign.total_recipients}</strong>
-                </span>
-                <span>
-                  Sent: <strong className="text-gray-600">{campaign.sent_count}</strong>
-                </span>
-                <span>
-                  Delivered: <strong className="text-gray-600">{campaign.delivered_count}</strong>
-                </span>
-                <span>
-                  Read: <strong className="text-gray-600">{campaign.read_count}</strong>
-                </span>
+                <span>Recipients: <strong className="text-gray-600">{campaign.total_recipients}</strong></span>
+                <span>Sent: <strong className="text-gray-600">{campaign.sent_count}</strong></span>
+                <span>Delivered: <strong className="text-gray-600">{campaign.delivered_count}</strong></span>
+                <span>Read: <strong className="text-gray-600">{campaign.read_count}</strong></span>
                 {campaign.failed_count > 0 && (
-                  <span className="text-red-500">
-                    Failed: <strong>{campaign.failed_count}</strong>
-                  </span>
+                  <span className="text-red-500">Failed: <strong>{campaign.failed_count}</strong></span>
                 )}
               </div>
 
               <div className="flex flex-wrap gap-2">
                 {campaign.status === 'pending' && (
                   <>
-                    <button
-                      title={!whatsappReady ? 'WhatsApp sending is not available yet' : undefined}
+                    <span
+                      title={campaign.channel === 'whatsapp' && !whatsappReady ? 'WhatsApp sending is not available yet' : undefined}
                       className="inline-flex"
                     >
                       <Button
                         size="sm"
                         onClick={() => handleLaunch(campaign)}
-                        disabled={isLoading || !whatsappReady}
+                        disabled={isLoading || (campaign.channel === 'whatsapp' && !whatsappReady)}
                         className="bg-eco-green hover:bg-green-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isLoading ? 'Launching...' : 'Launch'}
                       </Button>
-                    </button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onEdit(campaign)}
-                      className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                    >
+                    </span>
+                    <Button size="sm" variant="outline" onClick={() => onEdit(campaign)} className="border-eco-green text-eco-green hover:bg-eco-green-light">
                       Edit
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDuplicate(campaign)}
-                      disabled={isLoading}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleDuplicate(campaign)} disabled={isLoading}>
                       Duplicate
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(campaign)}
-                      disabled={isLoading}
-                      className="text-red-600 hover:bg-red-50"
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleDelete(campaign)} disabled={isLoading} className="text-red-600 hover:bg-red-50">
                       Delete
                     </Button>
                   </>
                 )}
                 {campaign.status === 'sending' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleCancel(campaign)}
-                    disabled={isLoading}
-                    className="border-red-300 text-red-600 hover:bg-red-50"
-                  >
+                  <Button size="sm" variant="outline" onClick={() => handleCancel(campaign)} disabled={isLoading} className="border-red-300 text-red-600 hover:bg-red-50">
                     Cancel
                   </Button>
                 )}
                 {(campaign.status === 'completed' || campaign.status === 'failed') && (
                   <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onViewReport(campaign)}
-                      className="border-eco-green text-eco-green hover:bg-eco-green-light"
-                    >
+                    <Button size="sm" variant="outline" onClick={() => onViewReport(campaign)} className="border-eco-green text-eco-green hover:bg-eco-green-light">
                       View Report
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDuplicate(campaign)}
-                      disabled={isLoading}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleDuplicate(campaign)} disabled={isLoading}>
                       Duplicate
                     </Button>
                   </>
                 )}
                 {campaign.status === 'cancelled' && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleDuplicate(campaign)}
-                    disabled={isLoading}
-                  >
+                  <Button size="sm" variant="ghost" onClick={() => handleDuplicate(campaign)} disabled={isLoading}>
                     Duplicate
                   </Button>
                 )}

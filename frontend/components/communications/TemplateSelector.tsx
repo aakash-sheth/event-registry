@@ -140,7 +140,7 @@ export default function TemplateSelector({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <Card className="bg-white border-2 border-eco-green-light max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <CardHeader>
-          <CardTitle className="text-eco-green">Select WhatsApp Template</CardTitle>
+          <CardTitle className="text-eco-green">Choose a message</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filter */}
@@ -179,7 +179,7 @@ export default function TemplateSelector({
             <div className="text-center py-8 text-gray-500">Loading templates...</div>
           ) : filteredTemplates.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              No templates found. Create one in the Communications page.
+              No templates found. Create one in Messages → Templates.
             </div>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">

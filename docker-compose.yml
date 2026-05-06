@@ -25,6 +25,8 @@ services:
       - ./backend:/app
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/registry
       - DJANGO_SECRET_KEY=dev-secret-key-change-in-production
@@ -48,6 +50,8 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./backend:/app
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/registry
       - DJANGO_SECRET_KEY=dev-secret-key-change-in-production

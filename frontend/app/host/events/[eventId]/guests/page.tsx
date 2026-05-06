@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import api, { getGuestsAnalytics, getEventAnalyticsSummary, getAnalyticsBatchStatus, type GuestAnalytics, type EventAnalyticsSummary } from '@/lib/api'
+import api, { getGuestsAnalytics, getEventAnalyticsSummary, getAnalyticsBatchStatus, createGuestSegment, type GuestAnalytics, type EventAnalyticsSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -205,6 +205,10 @@ export default function GuestsPage() {
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set())
   const [showBulkSubEventAssignment, setShowBulkSubEventAssignment] = useState(false)
   const [bulkSelectedSubEventIds, setBulkSelectedSubEventIds] = useState<Set<number>>(new Set())
+  const [showSaveGroupModal, setShowSaveGroupModal] = useState(false)
+  const [saveGroupName, setSaveGroupName] = useState('')
+  const [saveGroupType, setSaveGroupType] = useState<'fixed' | 'dynamic'>('fixed')
+  const [savingGroup, setSavingGroup] = useState(false)
   const [showCustomFieldsManager, setShowCustomFieldsManager] = useState(false)
   const [customFieldsDraft, setCustomFieldsDraft] = useState<CustomFieldMeta[]>([])
   const [isMobileViewport, setIsMobileViewport] = useState(false)
@@ -1858,7 +1862,7 @@ export default function GuestsPage() {
           </Link>
             <Link href={`/host/events/${eventId}/communications`}>
               <Button variant="outline" size="sm" className="border-eco-green text-eco-green hover:bg-eco-green-light">
-                Communications
+                Messages
               </Button>
             </Link>
           </div>
@@ -2726,7 +2730,21 @@ export default function GuestsPage() {
                             )}
                           </div>
                         </div>
-                        <div className="mt-4 flex justify-end border-t border-gray-100 pt-3">
+                        <div className="mt-4 flex justify-between items-center border-t border-gray-100 pt-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSaveGroupType('dynamic')
+                              setSaveGroupName('')
+                              setShowSaveGroupModal(true)
+                              setShowFiltersPanel(false)
+                            }}
+                            className="text-xs border-gray-300 text-gray-600"
+                          >
+                            Save Filter as Group
+                          </Button>
                           <Button type="button" size="sm" onClick={() => setShowFiltersPanel(false)}>
                             Done
                           </Button>
@@ -2998,19 +3016,29 @@ export default function GuestsPage() {
             ) : (
               <>
                 {/* Keep bulk bar outside horizontal scroll so the scrollbar sits under the table only */}
-                {selectedGuestIds.size > 0 && event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
+                {selectedGuestIds.size > 0 && (
                   <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <span className="text-sm font-medium text-blue-900">
                         {selectedGuestIds.size} guest(s) selected
                       </span>
+                      {event?.event_structure === 'ENVELOPE' && subEvents.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowBulkSubEventAssignment(true)}
+                          className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                        >
+                          Assign/Deassign Sub-Events
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setShowBulkSubEventAssignment(true)}
+                        onClick={() => { setSaveGroupType('fixed'); setSaveGroupName(''); setShowSaveGroupModal(true) }}
                         className="border-blue-300 text-blue-700 hover:bg-blue-100"
                       >
-                        Assign/Deassign Sub-Events
+                        Save as Group
                       </Button>
                     </div>
                     <Button
@@ -3935,6 +3963,80 @@ export default function GuestsPage() {
                 </div>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {/* Save as Group Modal */}
+        {showSaveGroupModal && (
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4"
+            onClick={e => { if (e.target === e.currentTarget) setShowSaveGroupModal(false) }}
+          >
+            <div className="bg-white rounded-xl border-2 border-eco-green-light w-full max-w-sm p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-eco-green">Save as Group</h2>
+              <p className="text-sm text-gray-500">
+                {saveGroupType === 'fixed'
+                  ? `${selectedGuestIds.size} selected guest(s) will be saved as a fixed group.`
+                  : 'Current filters will be saved. Guest list updates automatically when filters are re-run.'}
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Group name *</label>
+                <input
+                  type="text"
+                  value={saveGroupName}
+                  onChange={e => setSaveGroupName(e.target.value)}
+                  placeholder="e.g. Mehendi guests, Mumbai family"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-eco-green"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button
+                  onClick={() => setShowSaveGroupModal(false)}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={!saveGroupName.trim() || savingGroup}
+                  onClick={async () => {
+                    if (!saveGroupName.trim() || !eventId) return
+                    setSavingGroup(true)
+                    try {
+                      const filter_config = saveGroupType === 'fixed'
+                        ? { guest_ids: Array.from(selectedGuestIds) }
+                        : {
+                            rsvp_filter: rsvpFilter,
+                            rsvp_filter_mode: rsvpFilterMode,
+                            guest_tab: guestTab,
+                            category_source: categorySource,
+                            category_value: categoryValue,
+                            category_filter_mode: categoryFilterMode,
+                            invite_sent_filter: inviteSentFilter,
+                            invite_sent_filter_mode: inviteSentFilterMode,
+                            sub_event_filter_ids: Array.from(selectedSubEventFilterIds),
+                            sub_event_filter_mode: subEventFilterMode,
+                          }
+                      await createGuestSegment(Number(eventId), {
+                        name: saveGroupName.trim(),
+                        segment_type: saveGroupType,
+                        filter_config,
+                      })
+                      showToast(`Group "${saveGroupName.trim()}" saved`, 'success')
+                      setShowSaveGroupModal(false)
+                      if (saveGroupType === 'fixed') setSelectedGuestIds(new Set())
+                    } catch (err: any) {
+                      showToast(err?.response?.data?.name?.[0] || 'Failed to save group', 'error')
+                    } finally {
+                      setSavingGroup(false)
+                    }
+                  }}
+                  className="px-4 py-2 bg-eco-green text-white text-sm font-medium rounded-md hover:bg-green-600 disabled:opacity-50"
+                >
+                  {savingGroup ? 'Saving...' : 'Save Group'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

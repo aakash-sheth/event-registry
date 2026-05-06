@@ -17,7 +17,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
-def replace_template_variables(template_text: str, guest, event) -> str:
+def replace_template_variables(template_text: str, guest, event, extra: dict = None) -> str:
     """
     Python equivalent of frontend/lib/whatsapp.ts replaceTemplateVariables().
 
@@ -80,6 +80,9 @@ def replace_template_variables(template_text: str, guest, event) -> str:
         '[map_direction]': map_link,
     }
 
+    if extra:
+        standard_replacements.update(extra)
+
     message = template_text
     for var, value in standard_replacements.items():
         message = message.replace(var, str(value))
@@ -126,14 +129,17 @@ def send_whatsapp_message(
     dict
         Keys: success (bool), whatsapp_message_id (str | None), error (str | None).
     """
-    if not getattr(settings, 'WHATSAPP_ENABLED', False):
+    from apps.events.models import WhatsAppSettings
+    cfg = WhatsAppSettings.get_config()
+
+    if not cfg['enabled']:
         logger.warning(
-            '[WhatsApp] WHATSAPP_ENABLED is False — skipping send to %s', to_phone
+            '[WhatsApp] WhatsApp is disabled — skipping send to %s', to_phone
         )
         return {'success': False, 'whatsapp_message_id': None, 'error': 'WhatsApp disabled'}
 
-    phone_number_id = getattr(settings, 'WHATSAPP_PHONE_NUMBER_ID', '')
-    access_token = getattr(settings, 'WHATSAPP_ACCESS_TOKEN', '')
+    phone_number_id = cfg['phone_number_id']
+    access_token = cfg['access_token']
 
     if not phone_number_id or not access_token:
         logger.error(
@@ -220,7 +226,9 @@ def verify_webhook_signature(raw_body: bytes, signature_header: str) -> bool:
     - Production: if WHATSAPP_APP_SECRET is not set, rejects all webhook POSTs (fail closed).
     Always uses constant-time comparison to prevent timing attacks.
     """
-    app_secret = getattr(settings, 'WHATSAPP_APP_SECRET', '')
+    from apps.events.models import WhatsAppSettings
+    cfg = WhatsAppSettings.get_config()
+    app_secret = cfg['app_secret']
     if not app_secret:
         if getattr(settings, 'DEBUG', False):
             logger.warning(

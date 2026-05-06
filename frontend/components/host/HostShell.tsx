@@ -125,7 +125,7 @@ export default function HostShell({ children }: { children: React.ReactNode }) {
     ]
     if (hasRsvp) items.push({ href: `/host/events/${eventId}/rsvp`, label: 'RSVP', icon: CalendarCheck })
     if (isEnvelope) items.push({ href: `/host/events/${eventId}/sub-events`, label: 'Sub-Events', icon: Layers })
-    items.push({ href: `/host/events/${eventId}/communications`, label: 'Communications', icon: MessageSquare })
+    items.push({ href: `/host/events/${eventId}/communications`, label: 'Messages', icon: MessageSquare })
     if (hasRegistry) items.push({ href: `/host/items/${eventId}`, label: 'Registry', icon: Gift })
 
     return items

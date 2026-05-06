@@ -1,45 +1,68 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
-import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate, MessageCampaign } from '@/lib/api'
+import api, { getWhatsAppTemplates, WhatsAppTemplate, deleteWhatsAppTemplate, archiveWhatsAppTemplate, activateWhatsAppTemplate, setDefaultTemplate, getAvailableVariables, getSystemDefaultTemplate, MessageCampaign, incrementWhatsAppTemplateUsage, getWhatsAppStatus, checkWaitlist, joinWaitlist } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { logError } from '@/lib/error-handler'
+import { generateWhatsAppLink, openWhatsApp, replaceTemplateVariables } from '@/lib/whatsapp'
+import { getSiteUrl } from '@/lib/site-url'
 import TemplateList from '@/components/communications/TemplateList'
 import TemplateEditor from '@/components/communications/TemplateEditor'
-import WhatsAppSetupBanner from '@/components/communications/WhatsAppSetupBanner'
+import GuestPicker, { PickableGuest } from '@/components/communications/GuestPicker'
+import CampaignList from '@/components/communications/CampaignList'
+import CampaignWizard from '@/components/communications/CampaignWizard'
+import CampaignReport from '@/components/communications/CampaignReport'
+import TemplateSelector from '@/components/communications/TemplateSelector'
 
-const CampaignList = dynamic(
-  () => import('@/components/communications/CampaignList'),
-  { ssr: false }
-)
-const CampaignWizard = dynamic(
-  () => import('@/components/communications/CampaignWizard'),
-  { ssr: false }
-)
-const CampaignReport = dynamic(
-  () => import('@/components/communications/CampaignReport'),
-  { ssr: false }
-)
+type TabKey = 'send' | 'outbox' | 'reports' | 'templates'
+const VALID_TABS: TabKey[] = ['send', 'outbox', 'reports', 'templates']
 
 export default function CommunicationsPage() {
   const params = useParams()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const eventId = parseInt(params.eventId as string)
   const { showToast } = useToast()
 
-  // Tab state — 'templates' (existing) or 'campaigns' (new)
-  const [activeTab, setActiveTab] = useState<'templates' | 'campaigns'>('templates')
+  const tabFromUrl = searchParams.get('tab') as TabKey | null
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'send'
+  )
+
+  const switchTab = (tab: TabKey) => {
+    setActiveTab(tab)
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('tab', tab)
+    router.replace(`${pathname}?${p.toString()}`)
+  }
 
   // Campaign modal state
   const [showWizard, setShowWizard] = useState(false)
+  const [wizardChannel, setWizardChannel] = useState<'whatsapp' | 'email'>('whatsapp')
   const [reportCampaign, setReportCampaign] = useState<MessageCampaign | null>(null)
   const [editingCampaign, setEditingCampaign] = useState<MessageCampaign | null>(null)
   const [campaignListKey, setCampaignListKey] = useState(0)
+
+  const openWizard = (channel: 'whatsapp' | 'email') => {
+    setWizardChannel(channel)
+    setShowWizard(true)
+  }
+
+  const [whatsappReady, setWhatsappReady] = useState(false)
+  const [bulkWhatsappWaitlisted, setBulkWhatsappWaitlisted] = useState(false)
+  useEffect(() => {
+    getWhatsAppStatus().then(s => setWhatsappReady(s.configured && s.enabled)).catch(() => {})
+    checkWaitlist('bulk_whatsapp').then(setBulkWhatsappWaitlisted).catch(() => {})
+  }, [])
+
+  // 1-on-1 manual send state
+  const [showGuestPicker, setShowGuestPicker] = useState(false)
+  const [selectedGuestForMessage, setSelectedGuestForMessage] = useState<PickableGuest | null>(null)
 
   // Template state (unchanged)
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
@@ -219,6 +242,58 @@ export default function CommunicationsPage() {
     }
   }
 
+  const handleGuestSelected = (guest: PickableGuest) => {
+    setSelectedGuestForMessage(guest)
+    setShowGuestPicker(false)
+  }
+
+  const handleManualTemplateSelected = async (template: WhatsAppTemplate | null) => {
+    if (!event || !selectedGuestForMessage) return
+    const guest = selectedGuestForMessage
+    setSelectedGuestForMessage(null)
+
+    try {
+      const guestParam = guest.guest_token ? `&g=${guest.guest_token}` : ''
+      const eventUrl = `${getSiteUrl()}/invite/${event.slug || eventId}?source=link${guestParam}`
+
+      let message: string
+      if (template) {
+        let mapDirection: string | undefined
+        if (event.city) {
+          mapDirection = `https://maps.google.com/?q=${encodeURIComponent(event.city)}`
+        }
+        message = replaceTemplateVariables(template.template_text, {
+          name: guest.name,
+          event_title: event.title || 'Event',
+          event_date: event.date,
+          event_location: event.city || '',
+          event_url: eventUrl,
+          host_name: event.host_name || undefined,
+          map_direction: mapDirection,
+          custom_fields: guest.custom_fields || {},
+        })
+        try {
+          await incrementWhatsAppTemplateUsage(template.id)
+        } catch (err) {
+          logError('Failed to increment template usage:', err)
+        }
+      } else {
+        message = `Hey ${guest.name}! You're invited to ${event.title}. ${eventUrl}`
+      }
+
+      openWhatsApp(generateWhatsAppLink(guest.phone, message))
+      showToast(`Opening WhatsApp for ${guest.name}...`, 'success')
+
+      await api.patch(`/api/events/${eventId}/guests/${guest.id}/`, {
+        invitation_sent: true,
+        invitation_sent_at: new Date().toISOString(),
+      })
+    } catch (err) {
+      logError('Failed to send manual message:', err)
+      showToast('Something went wrong. Please try again.', 'error')
+    }
+  }
+
   const filteredTemplates = (() => {
     // Start with custom templates (event-specific templates)
     let result = templates.filter(template => {
@@ -311,42 +386,34 @@ export default function CommunicationsPage() {
                 </Button>
               </div>
             )}
-            {activeTab === 'campaigns' && (
-              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                <Button
-                  onClick={() => setShowWizard(true)}
-                  size="sm"
-                  className="bg-eco-green hover:bg-green-600 text-white whitespace-nowrap"
-                >
-                  + New Campaign
-                </Button>
-              </div>
-            )}
           </div>
           <div>
-            <h1 className="text-3xl font-bold mb-2 text-eco-green">Communications</h1>
+            <h1 className="text-3xl font-bold mb-2 text-eco-green">Messages</h1>
             <p className="text-gray-600">
-              {event && `Manage WhatsApp templates and campaigns for ${event.title}`}
+              {event && `Send messages and manage templates for ${event.title}`}
             </p>
           </div>
         </div>
 
         {/* Tab navigation */}
         <div className="flex gap-2 mb-6">
-          {(['templates', 'campaigns'] as const).map(tab => (
-            <Button
-              key={tab}
-              size="sm"
-              variant={activeTab === tab ? 'default' : 'outline'}
-              onClick={() => setActiveTab(tab)}
+          {([
+            { key: 'send', label: 'Send' },
+            { key: 'outbox', label: 'Outbox' },
+            { key: 'reports', label: 'Reports' },
+            { key: 'templates', label: 'Templates' },
+          ] as const).map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => switchTab(key)}
               className={
-                activeTab === tab
-                  ? 'bg-eco-green hover:bg-green-600 text-white'
-                  : 'border-eco-green text-eco-green hover:bg-eco-green-light'
+                activeTab === key
+                  ? 'px-4 py-1.5 rounded-md text-sm font-medium bg-eco-green text-white'
+                  : 'px-4 py-1.5 rounded-md text-sm font-medium border border-eco-green text-eco-green hover:bg-eco-green-light'
               }
             >
-              {tab === 'templates' ? 'Templates' : 'Campaigns'}
-            </Button>
+              {label}
+            </button>
           ))}
         </div>
 
@@ -484,14 +551,111 @@ export default function CommunicationsPage() {
           </>
         )}
 
-        {/* ─── CAMPAIGNS TAB ─── */}
-        {activeTab === 'campaigns' && (
-          <>
-            <WhatsAppSetupBanner />
+        {/* ─── SEND MESSAGE TAB ─── */}
+        {activeTab === 'send' && (
+          <div className="max-w-4xl">
+            <p className="text-sm text-gray-500 mb-8">Choose how you want to message your guests.</p>
 
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-start">
+
+              {/* ── Card 1: One Guest at a Time ── */}
+              <div
+                className="flex flex-col bg-white border border-gray-200 rounded-2xl p-6 cursor-pointer hover:border-eco-green hover:shadow-sm transition-all"
+                onClick={() => setShowGuestPicker(true)}
+              >
+                <p className="text-xs font-semibold text-gray-400 tracking-wide uppercase mb-4">
+                  👤 Personal • Free
+                </p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">One Guest at a Time</h3>
+                <p className="text-sm text-gray-500 leading-relaxed mb-6">
+                  Send messages personally from your WhatsApp.
+                </p>
+                <ul className="space-y-2 text-sm text-gray-600">
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Best for small groups (1–30 guests)</li>
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Full control before sending</li>
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>No setup needed</li>
+                </ul>
+              </div>
+
+              {/* ── Card 2: Bulk WhatsApp (primary / highlighted) ── */}
+              <div
+                className={`flex flex-col rounded-2xl p-6 border-2 transition-all relative ${
+                  whatsappReady
+                    ? 'bg-white border-eco-green cursor-pointer hover:shadow-md'
+                    : 'bg-white border-eco-green cursor-default'
+                }`}
+                onClick={whatsappReady ? () => openWizard('whatsapp') : undefined}
+              >
+                <p className="text-xs font-semibold text-amber-600 tracking-wide uppercase mb-4">
+                  ⚡ Automated • Paid
+                </p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Bulk WhatsApp</h3>
+                <p className="text-sm text-gray-500 leading-relaxed mb-6">
+                  Send to all guests instantly with one click.
+                </p>
+                <ul className="space-y-2 text-sm text-gray-600 mb-6">
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Built for large events (50+ guests)</li>
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Delivery &amp; read tracking</li>
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Verified business messaging</li>
+                </ul>
+                {!whatsappReady && (
+                  <div className="mt-auto">
+                    <p className="text-xs text-gray-400 mb-3">Coming soon</p>
+                    {bulkWhatsappWaitlisted ? (
+                      <p className="text-sm font-medium text-eco-green">
+                        ✓ You're on the list
+                      </p>
+                    ) : (
+                      <button
+                        className="w-full py-2 rounded-lg bg-eco-green text-white text-sm font-semibold hover:bg-green-600 transition-colors"
+                        onClick={async e => {
+                          e.stopPropagation()
+                          try {
+                            await joinWaitlist('bulk_whatsapp', eventId)
+                            setBulkWhatsappWaitlisted(true)
+                            showToast("You're on the list! We'll notify you when Bulk WhatsApp is ready.", 'success')
+                          } catch {
+                            showToast("Couldn't save your interest. Please try again.", 'error')
+                          }
+                        }}
+                      >
+                        Join waitlist for early access
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Card 3: Bulk Email ── */}
+              <div
+                className="flex flex-col bg-white border border-gray-200 rounded-2xl p-6 cursor-pointer hover:border-eco-green hover:shadow-sm transition-all"
+                onClick={() => openWizard('email')}
+              >
+                <p className="text-xs font-semibold text-blue-500 tracking-wide uppercase mb-4">
+                  📧 Email • Free
+                </p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Bulk Email</h3>
+                <p className="text-sm text-gray-500 leading-relaxed mb-6">
+                  Reach all guests via email.
+                </p>
+                <ul className="space-y-2 text-sm text-gray-600">
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Best for formal invites</li>
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Works without WhatsApp</li>
+                  <li className="flex items-start gap-2"><span className="text-eco-green font-bold mt-0.5">✔</span>Schedule and track delivery</li>
+                </ul>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ─── OUTBOX + REPORTS (single instance, mode-filtered) ─── */}
+        {(activeTab === 'outbox' || activeTab === 'reports') && (
+          <>
             <CampaignList
-              key={campaignListKey}
               eventId={eventId}
+              mode={activeTab}
+              refreshKey={campaignListKey}
               onNewCampaign={() => setShowWizard(true)}
               onViewReport={(c) => setReportCampaign(c)}
               onEdit={(c) => {
@@ -499,24 +663,7 @@ export default function CommunicationsPage() {
                 setShowWizard(true)
               }}
             />
-
-            {showWizard && (
-              <CampaignWizard
-                eventId={eventId}
-                onClose={() => {
-                  setShowWizard(false)
-                  setEditingCampaign(null)
-                }}
-                onCreated={() => {
-                  setShowWizard(false)
-                  setEditingCampaign(null)
-                  // Remount CampaignList to pick up the new/updated campaign
-                  setCampaignListKey(k => k + 1)
-                }}
-              />
-            )}
-
-            {reportCampaign && (
+            {activeTab === 'reports' && reportCampaign && (
               <CampaignReport
                 eventId={eventId}
                 campaign={reportCampaign}
@@ -526,6 +673,53 @@ export default function CommunicationsPage() {
           </>
         )}
       </div>
+
+      {/* ─── CAMPAIGN WIZARD MODAL ─── */}
+      {showWizard && (
+        <CampaignWizard
+          eventId={eventId}
+          channel={wizardChannel}
+          onClose={() => {
+            setShowWizard(false)
+            setEditingCampaign(null)
+          }}
+          onCreated={() => {
+            setShowWizard(false)
+            setEditingCampaign(null)
+            setCampaignListKey(k => k + 1)
+            switchTab('outbox')
+          }}
+        />
+      )}
+
+      {/* ─── GUEST PICKER MODAL (1-on-1 flow) ─── */}
+      {showGuestPicker && (
+        <GuestPicker
+          eventId={eventId}
+          onSelect={handleGuestSelected}
+          onCancel={() => setShowGuestPicker(false)}
+        />
+      )}
+
+      {/* ─── TEMPLATE SELECTOR (after guest picked) ─── */}
+      {selectedGuestForMessage !== null && event && (() => {
+        const g = selectedGuestForMessage
+        return (
+          <TemplateSelector
+            eventId={eventId}
+            eventTitle={event.title}
+            eventDate={event.date}
+            eventUrl={`${getSiteUrl()}/invite/${event.slug || eventId}?source=link`}
+            hostName={event.host_name || undefined}
+            eventLocation={event.city || ''}
+            guestName={g.name}
+            guestId={g.id}
+            guestCustomFields={g.custom_fields || {}}
+            onSelect={handleManualTemplateSelected}
+            onCancel={() => setSelectedGuestForMessage(null)}
+          />
+        )
+      })()}
     </div>
   )
 }

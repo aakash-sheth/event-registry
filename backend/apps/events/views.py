@@ -26,7 +26,7 @@ from apps.common.whatsapp_backend import verify_webhook_signature
 from .tasks import dispatch_campaign
 
 logger = logging.getLogger(__name__)
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InvitePageLayout, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, InvitePageView, RSVPPageView, RegistryPageView, AnalyticsBatchRun, AttributionLink, AttributionClick, InvitePageLayout, GreetingCardSample, GuestSegment, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking, MetaApprovedTemplate, HostSendQuota
 from .serializers import (
     EventSerializer, EventCreateSerializer,
     RSVPSerializer, RSVPCreateSerializer,
@@ -35,11 +35,14 @@ from .serializers import (
     SubEventSerializer, SubEventCreateSerializer,
     GuestSubEventInviteSerializer,
     MessageTemplateSerializer,
+    HostSendQuotaSerializer,
     AttributionLinkSerializer,
     InvitePageLayoutSerializer,
     GreetingCardSampleSerializer,
+    GuestSegmentSerializer,
     MessageCampaignSerializer, MessageCampaignCreateSerializer, CampaignRecipientSerializer,
     BookingScheduleSerializer, BookingSlotSerializer, SlotBookingSerializer,
+    MetaApprovedTemplateSerializer,
 )
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, upload_to_s3, parse_phone_number
 from .guest_import import (
@@ -3613,47 +3616,47 @@ class MessageTemplateViewSet(viewsets.ModelViewSet):
     lookup_field = 'id'
     
     def get_queryset(self):
-        """Filter templates by event and verify event ownership"""
-        # Start with all templates owned by the user (allows detail operations without event_id)
-        queryset = MessageTemplate.objects.filter(event__host=self.request.user)
-        
-        # Filter by event_id if provided in URL kwargs (for nested list/create routes)
-        event_id = self.kwargs.get('event_id') or self.request.query_params.get('event_id') or self.request.data.get('event_id')
-        
+        """Return templates visible to this host for a given event."""
+        event_id = (
+            self.kwargs.get('event_id')
+            or self.request.query_params.get('event_id')
+            or self.request.data.get('event_id')
+        )
+
         if event_id:
-            # Verify the event belongs to the user and filter
             try:
                 event = Event.objects.get(id=event_id, host=self.request.user)
-                queryset = queryset.filter(event=event)
             except Event.DoesNotExist:
                 return MessageTemplate.objects.none()
-        
-        return queryset
-    
+            return MessageTemplate.objects.visible_to(event)
+
+        # Fallback for detail-level operations without event_id in URL
+        return MessageTemplate.objects.filter(event__host=self.request.user)
+
     def get_object(self):
-        """Override to verify event ownership"""
+        """Override to verify ownership for host-owned templates; allow reads of global ones."""
         obj = super().get_object()
-        # Verify the event belongs to the user
-        if obj.event.host != self.request.user:
+        if obj.event_id is not None and obj.event.host != self.request.user:
             from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("You can only access templates for your own events.")
+            raise PermissionDenied("You can only modify templates for your own events.")
         return obj
-    
+
     def perform_create(self, serializer):
         """Ensure template is created with valid event owned by user"""
-        # Get event_id from URL kwargs (for nested routes) or request data
         event_id = self.kwargs.get('event_id') or self.request.data.get('event')
         if not event_id:
             raise drf_serializers.ValidationError({'event': 'Event ID is required.'})
-        
+
         try:
             event = Event.objects.get(id=event_id, host=self.request.user)
         except Event.DoesNotExist:
             raise drf_serializers.ValidationError({'event': 'Event not found or you do not have permission.'})
-        
-        # Check for duplicate name
-        if MessageTemplate.objects.filter(event=event, name=serializer.validated_data['name']).exists():
-            raise drf_serializers.ValidationError({'name': 'A template with this name already exists for this event.'})
+
+        channel = serializer.validated_data.get('channel', 'whatsapp')
+        if MessageTemplate.objects.filter(
+            event=event, name=serializer.validated_data['name'], channel=channel
+        ).exists():
+            raise drf_serializers.ValidationError({'name': 'A template with this name already exists for this event and channel.'})
         
         # Set created_by
         serializer.save(event=event, created_by=self.request.user)
@@ -4221,6 +4224,179 @@ class _CampaignReportPagination(PageNumberPagination):
     max_page_size = 500
 
 
+SEGMENT_FILTER_WHITELIST = {
+    'guest_ids', 'rsvp_filter', 'rsvp_filter_mode', 'guest_tab',
+    'category_source', 'category_value', 'category_filter_mode',
+    'invite_sent_filter', 'invite_sent_filter_mode',
+    'sub_event_filter_ids', 'sub_event_filter_mode',
+}
+
+def resolve_segment_guests(event_id: int, filter_config: dict) -> list:
+    config = {k: v for k, v in filter_config.items() if k in SEGMENT_FILTER_WHITELIST}
+    qs = Guest.objects.filter(event_id=event_id)
+
+    # Fixed group: filter by specific guest IDs, re-validated against this event
+    if 'guest_ids' in config:
+        raw_ids = [int(i) for i in config['guest_ids'] if str(i).isdigit() or isinstance(i, int)]
+        return list(qs.filter(id__in=raw_ids).values_list('id', flat=True))
+
+    # Dynamic filters
+    rsvp_filter = config.get('rsvp_filter', 'all')
+    rsvp_mode = config.get('rsvp_filter_mode', 'include')
+    guest_tab = config.get('guest_tab', 'all')
+    invite_sent = config.get('invite_sent_filter', 'all')
+    invite_mode = config.get('invite_sent_filter_mode', 'include')
+    sub_event_ids = config.get('sub_event_filter_ids', [])
+    sub_event_mode = config.get('sub_event_filter_mode', 'include')
+    category_source = config.get('category_source', 'relationship')
+    category_value = config.get('category_value', 'all')
+    category_mode = config.get('category_filter_mode', 'include')
+
+    if rsvp_filter != 'all':
+        rsvp_map = {'confirmed': True, 'unconfirmed': None, 'no': False}
+        rsvp_val = rsvp_map.get(rsvp_filter)
+        matched = qs.filter(will_attend=rsvp_val).values_list('id', flat=True)
+        qs = qs.filter(id__in=matched) if rsvp_mode == 'include' else qs.exclude(id__in=matched)
+
+    if guest_tab == 'invited':
+        qs = qs.filter(invitation_sent=True)
+    elif guest_tab == 'attending':
+        qs = qs.filter(will_attend=True)
+    elif guest_tab == 'declined':
+        qs = qs.filter(will_attend=False)
+    elif guest_tab == 'no_response':
+        qs = qs.filter(will_attend__isnull=True)
+
+    if invite_sent != 'all':
+        sent_val = invite_sent == 'sent'
+        matched = qs.filter(invitation_sent=sent_val).values_list('id', flat=True)
+        qs = qs.filter(id__in=matched) if invite_mode == 'include' else qs.exclude(id__in=matched)
+
+    if sub_event_ids:
+        safe_ids = list(
+            SubEvent.objects.filter(
+                id__in=[int(i) for i in sub_event_ids if str(i).isdigit() or isinstance(i, int)],
+                event_id=event_id,
+            ).values_list('id', flat=True)
+        )
+        if safe_ids:
+            matched = GuestSubEventInvite.objects.filter(
+                sub_event_id__in=safe_ids
+            ).values_list('guest_id', flat=True)
+            qs = qs.filter(id__in=matched) if sub_event_mode == 'include' else qs.exclude(id__in=matched)
+
+    if category_value and category_value != 'all' and category_source == 'relationship':
+        matched = qs.filter(relationship=category_value).values_list('id', flat=True)
+        qs = qs.filter(id__in=matched) if category_mode == 'include' else qs.exclude(id__in=matched)
+
+    return list(qs.values_list('id', flat=True))
+
+
+class GuestSegmentViewSet(viewsets.ModelViewSet):
+    serializer_class = GuestSegmentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        event_id = self.kwargs.get('event_id')
+        return GuestSegment.objects.filter(event_id=event_id, event__host=self.request.user)
+
+    def perform_create(self, serializer):
+        event_id = self.kwargs.get('event_id')
+        event = get_object_or_404(Event, id=event_id, host=self.request.user)
+        filter_config = serializer.validated_data.get('filter_config', {})
+        resolved = resolve_segment_guests(int(event_id), filter_config)
+        serializer.save(event=event, guest_ids=resolved)
+
+    @action(detail=True, methods=['post'])
+    def resolve(self, request, event_id=None, pk=None):
+        segment = get_object_or_404(GuestSegment, pk=pk, event_id=event_id, event__host=request.user)
+        fresh_ids = resolve_segment_guests(int(event_id), segment.filter_config)
+        segment.guest_ids = fresh_ids
+        segment.save(update_fields=['guest_ids', 'updated_at'])
+        return Response({'guest_ids': fresh_ids, 'count': len(fresh_ids)})
+
+
+class MetaApprovedTemplateViewSet(viewsets.ModelViewSet):
+    """
+    Staff-managed Meta-approved WhatsApp templates for bulk sending.
+    Staff: full CRUD. Hosts: list/retrieve active templates only.
+    """
+    serializer_class = MetaApprovedTemplateSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        if getattr(self.request.user, 'is_staff', False):
+            return MetaApprovedTemplate.objects.all()
+        return MetaApprovedTemplate.objects.filter(is_active=True)
+
+    def create(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can create Meta-approved templates.')
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can update Meta-approved templates.')
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can delete Meta-approved templates.')
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class HostSendQuotaViewSet(viewsets.ModelViewSet):
+    """
+    Staff CRUD for per-host, per-channel monthly send quotas.
+    Hosts can call GET my-quota/?channel=whatsapp to see their own quota + usage.
+    """
+    serializer_class = HostSendQuotaSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        if getattr(self.request.user, 'is_staff', False):
+            return HostSendQuota.objects.select_related('host', 'set_by').all()
+        return HostSendQuota.objects.filter(host=self.request.user)
+
+    def _require_staff(self):
+        if not getattr(self.request.user, 'is_staff', False):
+            raise PermissionDenied('Only staff can manage send quotas.')
+
+    def create(self, request, *args, **kwargs):
+        self._require_staff()
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self._require_staff()
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self._require_staff()
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(set_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(set_by=self.request.user)
+
+    @action(detail=False, methods=['get'], url_path='my-quota')
+    def my_quota(self, request):
+        """Return the authenticated host's quota + current usage for a given channel."""
+        channel = request.query_params.get('channel', 'whatsapp')
+        try:
+            quota = HostSendQuota.objects.get(host=request.user, channel=channel)
+        except HostSendQuota.DoesNotExist:
+            return Response({'channel': channel, 'monthly_limit': None, 'usage_this_month': None})
+        serializer = self.get_serializer(quota)
+        return Response(serializer.data)
+
+
 class MessageCampaignViewSet(viewsets.ModelViewSet):
     """
     CRUD + launch/cancel/report/duplicate actions for WhatsApp campaigns.
@@ -4240,6 +4416,9 @@ class MessageCampaignViewSet(viewsets.ModelViewSet):
         event_id = self.kwargs.get('event_id')
         if event_id:
             qs = qs.filter(event_id=event_id)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status__in=status_param.split(','))
         return qs.select_related('event', 'template', 'created_by')
 
     def get_object(self):
@@ -4295,27 +4474,36 @@ class MessageCampaignViewSet(viewsets.ModelViewSet):
                 {'error': f'Campaign is already {campaign.status}.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not getattr(settings, 'WHATSAPP_ENABLED', False):
+        if campaign.channel == MessageCampaign.CHANNEL_WHATSAPP and not getattr(settings, 'WHATSAPP_ENABLED', False):
             return Response(
                 {'error': 'WhatsApp is not enabled on this server.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        # Fix 2: guard against 0 eligible recipients
-        if _build_guest_queryset(campaign).count() == 0:
+        if _build_guest_queryset(campaign, channel=campaign.channel).count() == 0:
+            contact_field = 'email addresses' if campaign.channel == MessageCampaign.CHANNEL_EMAIL else 'phone numbers'
             return Response(
-                {'error': 'No eligible guests found for this campaign. Add guests with phone numbers or adjust the filter.'},
+                {'error': f'No eligible guests found for this campaign. Add guests with {contact_field} or adjust the filter.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Fix 4: transition to SENDING atomically before queuing to prevent double-launch
+        # Transition to SENDING before queuing to prevent double-launch
         campaign.status = MessageCampaign.STATUS_SENDING
         campaign.started_at = timezone.now()
         campaign.save(update_fields=['status', 'started_at', 'updated_at'])
-        # Fix 3: convert scheduled_at datetime to delay in seconds for django-background-tasks
-        if campaign.scheduled_at:
-            delay_seconds = max(0, (campaign.scheduled_at - timezone.now()).total_seconds())
-            dispatch_campaign(campaign.id, schedule=delay_seconds)
-        else:
-            dispatch_campaign(campaign.id)
+        try:
+            if campaign.scheduled_at:
+                delay_seconds = max(0, (campaign.scheduled_at - timezone.now()).total_seconds())
+                dispatch_campaign(campaign.id, schedule=delay_seconds)
+            else:
+                dispatch_campaign(campaign.id)
+        except Exception:
+            # Roll back so the campaign isn't stuck in SENDING
+            campaign.status = MessageCampaign.STATUS_PENDING
+            campaign.started_at = None
+            campaign.save(update_fields=['status', 'started_at', 'updated_at'])
+            return Response(
+                {'error': 'Failed to queue campaign. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         campaign.refresh_from_db()
         return Response(MessageCampaignSerializer(campaign).data)
 
@@ -4350,13 +4538,36 @@ class MessageCampaignViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='preview-recipients')
     def preview_recipients(self, request, event_id=None, id=None):
         from .tasks import _build_guest_queryset
+
+        PREVIEW_LIMIT = 10  # max guest rows shown in the wizard
+
         campaign = self.get_object()
-        guests = _build_guest_queryset(campaign)
-        count = guests.count()
-        preview = guests[:20]
+        channel = campaign.channel
+
+        # All guests matching the filter (regardless of contact info)
+        all_matching = _build_guest_queryset(campaign, channel=channel, require_contact=False)
+        total_filter_count = all_matching.count()
+
+        # Guests who also have the required contact field
+        eligible = _build_guest_queryset(campaign, channel=channel, require_contact=True)
+        eligible_count = eligible.count()
+
+        missing_contact_count = total_filter_count - eligible_count
+
+        # Build a lightweight preview list
+        contact_field = 'email' if channel == 'email' else 'phone'
+        preview_qs = eligible.values('id', 'name', contact_field)[:PREVIEW_LIMIT]
+        guest_preview = [
+            {'id': g['id'], 'name': g['name'], 'contact': g[contact_field]}
+            for g in preview_qs
+        ]
+
         return Response({
-            'count': count,
-            'guests': GuestSerializer(preview, many=True).data,
+            'eligible_count': eligible_count,
+            'total_filter_count': total_filter_count,
+            'missing_contact_count': missing_contact_count,
+            'contact_field': contact_field,
+            'guests': guest_preview,
         })
 
     @action(detail=True, methods=['post'], url_path='duplicate')
@@ -4365,9 +4576,11 @@ class MessageCampaignViewSet(viewsets.ModelViewSet):
         new_campaign = MessageCampaign.objects.create(
             event=campaign.event,
             name=f"Copy of {campaign.name}",
+            channel=campaign.channel,
             template=campaign.template,
             message_mode=campaign.message_mode,
             message_body=campaign.message_body,
+            subject=campaign.subject,
             meta_template_name=campaign.meta_template_name,
             meta_template_language=campaign.meta_template_language,
             guest_filter=campaign.guest_filter,
@@ -4932,17 +5145,258 @@ def _update_recipient_from_webhook(wamid, meta_status, ts):
         campaign.save(update_fields=['delivered_count', 'read_count', 'updated_at'])
 
 
+# ---------------------------------------------------------------------------
+# SES delivery webhook  (SNS → POST /api/events/email/webhook/<token>/)
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def ses_webhook(request, token):
+    """
+    Receives SES event notifications forwarded by AWS SNS.
+
+    The endpoint URL must include a secret token (SES_WEBHOOK_TOKEN) so
+    only our SNS subscription can post here.
+
+    Handles:
+      - SubscriptionConfirmation — auto-confirms by fetching SubscribeURL
+      - Notification — routes SES eventType (Delivery, Bounce, Complaint)
+        to CampaignRecipient status updates
+    """
+    expected = getattr(settings, 'SES_WEBHOOK_TOKEN', '')
+    if not expected or token != expected:
+        return Response({'error': 'Forbidden'}, status=403)
+
+    try:
+        msg_type = request.META.get('HTTP_X_AMZ_SNS_MESSAGE_TYPE', '')
+        body = request.data  # DRF already parsed the JSON
+
+        if msg_type == 'SubscriptionConfirmation':
+            subscribe_url = body.get('SubscribeURL', '')
+            if subscribe_url:
+                import urllib.request
+                urllib.request.urlopen(subscribe_url, timeout=10)
+                logger.info('[SES Webhook] SNS subscription confirmed')
+            return Response({'status': 'confirmed'})
+
+        if msg_type == 'Notification':
+            raw_message = body.get('Message', '')
+            if raw_message:
+                import json as _json
+                try:
+                    event_data = _json.loads(raw_message)
+                except ValueError:
+                    logger.warning('[SES Webhook] Could not parse Message JSON')
+                    return Response({'status': 'ok'})
+                _process_ses_event(event_data)
+
+    except Exception as exc:
+        logger.error('[SES Webhook] Unhandled error: %s', exc)
+
+    # Always 200 — SNS retries on non-2xx
+    return Response({'status': 'ok'})
+
+
+def _process_ses_event(event_data: dict):
+    """Route a parsed SES event to the appropriate recipient update."""
+    event_type = event_data.get('eventType') or event_data.get('notificationType', '')
+    mail = event_data.get('mail', {})
+    message_id = mail.get('messageId', '')
+
+    if not message_id:
+        return
+
+    if event_type == 'Delivery':
+        delivery = event_data.get('delivery', {})
+        ts_str = delivery.get('timestamp', '')
+        _update_recipient_from_ses(message_id, 'delivered', ts_str, '')
+
+    elif event_type == 'Bounce':
+        bounce = event_data.get('bounce', {})
+        bounce_type = bounce.get('bounceType', '')
+        bounce_sub = bounce.get('bounceSubType', '')
+        error = f'Bounce: {bounce_type}/{bounce_sub}'
+        ts_str = bounce.get('timestamp', '')
+        _update_recipient_from_ses(message_id, 'failed', ts_str, error)
+
+    elif event_type == 'Complaint':
+        complaint = event_data.get('complaint', {})
+        ts_str = complaint.get('timestamp', '')
+        _update_recipient_from_ses(message_id, 'failed', ts_str, 'Complaint')
+
+    else:
+        logger.debug('[SES Webhook] Ignored event type: %s', event_type)
+
+
+def _update_recipient_from_ses(email_message_id: str, new_status: str, ts_str: str, error: str):
+    """Look up CampaignRecipient by email_message_id and update its status."""
+    try:
+        recipient = CampaignRecipient.objects.select_related('campaign').get(
+            email_message_id=email_message_id
+        )
+    except CampaignRecipient.DoesNotExist:
+        logger.debug('[SES Webhook] No recipient for msg_id %s', email_message_id)
+        return
+    except CampaignRecipient.MultipleObjectsReturned:
+        logger.warning('[SES Webhook] Multiple recipients for msg_id %s', email_message_id)
+        return
+
+    # Only advance status, never go backwards
+    order = ['pending', 'sent', 'delivered', 'read', 'failed', 'skipped']
+    current_idx = order.index(recipient.status) if recipient.status in order else 0
+    new_idx = order.index(new_status) if new_status in order else 0
+    if new_idx <= current_idx and new_status != 'failed':
+        return
+
+    ts = None
+    if ts_str:
+        try:
+            from django.utils.dateparse import parse_datetime
+            ts = parse_datetime(ts_str)
+        except Exception:
+            pass
+
+    update_fields = ['status', 'updated_at']
+    recipient.status = new_status
+
+    if new_status == 'delivered' and ts:
+        recipient.delivered_at = ts
+        update_fields.append('delivered_at')
+    if new_status == 'failed' and error:
+        recipient.error_message = error
+        update_fields.append('error_message')
+
+    recipient.save(update_fields=update_fields)
+
+    # Roll up campaign delivery counts
+    campaign = recipient.campaign
+    campaign.delivered_count = CampaignRecipient.objects.filter(
+        campaign=campaign,
+        status__in=[CampaignRecipient.STATUS_DELIVERED, CampaignRecipient.STATUS_READ],
+    ).count()
+    campaign.failed_count = CampaignRecipient.objects.filter(
+        campaign=campaign, status=CampaignRecipient.STATUS_FAILED,
+    ).count()
+    campaign.save(update_fields=['delivered_count', 'failed_count', 'updated_at'])
+
+
+# ---------------------------------------------------------------------------
+# Email click-tracking redirect  (GET /api/events/r/)
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def email_click_redirect(request):
+    """
+    Records an email link click and redirects the user to the destination.
+
+    Query params:
+      cid  — CampaignRecipient PK
+      u    — base64url-encoded destination URL
+
+    On any error the user is still forwarded to the destination (if decodable),
+    so a tracking failure never breaks the user's journey.
+    """
+    import base64 as _b64
+    from django.http import HttpResponseRedirect
+
+    cid = request.query_params.get('cid', '')
+    u_encoded = request.query_params.get('u', '')
+
+    # Decode destination first — always redirect the user even if tracking fails
+    destination = ''
+    if u_encoded:
+        try:
+            destination = _b64.urlsafe_b64decode(u_encoded.encode()).decode()
+        except Exception:
+            logger.warning('[EmailClick] Could not decode destination for cid=%s', cid)
+
+    # Record the click
+    if cid:
+        try:
+            recipient = CampaignRecipient.objects.select_related('campaign').get(pk=int(cid))
+            # Treat a click as equivalent to "read" — strongest signal we have for email
+            if recipient.status not in (
+                CampaignRecipient.STATUS_READ,
+                CampaignRecipient.STATUS_FAILED,
+                CampaignRecipient.STATUS_SKIPPED,
+            ):
+                now = timezone.now()
+                if recipient.status != CampaignRecipient.STATUS_DELIVERED:
+                    # Ensure delivered_at is set if we skipped the delivery event
+                    recipient.delivered_at = recipient.delivered_at or now
+                recipient.status = CampaignRecipient.STATUS_READ
+                recipient.read_at = now
+                recipient.save(update_fields=['status', 'delivered_at', 'read_at', 'updated_at'])
+
+                campaign = recipient.campaign
+                campaign.delivered_count = CampaignRecipient.objects.filter(
+                    campaign=campaign,
+                    status__in=[CampaignRecipient.STATUS_DELIVERED, CampaignRecipient.STATUS_READ],
+                ).count()
+                campaign.read_count = CampaignRecipient.objects.filter(
+                    campaign=campaign, status=CampaignRecipient.STATUS_READ,
+                ).count()
+                campaign.save(update_fields=['delivered_count', 'read_count', 'updated_at'])
+        except (CampaignRecipient.DoesNotExist, ValueError):
+            logger.debug('[EmailClick] No recipient for cid=%s', cid)
+        except Exception as exc:
+            logger.error('[EmailClick] Error recording click: %s', exc)
+
+    if destination:
+        return HttpResponseRedirect(destination)
+    return Response({'error': 'Invalid tracking link'}, status=400)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def whatsapp_status(request):
-    """Returns {enabled, configured} for the setup banner."""
+    """Returns {enabled, configured} — reads from WhatsAppSettings DB record (cached 60s)."""
+    from apps.events.models import WhatsAppSettings
+    cfg = WhatsAppSettings.get_config()
     return Response({
-        'enabled': getattr(settings, 'WHATSAPP_ENABLED', False),
-        'configured': bool(
-            getattr(settings, 'WHATSAPP_PHONE_NUMBER_ID', '') and
-            getattr(settings, 'WHATSAPP_ACCESS_TOKEN', '')
-        ),
+        'enabled': cfg['enabled'],
+        'configured': bool(cfg['phone_number_id'] and cfg['access_token']),
     })
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def join_waitlist(request):
+    """
+    GET  ?feature_slug=bulk_whatsapp  → { joined: bool }
+    POST { feature_slug, event_id }   → { joined: true, created: bool }
+    """
+    from apps.events.models import WaitlistEntry, Event
+
+    if request.method == 'GET':
+        feature_slug = (request.query_params.get('feature_slug') or '').strip()
+        if not feature_slug:
+            return Response({'error': 'feature_slug is required'}, status=400)
+        joined = WaitlistEntry.objects.filter(
+            user=request.user, feature_slug=feature_slug
+        ).exists()
+        return Response({'joined': joined})
+
+    # POST
+    feature_slug = (request.data.get('feature_slug') or '').strip()
+    if not feature_slug:
+        return Response({'error': 'feature_slug is required'}, status=400)
+
+    event_id = request.data.get('event_id')
+    event = None
+    if event_id:
+        try:
+            event = Event.objects.get(pk=event_id)
+        except Event.DoesNotExist:
+            pass
+
+    _, created = WaitlistEntry.objects.get_or_create(
+        user=request.user,
+        feature_slug=feature_slug,
+        defaults={'event': event},
+    )
+    return Response({'joined': True, 'created': created})
 
 
 @api_view(['POST'])

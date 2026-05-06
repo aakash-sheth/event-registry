@@ -919,9 +919,25 @@ class SlotBooking(models.Model):
         return f"{self.phone_snapshot} - {self.slot_id} ({self.status})"
 
 
+class MessageTemplateManager(models.Manager):
+    def visible_to(self, event):
+        """Return templates visible to a host event: their own + EkFern global live templates."""
+        return self.get_queryset().filter(
+            Q(event=event) |
+            Q(event__isnull=True, meta_approved=True, is_live=True)
+        )
+
+
 class MessageTemplate(models.Model):
-    """Message templates for event updates - one event can have multiple templates"""
-    
+    """Message templates for event updates — host-owned (event set) or EkFern-global (event=NULL)."""
+
+    CHANNEL_WHATSAPP = 'whatsapp'
+    CHANNEL_EMAIL = 'email'
+    CHANNEL_CHOICES = [
+        ('whatsapp', 'WhatsApp'),
+        ('email', 'Email'),
+    ]
+
     MESSAGE_TYPE_CHOICES = [
         ('invitation', 'Initial Invitation'),
         ('reminder', 'Reminder'),
@@ -931,14 +947,48 @@ class MessageTemplate(models.Model):
         ('thank_you', 'Thank You'),
         ('custom', 'Custom Message'),
     ]
-    
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='message_templates')
+
+    objects = MessageTemplateManager()
+
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name='message_templates',
+        null=True, blank=True,
+        help_text="NULL = EkFern-owned global template; set = host-owned template"
+    )
     name = models.CharField(max_length=100, help_text="Template name (e.g., 'Initial Invitation', 'Venue Change Update')")
     message_type = models.CharField(
         max_length=50,
         choices=MESSAGE_TYPE_CHOICES,
         default='custom',
         help_text="Type of message/update being sent"
+    )
+    channel = models.CharField(
+        max_length=20, choices=CHANNEL_CHOICES, default=CHANNEL_WHATSAPP,
+        help_text="Delivery channel this template targets"
+    )
+    meta_approved = models.BooleanField(
+        default=False,
+        help_text="True if this template is registered and approved in Meta Business Manager"
+    )
+    meta_template_name = models.CharField(
+        max_length=200, blank=True, null=True,
+        help_text="Exact template name in Meta Business Manager (only relevant when meta_approved=True)"
+    )
+    meta_template_language = models.CharField(
+        max_length=20, blank=True, null=True,
+        help_text="Language code for the Meta template (e.g. en, hi)"
+    )
+    is_live = models.BooleanField(
+        default=True,
+        help_text="Global templates only: visible to hosts when True AND meta_approved=True"
+    )
+    subject = models.CharField(
+        max_length=500, blank=True, null=True,
+        help_text="Email subject line (channel=email only)"
+    )
+    is_rich_text = models.BooleanField(
+        default=False,
+        help_text="If True, template_text is HTML; if False, plain text (email only)"
     )
     template_text = models.TextField(
         help_text="Template with variables like [name], [event_title], [event_date], [event_url], [host_name], [event_location]"
@@ -980,16 +1030,20 @@ class MessageTemplate(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        db_table = 'whatsapp_templates'
+        db_table = 'message_templates'
         ordering = ['-last_used_at', '-created_at']
-        unique_together = [['event', 'name']]
         indexes = [
-            models.Index(fields=['event', 'message_type'], name='whatsapp_te_event_i_idx'),
-            models.Index(fields=['event', 'is_active'], name='whatsapp_te_event_i_idx2'),
-            models.Index(fields=['event', 'is_default'], name='whatsapp_te_event_i_idx3'),
-            models.Index(fields=['is_system_default'], name='whatsapp_te_is_syst_idx'),
+            models.Index(fields=['event', 'channel'], name='msgtpl_event_channel_idx'),
+            models.Index(fields=['event', 'message_type'], name='msgtpl_event_msgtype_idx'),
+            models.Index(fields=['meta_approved', 'is_live'], name='msgtpl_approved_live_idx'),
+            models.Index(fields=['is_system_default'], name='msgtpl_sysdefault_idx'),
         ]
         constraints = [
+            models.UniqueConstraint(
+                fields=['event', 'name', 'channel'],
+                condition=models.Q(event__isnull=False),
+                name='unique_template_name_per_event_channel'
+            ),
             models.UniqueConstraint(
                 fields=['event', 'is_default'],
                 condition=models.Q(is_default=True),
@@ -1003,8 +1057,9 @@ class MessageTemplate(models.Model):
         ]
     
     def __str__(self):
-        return f"{self.name} - {self.event.title}"
-    
+        event_label = self.event.title if self.event_id else 'Global'
+        return f"{self.name} - {event_label}"
+
     def save(self, *args, **kwargs):
         """Override save to ensure only one default per event and one system default globally"""
         if self.is_default:
@@ -1034,16 +1089,26 @@ class MessageTemplate(models.Model):
     def get_preview(self, sample_data=None):
         """Generate preview with sample data"""
         if not sample_data:
-            from datetime import date
-            date_str = self.event.date.strftime('%B %d, %Y') if self.event.date else 'TBD'
-            sample_data = {
-                'name': 'Sarah',
-                'event_title': self.event.title,
-                'event_date': date_str,
-                'event_url': f"https://example.com/invite/{self.event.slug}",
-                'host_name': self.event.host.name or 'Host',
-                'event_location': self.event.city or 'Location TBD'
-            }
+            event = self.event
+            if event:
+                date_str = event.date.strftime('%B %d, %Y') if event.date else 'TBD'
+                sample_data = {
+                    'name': 'Sarah',
+                    'event_title': event.title,
+                    'event_date': date_str,
+                    'event_url': f"https://example.com/invite/{event.slug}",
+                    'host_name': (event.host.name if event.host else '') or 'Host',
+                    'event_location': event.city or 'Location TBD',
+                }
+            else:
+                sample_data = {
+                    'name': 'Sarah',
+                    'event_title': 'Your Event',
+                    'event_date': 'June 15, 2026',
+                    'event_url': 'https://ekfern.com/invite/example',
+                    'host_name': 'Host',
+                    'event_location': 'Venue TBD',
+                }
         
         # Simple variable replacement for preview
         message = self.template_text
@@ -1060,6 +1125,58 @@ class MessageTemplate(models.Model):
             message = message.replace(variable, value)
 
         return message
+
+
+class MetaApprovedTemplate(models.Model):
+    """EkFern-managed Meta-approved WhatsApp templates for bulk sending."""
+
+    MESSAGE_TYPE_CHOICES = [
+        ('invitation', 'Invitation'),
+        ('reminder', 'Reminder'),
+        ('update', 'Update'),
+        ('venue_change', 'Venue Change'),
+        ('time_change', 'Time Change'),
+        ('thank_you', 'Thank You'),
+        ('custom', 'Custom'),
+    ]
+
+    display_name = models.CharField(max_length=100)
+    description = models.CharField(max_length=255, blank=True)
+    preview_text = models.TextField(help_text='Template body shown to hosts. Use [name], [event_title] etc.')
+    meta_template_name = models.CharField(max_length=100, unique=True, help_text='Exact name registered in Meta Business Manager.')
+    meta_template_language = models.CharField(max_length=10, default='en')
+    message_type = models.CharField(max_length=50, choices=MESSAGE_TYPE_CHOICES, default='invitation')
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='meta_approved_templates')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'meta_approved_templates'
+        ordering = ['message_type', 'display_name']
+
+    def __str__(self):
+        return f"{self.display_name} ({self.meta_template_name})"
+
+
+class GuestSegment(models.Model):
+    SEGMENT_TYPE_CHOICES = [('fixed', 'Fixed'), ('dynamic', 'Dynamic')]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='guest_segments')
+    name = models.CharField(max_length=100)
+    segment_type = models.CharField(max_length=10, choices=SEGMENT_TYPE_CHOICES, default='fixed')
+    filter_config = models.JSONField(default=dict, blank=True)
+    guest_ids = models.JSONField(default=list)  # resolved cache, updated on create/resolve
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'guest_segments'
+        ordering = ['name']
+        unique_together = [('event', 'name')]
+
+    def __str__(self):
+        return f"{self.name} ({self.event_id})"
 
 
 class MessageCampaign(models.Model):
@@ -1110,8 +1227,19 @@ class MessageCampaign(models.Model):
         ('booking_status', 'By booking status'),
     ]
 
+    CHANNEL_WHATSAPP = 'whatsapp'
+    CHANNEL_EMAIL = 'email'
+    CHANNEL_CHOICES = [
+        ('whatsapp', 'WhatsApp'),
+        ('email', 'Email'),
+    ]
+
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='campaigns')
     name = models.CharField(max_length=200)
+    channel = models.CharField(
+        max_length=20, choices=CHANNEL_CHOICES, default=CHANNEL_WHATSAPP,
+        help_text="Delivery channel for this campaign"
+    )
     template = models.ForeignKey(
         'MessageTemplate', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='campaigns'
@@ -1121,6 +1249,10 @@ class MessageCampaign(models.Model):
     )
     message_body = models.TextField(
         help_text="Raw template text used for this campaign (variables resolved per-recipient at send time)"
+    )
+    subject = models.CharField(
+        max_length=300, blank=True, default='',
+        help_text="Email subject line (email channel only; falls back to campaign name if blank)"
     )
     meta_template_name = models.CharField(
         max_length=200, blank=True,
@@ -1159,6 +1291,10 @@ class MessageCampaign(models.Model):
     )
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    qualified_count = models.IntegerField(
+        default=0,
+        help_text="Guests matching the filter regardless of contact info (set at dispatch time)"
     )
     total_recipients = models.IntegerField(default=0)
     sent_count = models.IntegerField(default=0)
@@ -1212,7 +1348,11 @@ class CampaignRecipient(models.Model):
         'Guest', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='campaign_recipients'
     )
-    phone = models.CharField(max_length=20)
+    phone = models.CharField(max_length=20, blank=True)
+    email = models.EmailField(
+        max_length=254, blank=True,
+        help_text="Snapshot of guest email at send time (for email channel)"
+    )
     resolved_message = models.TextField(blank=True)
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
@@ -1220,6 +1360,10 @@ class CampaignRecipient(models.Model):
     whatsapp_message_id = models.CharField(
         max_length=200, blank=True, db_index=True,
         help_text="wamid returned by Meta Cloud API — used for webhook correlation"
+    )
+    email_message_id = models.CharField(
+        max_length=200, blank=True, db_index=True,
+        help_text="SES Message-ID — used for delivery webhook correlation"
     )
     error_message = models.TextField(blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
@@ -1237,7 +1381,52 @@ class CampaignRecipient(models.Model):
         ]
 
     def __str__(self):
-        return f"Recipient {self.phone} in {self.campaign.name} - {self.status}"
+        return f"Recipient {self.phone or self.email} in {self.campaign.name} - {self.status}"
+
+
+class HostSendQuota(models.Model):
+    """Per-host, per-channel monthly send quota. Usage is counted from CampaignRecipient rows."""
+
+    CHANNEL_CHOICES = [
+        ('whatsapp', 'WhatsApp'),
+        ('email', 'Email'),
+    ]
+
+    host = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='send_quotas',
+        help_text="The event host this quota applies to"
+    )
+    channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES)
+    monthly_limit = models.IntegerField(
+        help_text="Maximum messages per calendar month (0 = blocked)"
+    )
+    set_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='quotas_set',
+        help_text="Staff member who configured this quota"
+    )
+    notes = models.TextField(blank=True, help_text="Internal notes about this quota")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'host_send_quotas'
+        unique_together = [['host', 'channel']]
+        ordering = ['host', 'channel']
+
+    def __str__(self):
+        return f"{self.host} — {self.channel}: {self.monthly_limit}/mo"
+
+    def usage_this_month(self):
+        """Count sent/delivered/read CampaignRecipient rows for host's events this calendar month."""
+        now = timezone.now()
+        return CampaignRecipient.objects.filter(
+            campaign__event__host=self.host,
+            campaign__channel=self.channel,
+            status__in=['sent', 'delivered', 'read'],
+            sent_at__year=now.year,
+            sent_at__month=now.month,
+        ).count()
 
 
 class InvitePageLayout(models.Model):
@@ -1332,6 +1521,106 @@ class GreetingCardSample(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class WaitlistEntry(models.Model):
+    """
+    Generic feature-interest waitlist. One row per user per feature.
+    Use feature_slug to distinguish features (e.g. 'bulk_whatsapp', 'premium_templates').
+    """
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='waitlist_entries',
+    )
+    feature_slug = models.CharField(
+        max_length=100,
+        help_text="Identifier for the feature (e.g. 'bulk_whatsapp')",
+    )
+    event = models.ForeignKey(
+        'Event', null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+        help_text='Optional — the event context where interest was expressed',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'waitlist_entries'
+        unique_together = [['user', 'feature_slug']]
+        ordering = ['-created_at']
+        verbose_name = 'Waitlist Entry'
+        verbose_name_plural = 'Waitlist Entries'
+
+    def __str__(self):
+        return f"{self.user.email} → {self.feature_slug}"
+
+
+class WhatsAppSettings(models.Model):
+    """
+    Singleton model — only one row (pk=1) is ever created.
+    Super admin configures WhatsApp Cloud API credentials here via the Django admin.
+    Falls back to env vars (WHATSAPP_ENABLED etc.) if no DB record exists.
+    """
+    enabled = models.BooleanField(
+        default=False,
+        help_text='Master switch. Must be True to send any WhatsApp messages.',
+    )
+    phone_number_id = models.CharField(max_length=100, blank=True, help_text='Meta Business phone number ID')
+    access_token = models.CharField(max_length=1000, blank=True, help_text='Meta Cloud API permanent access token')
+    app_secret = models.CharField(max_length=300, blank=True, help_text='Meta app secret (for webhook verification)')
+    webhook_verify_token = models.CharField(max_length=200, blank=True, default='change_me', help_text='Token for Meta webhook verification handshake')
+    send_delay_seconds = models.FloatField(default=0.2, help_text='Delay in seconds between consecutive sends (rate limiting)')
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+
+    class Meta:
+        db_table = 'whatsapp_settings'
+        verbose_name = 'WhatsApp Settings'
+        verbose_name_plural = 'WhatsApp Settings'
+
+    def __str__(self):
+        return f"WhatsApp Settings ({'enabled' if self.enabled else 'disabled'})"
+
+    def save(self, *args, **kwargs):
+        from django.core.cache import cache
+        self.pk = 1  # Singleton — always pk=1
+        super().save(*args, **kwargs)
+        cache.delete('whatsapp_settings')
+
+    @classmethod
+    def get_config(cls) -> dict:
+        """
+        Returns a config dict from DB (cached 60 s) or falls back to env vars.
+        Always safe to call — never raises.
+        """
+        from django.core.cache import cache
+        from django.conf import settings as django_settings
+
+        cached = cache.get('whatsapp_settings')
+        if cached is not None:
+            return cached
+
+        try:
+            obj = cls.objects.get(pk=1)
+            config = {
+                'enabled': obj.enabled,
+                'phone_number_id': obj.phone_number_id,
+                'access_token': obj.access_token,
+                'app_secret': obj.app_secret,
+                'webhook_verify_token': obj.webhook_verify_token or 'change_me',
+                'send_delay_seconds': obj.send_delay_seconds,
+            }
+        except cls.DoesNotExist:
+            config = {
+                'enabled': getattr(django_settings, 'WHATSAPP_ENABLED', False),
+                'phone_number_id': getattr(django_settings, 'WHATSAPP_PHONE_NUMBER_ID', ''),
+                'access_token': getattr(django_settings, 'WHATSAPP_ACCESS_TOKEN', ''),
+                'app_secret': getattr(django_settings, 'WHATSAPP_APP_SECRET', ''),
+                'webhook_verify_token': getattr(django_settings, 'WHATSAPP_WEBHOOK_VERIFY_TOKEN', 'change_me'),
+                'send_delay_seconds': getattr(django_settings, 'WHATSAPP_SEND_DELAY_SECONDS', 0.2),
+            }
+
+        cache.set('whatsapp_settings', config, 60)
+        return config
 
 
 # Signal to keep InvitePage.slug in sync with Event.slug

@@ -3,7 +3,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
-from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InvitePageLayout, GreetingCardSample, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking
+from .models import Event, RSVP, Guest, InvitePage, SubEvent, GuestSubEventInvite, MessageTemplate, AttributionLink, InvitePageLayout, GreetingCardSample, GuestSegment, MessageCampaign, CampaignRecipient, BookingSchedule, BookingSlot, SlotBooking, MetaApprovedTemplate, HostSendQuota
 from apps.users.serializers import UserSerializer
 from .utils import get_country_code, format_phone_with_country_code, normalize_csv_header, normalize_phone_for_match, phones_loosely_match
 import re
@@ -941,90 +941,104 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
     """Serializer for MessageTemplate"""
     preview = serializers.SerializerMethodField()
     available_variables = serializers.SerializerMethodField()
-    
+    is_global = serializers.SerializerMethodField()
+
     class Meta:
         model = MessageTemplate
-        fields = ('id', 'event', 'name', 'message_type', 'template_text', 'description', 'usage_count', 'is_active', 'last_used_at', 'is_default', 'is_system_default', 'created_by', 'created_at', 'updated_at', 'preview', 'available_variables')
-        read_only_fields = ('id', 'usage_count', 'last_used_at', 'created_at', 'updated_at', 'is_system_default', 'created_by', 'available_variables')
+        fields = (
+            'id', 'event', 'name', 'channel', 'message_type',
+            'template_text', 'description',
+            'meta_approved', 'meta_template_name', 'meta_template_language',
+            'is_live', 'subject', 'is_rich_text',
+            'usage_count', 'is_active', 'last_used_at',
+            'is_default', 'is_system_default', 'is_global',
+            'created_by', 'created_at', 'updated_at',
+            'preview', 'available_variables',
+        )
+        read_only_fields = (
+            'id', 'usage_count', 'last_used_at', 'created_at', 'updated_at',
+            'is_system_default', 'created_by', 'available_variables', 'is_global',
+        )
     
+    def get_is_global(self, obj):
+        return obj.event_id is None
+
     def get_preview(self, obj):
         """Generate preview with sample data"""
         return obj.get_preview()
-    
+
     def get_available_variables(self, obj):
         """Get list of available variables for this event (default + custom from CSV)"""
-        variables = []
-        
-        # Default variables
-        default_vars = [
+        event = obj.event
+        variables = [
             {'key': '[name]', 'label': 'Guest Name', 'description': 'Name of the guest', 'example': 'Sarah'},
-            {'key': '[event_title]', 'label': 'Event Title', 'description': 'Title of the event', 'example': obj.event.title},
-            {'key': '[event_date]', 'label': 'Event Date', 'description': 'Date of the event', 'example': obj.event.date.strftime('%B %d, %Y') if obj.event.date else 'TBD'},
-            {'key': '[event_url]', 'label': 'Event URL', 'description': 'Link to the event invitation', 'example': f'https://example.com/invite/{obj.event.slug}'},
-            {'key': '[host_name]', 'label': 'Host Name', 'description': 'Name of the event host', 'example': obj.event.host.name or 'Host'},
-            {'key': '[event_location]', 'label': 'Event Location', 'description': 'Location of the event', 'example': obj.event.city or 'Location TBD'},
-            {'key': '[map_direction]', 'label': 'Map Direction Link', 'description': 'Google Maps link to event location', 'example': 'https://maps.google.com/?q=Location'},
+            {'key': '[event_title]', 'label': 'Event Title', 'description': 'Title of the event',
+             'example': event.title if event else 'Your Event'},
+            {'key': '[event_date]', 'label': 'Event Date', 'description': 'Date of the event',
+             'example': (event.date.strftime('%B %d, %Y') if event and event.date else 'TBD')},
+            {'key': '[event_url]', 'label': 'Event URL', 'description': 'Link to the event invitation',
+             'example': f'https://ekfern.com/invite/{event.slug}' if event else 'https://ekfern.com/invite/example'},
+            {'key': '[host_name]', 'label': 'Host Name', 'description': 'Name of the event host',
+             'example': (event.host.name if event and event.host else '') or 'Host'},
+            {'key': '[event_location]', 'label': 'Event Location', 'description': 'Location of the event',
+             'example': (event.city if event else '') or 'Location TBD'},
+            {'key': '[map_direction]', 'label': 'Map Direction Link', 'description': 'Google Maps link to event location',
+             'example': 'https://maps.google.com/?q=Location'},
+            {'key': '[flyer_image_url]', 'label': 'Flyer Image URL', 'description': 'URL of the event invite banner image',
+             'example': 'https://cdn.ekfern.com/invite-images/example.jpg'},
         ]
-        variables.extend(default_vars)
-        
-        # Custom variables from CSV imports
-        custom_metadata = obj.event.custom_fields_metadata or {}
-        for normalized_key, metadata in custom_metadata.items():
-            if isinstance(metadata, dict):
-                display_label = metadata.get('display_label', normalized_key)
-                example = metadata.get('example', '—')
-            else:
-                # Backward compatibility: if metadata is just a string (old format)
-                display_label = metadata
-                example = '—'
-            
-            variables.append({
-                'key': f'[{normalized_key}]',
-                'label': display_label,
-                'description': f'Custom field from CSV: {display_label}',
-                'example': example,
-                'is_custom': True,
-            })
-        
+
+        # Custom fields from CSV imports — only available for host-owned templates
+        if event:
+            custom_metadata = event.custom_fields_metadata or {}
+            for normalized_key, metadata in custom_metadata.items():
+                if isinstance(metadata, dict):
+                    display_label = metadata.get('display_label', normalized_key)
+                    example = metadata.get('example', '—')
+                else:
+                    display_label = metadata
+                    example = '—'
+                variables.append({
+                    'key': f'[{normalized_key}]',
+                    'label': display_label,
+                    'description': f'Custom field from CSV: {display_label}',
+                    'example': example,
+                    'is_custom': True,
+                })
+
         return variables
     
     def validate(self, data):
-        """Validate that only one default template per event"""
+        """Validate default uniqueness and channel-specific requirements."""
         instance = self.instance
         event = data.get('event') or (instance.event if instance else None)
         is_default = data.get('is_default', False)
-        
+        channel = data.get('channel', instance.channel if instance else 'whatsapp')
+
         if is_default and event:
-            # Check if another template is already default for this event
-            existing_default = MessageTemplate.objects.filter(
-                event=event,
-                is_default=True
-            ).exclude(id=instance.id if instance else None)
-            
-            if existing_default.exists():
-                # Unset other defaults
-                existing_default.update(is_default=False)
-        
+            MessageTemplate.objects.filter(
+                event=event, is_default=True
+            ).exclude(id=instance.id if instance else None).update(is_default=False)
+
+        if channel == 'email' and not data.get('subject', getattr(instance, 'subject', None)):
+            raise serializers.ValidationError({'subject': 'Email templates require a subject line.'})
+
+        if channel == 'whatsapp' and data.get('meta_approved'):
+            if not data.get('meta_template_name', getattr(instance, 'meta_template_name', None)):
+                raise serializers.ValidationError(
+                    {'meta_template_name': 'meta_template_name is required when meta_approved is True.'}
+                )
+
         return data
-    
+
     def validate_template_text(self, value):
         """Validate template text is not empty"""
         if not value or not value.strip():
             raise serializers.ValidationError("Template text cannot be empty.")
-        
-        # Check for valid variables (optional - just warn, don't fail)
-        valid_variables = ['[name]', '[event_title]', '[event_date]', '[event_url]', '[host_name]', '[event_location]', '[map_direction]']
-        # We don't enforce variables, just allow any text
-        
-        # Check length (WhatsApp limit is 4096 characters)
+
         if len(value) > 4096:
-            raise serializers.ValidationError("Template text cannot exceed 4096 characters (WhatsApp limit).")
-        
-        # Warn if extremely long (but allow)
-        if len(value) > 3000:
-            # We'll allow it but the frontend should show a warning
-            pass
-        
+            raise serializers.ValidationError("Template text cannot exceed 4096 characters.")
+
         return value
     
     def validate_name(self, value):
@@ -1032,6 +1046,27 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             raise serializers.ValidationError("Template name cannot be empty.")
         return value.strip()
+
+
+class HostSendQuotaSerializer(serializers.ModelSerializer):
+    host_name = serializers.CharField(source='host.name', read_only=True, allow_null=True)
+    host_email = serializers.CharField(source='host.email', read_only=True)
+    set_by_name = serializers.CharField(source='set_by.name', read_only=True, allow_null=True)
+    usage_this_month = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HostSendQuota
+        fields = (
+            'id', 'host', 'host_name', 'host_email',
+            'channel', 'monthly_limit', 'notes',
+            'set_by', 'set_by_name',
+            'usage_this_month',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'host_name', 'host_email', 'set_by_name', 'usage_this_month', 'created_at', 'updated_at')
+
+    def get_usage_this_month(self, obj):
+        return obj.usage_this_month()
 
 
 class InvitePageLayoutSerializer(serializers.ModelSerializer):
@@ -1075,6 +1110,22 @@ class GreetingCardSampleSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
+# Guest Segment serializer
+# ---------------------------------------------------------------------------
+
+class GuestSegmentSerializer(serializers.ModelSerializer):
+    guest_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GuestSegment
+        fields = ['id', 'name', 'segment_type', 'filter_config', 'guest_ids', 'guest_count', 'created_at', 'updated_at']
+        read_only_fields = ['guest_ids', 'guest_count', 'created_at', 'updated_at']
+
+    def get_guest_count(self, obj):
+        return len(obj.guest_ids)
+
+
+# ---------------------------------------------------------------------------
 # WhatsApp Campaign serializers
 # ---------------------------------------------------------------------------
 
@@ -1084,12 +1135,31 @@ class CampaignRecipientSerializer(serializers.ModelSerializer):
     class Meta:
         model = CampaignRecipient
         fields = (
-            'id', 'campaign', 'guest', 'guest_name', 'phone',
-            'resolved_message', 'status', 'whatsapp_message_id',
+            'id', 'campaign', 'guest', 'guest_name',
+            'phone', 'email',
+            'resolved_message', 'status',
+            'whatsapp_message_id', 'email_message_id',
             'error_message', 'sent_at', 'delivered_at', 'read_at',
             'created_at', 'updated_at',
         )
         read_only_fields = fields
+
+
+class MetaApprovedTemplateSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MetaApprovedTemplate
+        fields = (
+            'id', 'display_name', 'description', 'preview_text',
+            'meta_template_name', 'meta_template_language',
+            'message_type', 'is_active', 'created_by_name',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'created_by_name', 'created_at', 'updated_at')
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.get_full_name() or obj.created_by.email if obj.created_by else None
 
 
 class MessageCampaignSerializer(serializers.ModelSerializer):
@@ -1098,20 +1168,22 @@ class MessageCampaignSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageCampaign
         fields = (
-            'id', 'event', 'name', 'template', 'message_mode',
-            'message_body', 'meta_template_name', 'meta_template_language',
+            'id', 'event', 'name', 'channel', 'template', 'message_mode',
+            'message_body', 'subject',
+            'meta_template_name', 'meta_template_language',
             'guest_filter', 'filter_relationship', 'custom_guest_ids',
             'filter_slot_id', 'filter_slot_date', 'filter_booking_status',
             'scheduled_at', 'status',
-            'total_recipients', 'sent_count', 'delivered_count',
+            'qualified_count', 'total_recipients', 'sent_count', 'delivered_count',
             'read_count', 'failed_count',
             'started_at', 'completed_at',
             'created_by', 'created_at', 'updated_at',
             'recipient_summary',
         )
         read_only_fields = (
-            'id', 'status', 'total_recipients', 'sent_count', 'delivered_count',
-            'read_count', 'failed_count', 'started_at', 'completed_at',
+            'id', 'status', 'qualified_count', 'total_recipients', 'sent_count',
+            'delivered_count', 'read_count', 'failed_count',
+            'started_at', 'completed_at',
             'created_by', 'created_at', 'updated_at', 'recipient_summary',
         )
 
@@ -1129,18 +1201,17 @@ class MessageCampaignCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageCampaign
         fields = (
-            'name', 'template', 'message_mode', 'message_body',
+            'id', 'name', 'channel', 'template', 'message_mode', 'message_body',
+            'subject',
             'meta_template_name', 'meta_template_language',
             'guest_filter', 'filter_relationship', 'custom_guest_ids',
             'filter_slot_id', 'filter_slot_date', 'filter_booking_status',
             'scheduled_at',
         )
+        read_only_fields = ('id',)
 
     def validate_message_body(self, value):
-        if len(value) > 1024:
-            raise serializers.ValidationError(
-                f'Message is too long ({len(value)} chars). Meta WhatsApp limit is 1024 characters.'
-            )
+        # Length enforcement done in validate() after we know the channel
         return value
 
     def validate_scheduled_at(self, value):
@@ -1149,7 +1220,20 @@ class MessageCampaignCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        if attrs.get('message_mode') == MessageCampaign.MSG_MODE_TEMPLATE:
+        channel = attrs.get('channel', 'whatsapp')
+
+        # Channel-specific body length limit
+        body = attrs.get('message_body', '')
+        if channel == 'whatsapp' and len(body) > 1024:
+            raise serializers.ValidationError(
+                {'message_body': f'Message is too long ({len(body)} chars). WhatsApp limit is 1024 characters.'}
+            )
+        if channel == 'email' and len(body) > 102400:
+            raise serializers.ValidationError(
+                {'message_body': 'Email body cannot exceed 100 KB.'}
+            )
+
+        if channel == 'whatsapp' and attrs.get('message_mode') == MessageCampaign.MSG_MODE_TEMPLATE:
             if not attrs.get('meta_template_name'):
                 raise serializers.ValidationError(
                     {'meta_template_name': 'Required for approved_template mode.'}

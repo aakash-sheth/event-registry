@@ -4,9 +4,13 @@ Django settings for registry_backend project.
 import os
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env from backend root
+load_dotenv(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-change-me-in-production')
@@ -199,6 +203,14 @@ SES_REGION = os.environ.get('SES_REGION', 'us-east-1')
 SES_ACCESS_KEY_ID = os.environ.get('SES_ACCESS_KEY_ID', '')
 SES_SECRET_ACCESS_KEY = os.environ.get('SES_SECRET_ACCESS_KEY', '')
 SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'no-reply@ekfern.com')
+SES_FROM_NAME = os.environ.get('SES_FROM_NAME', 'Ekfern')
+# Optional SES Configuration Set — enables open/click/bounce/complaint tracking via SNS
+SES_CAMPAIGN_CONFIG_SET = os.environ.get('SES_CAMPAIGN_CONFIG_SET', '')
+# Secret token appended to the SES webhook URL — SNS subscription must use this URL
+SES_WEBHOOK_TOKEN = os.environ.get('SES_WEBHOOK_TOKEN', '')
+# Public base URL of the backend — used to build click-tracking redirect links in emails
+# In production set this to e.g. https://api.ekfern.com
+EMAIL_TRACKING_BASE_URL = os.environ.get('EMAIL_TRACKING_BASE_URL', 'http://localhost:8000')
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@ekfern.com')
 
 # Frontend
