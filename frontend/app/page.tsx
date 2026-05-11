@@ -89,6 +89,9 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
           <Logo href="/" iconClassName="text-bright-teal" textClassName="text-bright-teal" />
           <div className="flex gap-3 items-center">
+            <Link href="/about" className="text-sm font-medium transition-colors duration-200 hidden sm:block" style={{ color: C.earth }}>
+              About
+            </Link>
             <Link href="/contact" className="text-sm font-medium transition-colors duration-200 hidden sm:block" style={{ color: C.earth }}>
               Contact
             </Link>
@@ -501,6 +504,9 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-sm font-medium" style={{ color: C.gold, fontFamily: SERIF, opacity: 0.8 }}>{BRAND_NAME}</p>
           <div className="flex gap-6 items-center">
+            <Link href="/about" className="text-xs transition-opacity duration-200 hover:opacity-100" style={{ color: C.gold, opacity: 0.45 }}>
+              About
+            </Link>
             <Link href="/privacy" className="text-xs transition-opacity duration-200 hover:opacity-100" style={{ color: C.gold, opacity: 0.45 }}>
               Privacy Policy
             </Link>
