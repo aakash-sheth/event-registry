@@ -77,6 +77,10 @@
           "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/FRONTEND_ORIGIN"
         },
         {
+          "name": "EMAIL_PROVIDER",
+          "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/EMAIL_PROVIDER"
+        },
+        {
           "name": "SES_REGION",
           "valueFrom": "arn:aws:ssm:us-east-1:630147069059:parameter/event-registry-staging/SES_REGION"
         },

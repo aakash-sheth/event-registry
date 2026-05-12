@@ -88,12 +88,8 @@ The execution role referenced by `infrastructure/ecs-task-definitions/backend-ta
 (Add a second resource ARN later if you introduce `/event-registry-prod/` parameters.)
 ### 2.3 Reference the secret from the task definition
 
-The staging task definition **`infrastructure/ecs-task-definitions/backend-task-definition.json`** already includes **`ANTHROPIC_API_KEY`** in `secrets`
-(pointing at `/event-registry-staging/ANTHROPIC_API_KEY`). Terraform or a one-off ECS console/register-task-definition workflow must publish that revision to the cluster **after** (1) the SSM parameter exists and (2) the execution role can read it.
+The staging deploy workflow **registers** [`backend-task-definition.json`](ecs-task-definitions/backend-task-definition.json) on each deploy, then points `backend-service` at that revision so **SSM secrets** (including `ANTHROPIC_API_KEY`) stay attached.
 
-Optional: expose **`LLM_GENERATION_ENABLED`** or **`LLM_COST_ALERT_EMAIL`** via SSM the same way (add `secrets[]` rows and plain `environment` entries for defaults), then remove duplicate names from `environment` if you migrate.
-
-Push to `main` (or manually register the task revision and **force-new-deployment** backend) once SSM + IAM are in place so tasks do not fail on missing `/ANTHROPIC_API_KEY`.
 
 ### 2.4 Verification
 

@@ -192,6 +192,17 @@ jobs:
           
           echo "✅ Images verified: backend ($BACKEND_COUNT), frontend ($FRONTEND_COUNT)"
 
+      - name: Register backend ECS task definition
+        run: |
+          # Keeps container secrets/env in sync with infrastructure/ecs-task-definitions/backend-task-definition.json
+          # (e.g. ANTHROPIC_API_KEY from SSM). Without this step, deploy only refreshes the image on an old revision.
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://infrastructure/ecs-task-definitions/backend-task-definition.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "Registered task definition: $ARN"
+          echo "BACKEND_TASK_DEF_ARN=$ARN" >> "$GITHUB_ENV"
+
       - name: Run database migrations
         timeout-minutes: 10
         run: |
@@ -263,6 +274,7 @@ jobs:
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER_NAME }} \
             --service ${{ env.ECS_BACKEND_SERVICE }} \
+            --task-definition "${{ env.BACKEND_TASK_DEF_ARN }}" \
             --force-new-deployment
 
       - name: Update frontend ECS service
