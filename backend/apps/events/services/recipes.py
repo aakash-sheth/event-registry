@@ -115,6 +115,33 @@ _RECIPES: list[dict] = [
         "requires": {"min_quiet_regions": 1, "has_sub_events": True},
         "description": "Card hero + main details + all sub-events carousel.",
     },
+    {
+        "id": "image-overlay-classic",
+        "tile_sequence": ["image", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "full_overlay",
+        "fits": list(WEDDING_FAMILY) + list(RELIGIOUS),
+        "weight": 0.85,
+        "requires": {"min_quiet_regions": 1},
+        "description": "Image hero with title+date overlays, then details and RSVP/Registry.",
+    },
+    {
+        "id": "image-overlay-with-timer",
+        "tile_sequence": ["image", "timer", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "light_overlay",
+        "fits": list(WEDDING_FAMILY) + list(LIFE_EVENTS),
+        "weight": 0.85,
+        "requires": {"min_quiet_regions": 1},
+        "description": "Image hero with light title overlay, countdown, then logistics.",
+    },
+    {
+        "id": "image-overlay-with-story",
+        "tile_sequence": ["image", "description", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "full_overlay",
+        "fits": list(WEDDING_FAMILY) + list(SOCIAL) + list(LIFE_EVENTS),
+        "weight": 0.6,
+        "requires": {"min_quiet_regions": 1},
+        "description": "Full-bleed image with overlays, story paragraph, then RSVP.",
+    },
     # -----------------------------------------------------------------
     # No-overlay recipes (work for ALL cards, including baked-text ones)
     # -----------------------------------------------------------------
@@ -126,6 +153,15 @@ _RECIPES: list[dict] = [
         "weight": 1.2,  # safe everywhere, slight preference
         "requires": {},
         "description": "Card + separate title tile + details. Works even with baked-text cards.",
+    },
+    {
+        "id": "image-then-title",
+        "tile_sequence": ["image", "title", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "none",
+        "fits": ["all"],
+        "weight": 1.0,
+        "requires": {},
+        "description": "Image hero + separate title + details (distinct from greeting-card stack).",
     },
     {
         "id": "card-then-banner",
@@ -144,6 +180,60 @@ _RECIPES: list[dict] = [
         "weight": 0.8,
         "requires": {},
         "description": "Editorial: oversize title first, card as visual punctuation, then details.",
+    },
+    {
+        "id": "title-leads-image",
+        "tile_sequence": ["title", "image", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "separate_title",
+        "fits": ["all"],
+        "weight": 0.75,
+        "requires": {},
+        "description": "Title first, image hero, then logistics (image instead of greeting-card).",
+    },
+    {
+        "id": "image-then-banner",
+        "tile_sequence": ["image", "title", "timer", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "banner_below",
+        "fits": ["all"],
+        "weight": 0.85,
+        "requires": {},
+        "description": "Image hero with banner title below, countdown, then logistics.",
+    },
+    {
+        "id": "story-first-card",
+        "tile_sequence": ["description", "greeting-card", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "none",
+        "fits": ["all"],
+        "weight": 0.65,
+        "requires": {},
+        "description": "Short story or note leads, then card and details — invitation as narrative.",
+    },
+    {
+        "id": "card-description-then-title",
+        "tile_sequence": ["greeting-card", "description", "title", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "none",
+        "fits": ["all"],
+        "weight": 0.55,
+        "requires": {},
+        "description": "Hero card, paragraph, then headline tile — unusual vertical rhythm.",
+    },
+    {
+        "id": "title-image-description-stack",
+        "tile_sequence": ["title", "image", "description", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "separate_title",
+        "fits": list(WEDDING_FAMILY) + list(LIFE_EVENTS) + list(SOCIAL),
+        "weight": 0.65,
+        "requires": {},
+        "description": "Editorial title, image, supporting copy, then logistics.",
+    },
+    {
+        "id": "title-card-story-timer",
+        "tile_sequence": ["title", "greeting-card", "description", "timer", "event-details", "feature-buttons", "footer"],
+        "overlay_strategy": "separate_title",
+        "fits": list(WEDDING_FAMILY) + list(LIFE_EVENTS),
+        "weight": 0.55,
+        "requires": {},
+        "description": "Title-led card with story block, countdown, then details.",
     },
     {
         "id": "title-card-description",
@@ -184,6 +274,15 @@ _RECIPES: list[dict] = [
         "requires": {"has_sub_events": True},
         "description": "Agenda-style: title, summary, details, session carousel.",
     },
+    {
+        "id": "corporate-image-summary",
+        "tile_sequence": ["title", "image", "event-details", "description", "feature-buttons", "footer"],
+        "overlay_strategy": "separate_title",
+        "fits": list(PROFESSIONAL),
+        "weight": 0.75,
+        "requires": {},
+        "description": "Title, visual, logistics, then closing paragraph — brochure flow.",
+    },
     # -----------------------------------------------------------------
     # Casual / dining / entertainment — playful sequencing
     # -----------------------------------------------------------------
@@ -219,12 +318,12 @@ _RECIPES: list[dict] = [
     # -----------------------------------------------------------------
     {
         "id": "religious-traditional",
-        "tile_sequence": ["title", "greeting-card", "event-details", "description", "feature-buttons", "footer"],
+        "tile_sequence": ["title", "description", "greeting-card", "event-details", "feature-buttons", "footer"],
         "overlay_strategy": "separate_title",
         "fits": list(RELIGIOUS),
         "weight": 1.1,
         "requires": {},
-        "description": "Reverent: title leads, card as imagery, then logistics and message.",
+        "description": "Reverent: title, opening message or verse, card as imagery, then logistics.",
     },
 ]
 

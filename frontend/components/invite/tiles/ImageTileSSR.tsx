@@ -20,6 +20,79 @@ export default function ImageTileSSR({ settings, hasTitleOverlay = false }: Imag
 
   const blurValue = hasTitleOverlay ? (settings.blur || 0) : 0
   const backgroundColor = settings.backgroundColor || '#ffffff'
+  const textOverlays = settings.textOverlays
+  const hasTextOverlays = !!(textOverlays && textOverlays.length > 0)
+
+  const renderTextOverlays = () => {
+    if (!hasTextOverlays || !textOverlays) return null
+    return textOverlays.map((overlay) => {
+      const verticalAlign = overlay.verticalAlign ?? 'middle'
+      const justifyContent =
+        verticalAlign === 'top' ? 'flex-start' : verticalAlign === 'bottom' ? 'flex-end' : 'center'
+      const textDecoration = [
+        overlay.underline ? 'underline' : '',
+        overlay.strikethrough ? 'line-through' : '',
+      ]
+        .filter(Boolean)
+        .join(' ') || 'none'
+      return (
+        <div
+          key={overlay.id}
+          style={{
+            position: 'absolute',
+            left: `${overlay.x}%`,
+            top: `${overlay.y}%`,
+            width: `${overlay.width}%`,
+            fontFamily: overlay.fontFamily,
+            fontSize: `${overlay.fontSize}px`,
+            color: overlay.color,
+            fontWeight: overlay.bold ? 700 : 400,
+            fontStyle: overlay.italic ? 'italic' : 'normal',
+            textDecoration,
+            textAlign: overlay.textAlign,
+            lineHeight: 1.3,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent,
+            ...(overlay.height != null
+              ? { height: `${overlay.height}%`, overflow: 'hidden' }
+              : { minHeight: `${overlay.fontSize * 1.6}px` }),
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+            padding: '2px 4px',
+            pointerEvents: 'none',
+          }}
+        >
+          {overlay.text}
+        </div>
+      )
+    })
+  }
+
+  if (hasTextOverlays) {
+    return (
+      <div className="w-full flex justify-center">
+        <div className="relative w-full max-w-sm overflow-hidden" style={{ aspectRatio: '9 / 16' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={convertToCloudFrontUrl(settings.src)}
+            alt="Event"
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="absolute inset-0 w-full h-full"
+            style={{
+              objectFit: 'cover',
+              objectPosition: 'center center',
+              filter: blurValue > 0 ? `blur(${blurValue}px)` : 'none',
+            }}
+          />
+          {renderTextOverlays()}
+        </div>
+      </div>
+    )
+  }
 
   // Convert cover position to CSS object-position value
   const getObjectPosition = (): string => {

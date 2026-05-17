@@ -35,6 +35,7 @@ from . import (
     remix_cache,
     style_presets,
     template_naming,
+    texture_variation,
 )
 from .metrics import emit_metric, measure_latency
 
@@ -93,6 +94,39 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+def recipe_structure_fingerprint(recipe: dict) -> str:
+    """Stable structural id for sampling diversity (sequence + overlay mode)."""
+    seq = recipe.get("tile_sequence") or []
+    ov = recipe.get("overlay_strategy") or ""
+    return f"{ov}|{','.join(seq)}"
+
+
+def rank_eligible_recipes(
+    eligible: list[dict],
+    card_analysis: dict,
+) -> list[dict]:
+    """Order recipes using vision hints (no extra LLM). Lower sort key = earlier."""
+    if not eligible or not card_analysis:
+        return list(eligible)
+
+    placement = str(card_analysis.get("best_text_placement") or "").lower().strip()
+    composition = str(card_analysis.get("composition") or "").lower().strip()
+    prefer_below = placement in ("below-card", "overlay-bottom-banner")
+    busy = composition in ("busy", "has_baked_text")
+
+    def sort_key(r: dict) -> tuple[int, str]:
+        strat = str(r.get("overlay_strategy") or "")
+        badness = 0
+        if prefer_below and strat in ("full_overlay", "light_overlay"):
+            badness += 2
+        if busy and strat in ("full_overlay", "light_overlay"):
+            badness += 1
+        rid = str(r.get("id") or "")
+        return (badness, rid)
+
+    return sorted(eligible, key=sort_key)
+
+
 # ---------------------------------------------------------------------------
 # Sampling
 # ---------------------------------------------------------------------------
@@ -111,7 +145,9 @@ def sample_combinations(
       1. Build the full cartesian space, weighted by recipe weight.
       2. Shuffle and walk it greedily, requiring distinctness on
          (recipe.id, preset.id) and a different copy index when possible.
-      3. If the unique space is smaller than `n_outputs`, fall back to
+      3. Prefer unseen recipe_structure_fingerprint when possible so drafts
+         diverge in tile skeleton, not only preset/copy.
+      4. If the unique space is smaller than `n_outputs`, fall back to
          repeating recipes with different style/copy combos and tag the
          meta so staff can see the constraint was hit.
     """
@@ -145,39 +181,85 @@ def sample_combinations(
 
     rng.shuffle(triples)
 
+    def _greedy_pass(
+        triples_list: list[tuple[dict, dict, int]],
+        *,
+        require_fresh_fingerprint: bool,
+        allow_fallback_meta: bool,
+        initial_chosen: list[dict],
+        initial_seen_pairs: set[tuple[str, str]],
+        initial_seen_copy: set[int],
+        initial_seen_fp: set[str],
+    ) -> tuple[list[dict], set[tuple[str, str]], set[int], set[str], int]:
+        seen_pairs = set(initial_seen_pairs)
+        seen_copy = set(initial_seen_copy)
+        seen_fp = set(initial_seen_fp)
+        chosen = list(initial_chosen)
+        fallbacks = 0
+        for r, p, ci in triples_list:
+            if len(chosen) >= n_outputs:
+                break
+            fp = recipe_structure_fingerprint(r)
+            pair_key = (r["id"], p["id"])
+            copy_used = ci in seen_copy
+            if pair_key in seen_pairs:
+                continue
+            if len(chosen) < len(copy_variants) and copy_used:
+                continue
+            if require_fresh_fingerprint and fp in seen_fp:
+                continue
+            seen_pairs.add(pair_key)
+            seen_copy.add(ci)
+            seen_fp.add(fp)
+            entry: dict = {"recipe": r, "preset": p, "copy_idx": ci}
+            if allow_fallback_meta:
+                entry["fallback"] = True
+                fallbacks += 1
+            chosen.append(entry)
+        return chosen, seen_pairs, seen_copy, seen_fp, fallbacks
+
     seen_pairs: set[tuple[str, str]] = set()
     seen_copy: set[int] = set()
+    seen_fp: set[str] = set()
     chosen: list[dict] = []
     fallbacks_used = 0
 
-    for r, p, ci in triples:
-        pair_key = (r["id"], p["id"])
-        copy_used = ci in seen_copy
-        if pair_key in seen_pairs:
-            continue
-        if len(chosen) < len(copy_variants) and copy_used:
-            # Prefer fresh copy variants for the first pass.
-            continue
-        seen_pairs.add(pair_key)
-        seen_copy.add(ci)
-        chosen.append({"recipe": r, "preset": p, "copy_idx": ci})
-        if len(chosen) >= n_outputs:
-            break
+    chosen, seen_pairs, seen_copy, seen_fp, _ = _greedy_pass(
+        triples,
+        require_fresh_fingerprint=True,
+        allow_fallback_meta=False,
+        initial_chosen=[],
+        initial_seen_pairs=seen_pairs,
+        initial_seen_copy=seen_copy,
+        initial_seen_fp=seen_fp,
+    )
 
-    # Fallback pass: relax distinctness if we couldn't reach n_outputs.
+    if len(chosen) < n_outputs:
+        chosen, seen_pairs, seen_copy, seen_fp, extra_fb = _greedy_pass(
+            triples,
+            require_fresh_fingerprint=False,
+            allow_fallback_meta=False,
+            initial_chosen=chosen,
+            initial_seen_pairs=seen_pairs,
+            initial_seen_copy=seen_copy,
+            initial_seen_fp=seen_fp,
+        )
+        fallbacks_used += extra_fb
+
+    # Relax (recipe, preset) uniqueness if we still need more rows.
     if len(chosen) < n_outputs:
         seen_full: set[tuple[str, str, int]] = {
             (c["recipe"]["id"], c["preset"]["id"], c["copy_idx"]) for c in chosen
         }
         for r, p, ci in triples:
+            if len(chosen) >= n_outputs:
+                break
             key = (r["id"], p["id"], ci)
             if key in seen_full:
                 continue
             seen_full.add(key)
             chosen.append({"recipe": r, "preset": p, "copy_idx": ci, "fallback": True})
             fallbacks_used += 1
-            if len(chosen) >= n_outputs:
-                break
 
     if fallbacks_used:
         logger.info(
@@ -502,13 +584,23 @@ def _tile_event_carousel(*, order: int, preset: dict, palette_data: dict) -> dic
     }
 
 
-def _tile_image(*, order: int, src: str) -> dict:
+def _tile_image(*, order: int, src: str, overlays: Optional[list] = None) -> dict:
+    """Image tile hero. With text overlays, use full-image + 9:16 coords (matches ImageTile client)."""
+    ovs = overlays or []
+    if ovs:
+        settings: dict = {
+            "src": src,
+            "textOverlays": ovs,
+            "fitMode": "full-image",
+        }
+    else:
+        settings = {"src": src, "fitMode": "fit-to-screen"}
     return {
         "id": _new_id("tile-image"),
         "type": "image",
         "enabled": True,
         "order": order,
-        "settings": {"src": src, "fitMode": "fit-to-screen"},
+        "settings": settings,
     }
 
 
@@ -554,6 +646,10 @@ def compose_config(
             tile = _tile_greeting_card(order=order, src=card_url, overlays=overlays)
             card_tile_id = tile["id"]
             tiles.append(tile)
+        elif tile_type == "image":
+            tile = _tile_image(order=order, src=card_url, overlays=overlays)
+            card_tile_id = tile["id"]
+            tiles.append(tile)
         elif tile_type == "title":
             # Banner-below: title is its own tile after the card.
             # Separate-title / none: standalone title tile, no overlay target.
@@ -566,8 +662,6 @@ def compose_config(
                 palette_data=palette_data, overlay_target=target,
             ))
             title_tile_added = True
-        elif tile_type == "image":
-            tiles.append(_tile_image(order=order, src=card_url))
         elif tile_type == "timer":
             tiles.append(_tile_timer(order=order, palette_data=palette_data, preset=preset))
         elif tile_type == "event-details":
@@ -682,6 +776,7 @@ def generate_options(
                 n_outputs=n_outputs,
                 has_sub_events=has_sub_events,
                 rng=rng,
+                seed=seed,
             )
         except Exception:
             metric_status = "error"
@@ -711,6 +806,7 @@ def _generate_options_inner(
     n_outputs: int,
     has_sub_events: bool,
     rng: random.Random,
+    seed: Optional[int] = None,
 ) -> tuple[dict, int]:
     """Body of ``generate_options`` extracted so the wrapper can wrap a single
     try/finally around it for metric emission. Returns (response, fallback_count)
@@ -745,6 +841,7 @@ def _generate_options_inner(
         has_baked_text=has_baked_text,
         has_sub_events=has_sub_events,
     )
+    eligible_recipes_list = rank_eligible_recipes(eligible_recipes_list, card_analysis)
     eligible_presets_list = style_presets.eligible_presets(
         feeling=card_analysis.get("dominant_feeling"),
         is_dark_bg=palette_data.get("is_dark_bg", False),
@@ -782,6 +879,14 @@ def _generate_options_inner(
             copy=copy,
             decoration_set=decoration_set,
         )
+        tex = texture_variation.apply_texture_variation(
+            config,
+            draft_index=draft_index,
+            card_analysis=card_analysis,
+            copy=copy,
+            seed=seed,
+            request_id=request_id,
+        )
         is_fallback = bool(combo.get("fallback"))
         if is_fallback:
             fallback_count += 1
@@ -800,6 +905,9 @@ def _generate_options_inner(
             "copy_headline": template_naming.copy_headline_snippet(copy.get("primary")),
             "decoration_set_id": (decoration_set or {}).get("id"),
             "page_background_color": effective_palette.get("bg"),
+            "structure_fingerprint": recipe_structure_fingerprint(combo["recipe"]),
+            "texture_type": tex.get("type"),
+            "texture_intensity": tex.get("intensity"),
         }
         drafts.append({"config": config, "meta": meta})
 
@@ -904,6 +1012,7 @@ def remix_options(
         has_baked_text=has_baked_text,
         has_sub_events=has_sub_events,
     )
+    eligible_recipes_list = rank_eligible_recipes(eligible_recipes_list, card_analysis)
     eligible_presets_list = style_presets.eligible_presets(
         feeling=card_analysis.get("dominant_feeling"),
         is_dark_bg=palette_data.get("is_dark_bg", False),
@@ -965,6 +1074,14 @@ def remix_options(
             copy=copy,
             decoration_set=decoration_set,
         )
+        tex = texture_variation.apply_texture_variation(
+            config,
+            draft_index=draft_index,
+            card_analysis=card_analysis,
+            copy=copy,
+            seed=seed,
+            request_id=request_id,
+        )
         meta = {
             "recipe_id": combo["recipe"]["id"],
             "preset_id": combo["preset"]["id"],
@@ -987,6 +1104,9 @@ def remix_options(
                 "preset_id": lock_preset_id,
                 "copy_idx": lock_copy_idx,
             },
+            "structure_fingerprint": recipe_structure_fingerprint(combo["recipe"]),
+            "texture_type": tex.get("type"),
+            "texture_intensity": tex.get("intensity"),
         }
         drafts.append({"config": config, "meta": meta})
 

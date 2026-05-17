@@ -15,12 +15,13 @@ Coverage focus:
 """
 from __future__ import annotations
 
+import random
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase
 
-from apps.events.services import layout_generator, recipes, style_presets
+from apps.events.services import layout_generator, recipes, style_presets, texture_variation
 
 
 # Mirror of `TileType` in `frontend/lib/invite/schema.ts`. Tests must fail
@@ -307,6 +308,50 @@ class GenerateOptionsTests(TestCase):
         result = self._run(n_outputs=0)
         self.assertGreaterEqual(len(result["drafts"]), 1)
 
+    def test_texture_variation_at_least_three_distinct_types_when_pool_wide(self):
+        result = self._run(
+            n_outputs=8,
+            seed=202,
+            card_analysis=_fake_card_analysis_with_quiet_regions(
+                dominant_feeling="romantic",
+            ),
+        )
+        types = {d["config"]["texture"]["type"] for d in result["drafts"]}
+        self.assertGreaterEqual(
+            len(types),
+            3,
+            f"expected diverse texture types, got {sorted(types)}",
+        )
+        for d in result["drafts"]:
+            self.assertEqual(d["meta"].get("texture_type"), d["config"]["texture"]["type"])
+            self.assertEqual(d["meta"].get("texture_intensity"), d["config"]["texture"]["intensity"])
+            self.assertIn(d["config"]["texture"]["type"], texture_variation.ALLOWED_TEXTURE_TYPES)
+            if d["config"]["texture"]["type"] == "none":
+                self.assertEqual(d["config"]["texture"]["intensity"], 0)
+
+    def test_texture_sequence_deterministic_with_seed(self):
+        ca = _fake_card_analysis_with_quiet_regions(dominant_feeling="elegant")
+        first = self._run(n_outputs=6, seed=555, card_analysis=ca)
+        second = self._run(n_outputs=6, seed=555, card_analysis=ca)
+        t1 = [
+            (d["config"]["texture"]["type"], d["config"]["texture"]["intensity"])
+            for d in first["drafts"]
+        ]
+        t2 = [
+            (d["config"]["texture"]["type"], d["config"]["texture"]["intensity"])
+            for d in second["drafts"]
+        ]
+        self.assertEqual(t1, t2)
+
+
+class TextureVariationUnitTests(TestCase):
+    def test_intensity_for_none_is_zero(self):
+        self.assertEqual(texture_variation.intensity_for_texture("none", 3), 0)
+
+    def test_texture_pool_unknown_includes_many_types(self):
+        p = texture_variation.texture_pool("not_a_real_bucket", "also_fake")
+        self.assertGreaterEqual(len(p), 5)
+
 
 class ComposeConfigTests(TestCase):
     """Direct tests for `compose_config` / `build_overlays`."""
@@ -376,3 +421,117 @@ class ComposeConfigTests(TestCase):
         cc = config.get("customColors") or {}
         self.assertEqual(cc.get("backgroundColor"), self.palette["bg"])
         self.assertEqual(cc.get("primaryColor"), self.palette["accent"])
+
+    def test_compose_config_image_hero_has_text_overlays_for_full_overlay(self):
+        recipe = next(
+            r for r in recipes.all_recipes()
+            if r["id"] == "image-overlay-classic"
+        )
+        config, _ = layout_generator.compose_config(
+            card_url="https://test.example.com/card.jpg",
+            card_analysis=self.card,
+            palette_data=self.palette,
+            recipe=recipe,
+            preset=self.preset,
+            copy=self.copy,
+        )
+        img_tiles = [t for t in config["tiles"] if t["type"] == "image"]
+        self.assertEqual(len(img_tiles), 1)
+        overlays = img_tiles[0]["settings"].get("textOverlays") or []
+        self.assertTrue(overlays, "image overlay recipe should attach textOverlays")
+        self.assertEqual(img_tiles[0]["settings"].get("fitMode"), "full-image")
+
+    def test_compose_config_image_then_title_uses_fit_to_screen_without_overlays(self):
+        recipe = next(
+            r for r in recipes.all_recipes()
+            if r["id"] == "image-then-title"
+        )
+        config, _ = layout_generator.compose_config(
+            card_url="https://test.example.com/card.jpg",
+            card_analysis=self.card,
+            palette_data=self.palette,
+            recipe=recipe,
+            preset=self.preset,
+            copy=self.copy,
+        )
+        img_tiles = [t for t in config["tiles"] if t["type"] == "image"]
+        self.assertEqual(len(img_tiles), 1)
+        self.assertEqual(img_tiles[0]["settings"].get("textOverlays") or [], [])
+        self.assertEqual(img_tiles[0]["settings"].get("fitMode"), "fit-to-screen")
+
+
+class MetaAndRoutingTests(TestCase):
+    def test_meta_includes_structure_fingerprint(self):
+        palette_data = _fake_palette_light()
+        card_analysis = _fake_card_analysis_with_quiet_regions()
+        copy_variants = _fake_copy_variants()
+        with _PipelinePatcher(
+            palette_data=palette_data,
+            card_analysis=card_analysis,
+            copy_variants=copy_variants,
+        ):
+            result = layout_generator.generate_options(
+                card_url="https://test.example.com/card.jpg",
+                event_type="wedding",
+                concept="Test",
+                user=None,
+                request_id="req-fp-meta",
+                n_outputs=3,
+                seed=7,
+            )
+        for draft in result["drafts"]:
+            fp = draft["meta"].get("structure_fingerprint")
+            self.assertIsInstance(fp, str)
+            self.assertTrue(fp, "structure_fingerprint should be non-empty")
+
+    def test_rank_eligible_recipes_below_card_prefers_non_overlay(self):
+        pool = [r for r in recipes.all_recipes() if r["id"] in ("overlay-hero-classic", "card-then-title")]
+        self.assertEqual(len(pool), 2)
+        card_analysis = {
+            "best_text_placement": "below-card",
+            "composition": "centered",
+        }
+        ranked = layout_generator.rank_eligible_recipes(pool, card_analysis)
+        self.assertEqual(ranked[0]["id"], "card-then-title")
+
+    def test_rank_eligible_recipes_busy_deprioritizes_overlay(self):
+        pool = [r for r in recipes.all_recipes() if r["id"] in ("overlay-hero-classic", "card-then-title")]
+        card_analysis = {
+            "best_text_placement": "middle",
+            "composition": "busy",
+        }
+        ranked = layout_generator.rank_eligible_recipes(pool, card_analysis)
+        self.assertEqual(ranked[0]["id"], "card-then-title")
+
+
+class SamplerFingerprintTests(TestCase):
+    def test_sample_prefers_distinct_structure_fingerprints_before_reuse(self):
+        r_a = {
+            "id": "finger-a",
+            "tile_sequence": ["image", "title"],
+            "overlay_strategy": "none",
+            "weight": 1.0,
+        }
+        r_b = {
+            "id": "finger-b",
+            "tile_sequence": ["greeting-card", "title"],
+            "overlay_strategy": "none",
+            "weight": 1.0,
+        }
+        p1 = {"id": "p1", "fits_feelings": ["romantic"]}
+        p2 = {"id": "p2", "fits_feelings": ["elegant"]}
+        copy_variants = [
+            {"primary": "T0", "secondary": "", "tertiary": "", "tone": "romantic", "notes": ""},
+            {"primary": "T1", "secondary": "", "tertiary": "", "tone": "elegant", "notes": ""},
+        ]
+        combos = layout_generator.sample_combinations(
+            eligible_recipes_list=[r_a, r_b],
+            eligible_presets_list=[p1, p2],
+            copy_variants=copy_variants,
+            n_outputs=4,
+            rng=random.Random(0),
+        )
+        self.assertEqual(len(combos), 4)
+        fp0 = layout_generator.recipe_structure_fingerprint(combos[0]["recipe"])
+        fp1 = layout_generator.recipe_structure_fingerprint(combos[1]["recipe"])
+        self.assertNotEqual(fp0, fp1, "first two samples should use distinct skeletons when available")
