@@ -80,14 +80,14 @@ const DEFAULT_TILES: Tile[] = [
     type: 'timer',
     enabled: false,
     order: 4,
-    settings: { enabled: true, format: 'circle', circleColor: '#0D6EFD', textColor: '#000000' },
+    settings: { enabled: true, format: 'circle', circleColor: '#D4A017', textColor: '#0B3D2E' },
   },
   {
     id: 'tile-feature-buttons-5',
     type: 'feature-buttons',
     enabled: true,
     order: 5,
-    settings: { buttonColor: '#0D6EFD' },
+    settings: { buttonColor: '#D4A017' },
   },
   {
     id: 'tile-event-carousel-7',
@@ -141,8 +141,9 @@ export default function DesignInvitationPage(): JSX.Element {
   const [previewCropFilename, setPreviewCropFilename] = useState<string>('preview.jpg')
   const [allTilesExpanded, setAllTilesExpanded] = useState(false)
   const [config, setConfig] = useState<InviteConfig>({
-    themeId: 'classic-noir',
+    themeId: 'warm-parchment',
     tiles: DEFAULT_TILES,
+    texture: { type: 'parchment', intensity: 20 },
   })
   // Preview order state - tracks real-time order for mobile preview (not saved to backend)
   const [previewOrder, setPreviewOrder] = useState<Map<string, number>>(new Map())
@@ -227,14 +228,14 @@ export default function DesignInvitationPage(): JSX.Element {
             type: 'timer',
             enabled: false,
             order: 4,
-            settings: { enabled: true, format: 'circle', circleColor: '#0D6EFD', textColor: '#000000' },
+            settings: { enabled: true, format: 'circle', circleColor: '#D4A017', textColor: '#0B3D2E' },
           },
           {
             id: 'tile-feature-buttons-5',
             type: 'feature-buttons',
             enabled: true,
             order: 5,
-            settings: { buttonColor: '#0D6EFD' },
+            settings: { buttonColor: '#D4A017' },
           },
           {
             id: 'tile-event-carousel-7',
@@ -381,10 +382,11 @@ export default function DesignInvitationPage(): JSX.Element {
       // If no config exists or migration failed, show design start (template vs scratch)
       if (!finalConfig) {
         const defaultTiles = createDefaultTiles(eventData)
-        finalConfig = { 
-          themeId: 'classic-noir', 
+        finalConfig = {
+          themeId: 'warm-parchment',
           tiles: defaultTiles,
-          customColors: {}, // Initialize empty customColors object
+          texture: { type: 'parchment', intensity: 20 },
+          customColors: {},
         }
         setSelectedTileId('tile-title-0')
         setShowDesignStartView(true)

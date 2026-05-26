@@ -21,7 +21,7 @@ export default function FeatureButtonsTile({
   eventSlug,
   guestToken,
 }: FeatureButtonsTileProps) {
-  const buttonColor = settings.buttonColor || '#0D6EFD'
+  const buttonColor = settings.buttonColor || 'var(--theme-primary, #D4A017)'
   const buttons: Array<{ label: string; href: string }> = []
 
   if (hasRsvp) {

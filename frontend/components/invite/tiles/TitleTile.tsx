@@ -17,10 +17,10 @@ export default function TitleTile({ settings, preview = false }: TitleTileProps)
 
   // Size classes mapping
   const sizeClasses = {
-    small: 'text-xl md:text-2xl',
-    medium: 'text-3xl md:text-4xl',
-    large: 'text-4xl md:text-5xl',
-    xlarge: 'text-5xl md:text-6xl',
+    small: 'text-2xl md:text-3xl',
+    medium: 'text-4xl md:text-5xl',
+    large: 'text-5xl md:text-6xl',
+    xlarge: 'text-6xl md:text-7xl',
   }
 
   const titleClassName = sizeClasses[size]
@@ -36,10 +36,10 @@ export default function TitleTile({ settings, preview = false }: TitleTileProps)
 
   if (preview) {
     return (
-      <div className="w-full py-8 px-4 text-center flex flex-col items-center justify-center" style={{ fontFamily, color }}>
-        <h1 className={`${titleClassName} font-bold text-center mx-auto`}>{text}</h1>
+      <div className="w-full py-10 px-6 text-center flex flex-col items-center justify-center" style={{ fontFamily, color }}>
+        <h1 className={`${titleClassName} font-light leading-tight tracking-wide text-center mx-auto`}>{text}</h1>
         {subtitle && (
-          <p className={`${subtitleSizeClasses[subtitleSize]} mt-3 font-normal text-center mx-auto max-w-xl`} style={{ fontFamily: subtitleFont, color: subtitleColor }}>
+          <p className={`${subtitleSizeClasses[subtitleSize]} mt-4 font-light tracking-widest uppercase text-center mx-auto max-w-xl opacity-80`} style={{ fontFamily: subtitleFont, color: subtitleColor }}>
             {subtitle}
           </p>
         )}

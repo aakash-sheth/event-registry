@@ -27,7 +27,7 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ config, children }: ThemeProviderProps) {
   // When customColors/customFonts are not set, derive from themeId so template themes display correctly
-  const theme = getTheme(config?.themeId || 'classic-noir')
+  const theme = getTheme(config?.themeId || 'warm-parchment')
   const colors: ColorsAndFonts = {
     backgroundColor: config?.customColors?.backgroundColor ?? theme.palette.bg,
     fontColor: config?.customColors?.fontColor ?? theme.palette.fg,

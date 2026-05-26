@@ -318,7 +318,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
               const parts = parseDateParts(settings.date)
               if (parts) {
                 return (
-                  <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                  <div className="space-y-8" style={{ fontFamily: 'var(--theme-font-body, Georgia, serif)' }}>
                     <div className="space-y-4">
                       <div className="text-4xl md:text-5xl lg:text-6xl font-bold leading-none tracking-tight" style={{ color: fontColor }}>
                         {parts.day}
@@ -400,7 +400,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
             }
 
             return (
-              <div className="space-y-8" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+              <div className="space-y-8" style={{ fontFamily: 'var(--theme-font-body, Georgia, serif)' }}>
                 {settings.date && (
                   <div className="space-y-2">
                     <div className="text-xs uppercase tracking-widest font-light italic mb-3" style={{ color: labelColor }}>
@@ -629,7 +629,7 @@ export default function EventDetailsTile({ settings, preview = false, eventSlug,
         backgroundColor,
       }}
     >
-      <div className="space-y-3 text-sm" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+      <div className="space-y-3 text-sm" style={{ fontFamily: 'var(--theme-font-body, Georgia, serif)' }}>
         {settings.date && (
           <p>
             <span className="text-xs uppercase tracking-widest font-light italic mr-2" style={{ color: labelColor }}>Date:</span>

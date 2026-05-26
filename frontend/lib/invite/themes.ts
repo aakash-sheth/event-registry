@@ -60,6 +60,20 @@ export const THEMES: Theme[] = [
       body: 'Inter, system-ui',
     },
   },
+  {
+    id: 'warm-parchment',
+    palette: {
+      bg: '#E8D8C3',
+      fg: '#0B3D2E',
+      primary: '#D4A017',
+      muted: '#8B5E3C',
+      overlayOpacity: 0.18,
+    },
+    fonts: {
+      title: "'Cormorant Garamond', serif",
+      body: "Georgia, 'Times New Roman', serif",
+    },
+  },
 ]
 
 export function getTheme(id: string): Theme {
