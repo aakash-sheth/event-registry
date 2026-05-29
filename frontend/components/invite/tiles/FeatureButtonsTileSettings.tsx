@@ -1,7 +1,6 @@
 'use client'
 
 import React from 'react'
-import Link from 'next/link'
 import type { FeatureButtonsTileSettings } from '@/lib/invite/schema'
 import { colorInputValue } from '@/lib/invite/colorInputValue'
 import { Input } from '@/components/ui/input'
@@ -22,8 +21,48 @@ export default function FeatureButtonsTileSettings({
   hasRegistry = false,
   eventId,
 }: FeatureButtonsTileSettingsProps) {
+  const currentVariant = settings.buttonVariant ?? 'classic'
+
   return (
     <div className="space-y-4">
+      {/* Button Style */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Button Style</label>
+        <select
+          value={currentVariant}
+          onChange={(e) => onChange({ ...settings, buttonVariant: e.target.value as FeatureButtonsTileSettings['buttonVariant'] })}
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+        >
+          <option value="classic">Classic</option>
+          <option value="gloss">Gloss</option>
+          <option value="soft">Soft</option>
+          <option value="metal">Metal</option>
+          <option value="raised">Raised</option>
+          <option value="glow">Glow</option>
+          <option value="bracket">Bracket</option>
+          <option value="shimmer">Shimmer</option>
+          <option value="ornate">Ornate</option>
+          <option value="link">Link</option>
+        </select>
+      </div>
+
+      {/* Corner Radius — hidden for link variant */}
+      {currentVariant !== 'link' && (
+        <div>
+          <label className="block text-sm font-medium mb-1">Corner Radius</label>
+          <select
+            value={settings.buttonRadius ?? 'round'}
+            onChange={(e) => onChange({ ...settings, buttonRadius: e.target.value as FeatureButtonsTileSettings['buttonRadius'] })}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+          >
+            <option value="sharp">Sharp</option>
+            <option value="subtle">Subtle</option>
+            <option value="round">Round</option>
+            <option value="pill">Pill</option>
+          </select>
+        </div>
+      )}
+
       <div>
         <label className="block text-sm font-medium mb-2">Button Color</label>
         <div className="flex items-center gap-2">

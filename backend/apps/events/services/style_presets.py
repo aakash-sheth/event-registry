@@ -54,6 +54,12 @@ _CAROUSEL_IMAGE_HEIGHTS = {"small", "medium", "large", "full"}
 _CAROUSEL_IMAGE_RATIOS = {"16:9", "4:3", "1:1", "auto"}
 _CAROUSEL_PADDINGS = {"tight", "normal", "spacious"}
 
+_BUTTON_VARIANTS = {
+    "classic", "gloss", "soft", "metal", "raised",
+    "glow", "bracket", "shimmer", "ornate", "link",
+}
+_BUTTON_RADII = {"sharp", "subtle", "round", "pill"}
+
 
 _PRESETS: list[dict] = [
     {
@@ -71,6 +77,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "❦",
         "border_style": "elegant",
         "button_label_style": "RSVP",
+        "button_variant": "ornate",
+        "button_radius": "subtle",
+        "gradient_angle": 160,
         "fits_feelings": ["romantic", "elegant", "intimate", "warm"],
         "force_dark_bg": False,
         "title_size": "xlarge",
@@ -97,6 +106,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "✦",
         "border_style": "classic",
         "button_label_style": "RSVP",
+        "button_variant": "metal",
+        "button_radius": "sharp",
+        "gradient_angle": 180,
         "fits_feelings": ["elegant", "traditional", "intimate"],
         "force_dark_bg": True,
         "title_size": "large",
@@ -123,6 +135,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "✿",
         "border_style": "ornate",
         "button_label_style": "RSVP",
+        "button_variant": "soft",
+        "button_radius": "round",
+        "gradient_angle": 135,
         "fits_feelings": ["romantic", "rustic", "warm", "celebratory"],
         "force_dark_bg": False,
         "title_size": "large",
@@ -149,6 +164,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "—",
         "border_style": "minimal",
         "button_label_style": "RSVP",
+        "button_variant": "classic",
+        "button_radius": "sharp",
+        "gradient_angle": 90,
         "fits_feelings": ["modern", "elegant", "serene"],
         "force_dark_bg": False,
         "title_size": "large",
@@ -175,6 +193,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "✤",
         "border_style": "modern",
         "button_label_style": "Join",
+        "button_variant": "glow",
+        "button_radius": "pill",
+        "gradient_angle": 135,
         "fits_feelings": ["playful", "celebratory", "modern"],
         "force_dark_bg": False,
         "title_size": "xlarge",
@@ -201,6 +222,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "•",
         "border_style": "vintage",
         "button_label_style": "RSVP",
+        "button_variant": "raised",
+        "button_radius": "subtle",
+        "gradient_angle": 160,
         "fits_feelings": ["rustic", "warm", "traditional", "intimate"],
         "force_dark_bg": False,
         "title_size": "large",
@@ -227,6 +251,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "✦",
         "border_style": "ornate",
         "button_label_style": "RSVP",
+        "button_variant": "shimmer",
+        "button_radius": "subtle",
+        "gradient_angle": 160,
         "fits_feelings": ["traditional", "elegant", "celebratory"],
         "force_dark_bg": False,
         "title_size": "xlarge",
@@ -253,6 +280,9 @@ _PRESETS: list[dict] = [
         "decorative_symbol": "",
         "border_style": "modern",
         "button_label_style": "RSVP",
+        "button_variant": "gloss",
+        "button_radius": "round",
+        "gradient_angle": 180,
         "fits_feelings": ["modern", "serene", "elegant"],
         "force_dark_bg": False,
         "title_size": "large",
@@ -290,6 +320,13 @@ def _validate_presets() -> None:
                 raise RuntimeError(
                     f"style_presets: preset {preset['id']!r} references unknown "
                     f"feeling {feeling!r}. Add it to ALLOWED_FEELINGS or fix the preset."
+                )
+        for key, allowed in (("button_variant", _BUTTON_VARIANTS), ("button_radius", _BUTTON_RADII)):
+            val = preset.get(key)
+            if val and val not in allowed:
+                raise RuntimeError(
+                    f"style_presets: preset {preset['id']!r} {key}={val!r} "
+                    f"not in allowed set {sorted(allowed)}."
                 )
         carousel = preset.get("carousel")
         if not isinstance(carousel, dict):

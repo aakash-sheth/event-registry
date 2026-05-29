@@ -27,7 +27,7 @@ import TileSettingsList from '@/components/invite/tiles/TileSettingsList'
 import { ThemeProvider } from '@/components/invite/living-poster/ThemeProvider'
 import TextureOverlay from '@/components/invite/living-poster/TextureOverlay'
 import { getErrorMessage, logError, logDebug } from '@/lib/error-handler'
-import { cropImage } from '@/lib/invite/imageAnalysis'
+import { cropImage, extractDominantColors, rgbToHex } from '@/lib/invite/imageAnalysis'
 import { convertToCloudFrontUrl } from '@/lib/image-utils'
 import { colorInputValue } from '@/lib/invite/colorInputValue'
 import WizardProgress from '@/components/host/WizardProgress'
@@ -133,10 +133,12 @@ export default function DesignInvitationPage(): JSX.Element {
   const previewImageInputRef = useRef<HTMLInputElement>(null)
   const previewWindowRef = useRef<Window | null>(null)
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+  const [showPageBackground, setShowPageBackground] = useState(false)
   const [showLinkMetadata, setShowLinkMetadata] = useState(false)
   const [gradientColor1, setGradientColor1] = useState('#E8D8C3')
   const [gradientColor2, setGradientColor2] = useState('#C4A882')
   const [gradientAngle, setGradientAngle] = useState(160)
+  const [canRestoreBg, setCanRestoreBg] = useState(false)
   const [uploadingPreviewImage, setUploadingPreviewImage] = useState(false)
   const [isPreviewCropOpen, setIsPreviewCropOpen] = useState(false)
   const [previewCropSrc, setPreviewCropSrc] = useState<string | null>(null)
@@ -389,7 +391,7 @@ export default function DesignInvitationPage(): JSX.Element {
           themeId: 'warm-parchment',
           tiles: defaultTiles,
           texture: { type: 'parchment', intensity: 20 },
-          customColors: {},
+          customColors: { backgroundGradient: 'linear-gradient(160deg, #E8D8C3 0%, #C4A882 100%)' },
         }
         setSelectedTileId('tile-title-0')
         setShowDesignStartView(true)
@@ -1309,6 +1311,7 @@ export default function DesignInvitationPage(): JSX.Element {
     apiLayouts.find((t) => String(t.id) === String(layoutId))
   const displayBackgroundColor = config.customColors?.backgroundColor ?? getTheme(config?.themeId ?? 'warm-parchment').palette.bg
   const displayBackground = config.customColors?.backgroundGradient || displayBackgroundColor
+  const isGradientBg = !!config.customColors?.backgroundGradient
 
   if (loading) {
     return (
@@ -1675,142 +1678,160 @@ export default function DesignInvitationPage(): JSX.Element {
             <div className="bg-white rounded-lg border-2 border-eco-green-light p-3 sm:p-4 w-full overflow-x-hidden">
               <h2 className="text-lg font-semibold text-eco-green mb-4">Page Settings</h2>
               <div className="space-y-4">
+                {/* Page Background */}
                 <div>
-                  <label className="block text-sm font-medium mb-2">Page Background Color</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={displayBackgroundColor}
-                      onChange={(e) => setConfig(prev => ({
-                        ...prev,
-                        customColors: {
-                          ...prev.customColors,
-                          backgroundColor: e.target.value,
-                        },
-                      }))}
-                      className="w-12 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                    />
-                    <Input
-                      type="text"
-                      value={displayBackgroundColor}
-                      onChange={(e) => setConfig(prev => ({
-                        ...prev,
-                        customColors: {
-                          ...prev.customColors,
-                          backgroundColor: e.target.value,
-                        },
-                      }))}
-                      placeholder="#ffffff"
-                      className="w-32 font-mono text-sm"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Background color for the entire invitation page
-                  </p>
-                </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPageBackground(p => !p)}
+                    className="flex items-center justify-between w-full text-left focus:outline-none focus:ring-2 focus:ring-eco-green rounded-md"
+                  >
+                    <span className="text-sm font-medium">Page Background</span>
+                    <svg className={`w-4 h-4 text-gray-500 transition-transform ${showPageBackground ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                <div className={`space-y-3 mt-3 ${showPageBackground ? '' : 'hidden'}`}>
 
-                {/* Gradient Background */}
-                {(() => {
-                  const isGradient = !!config.customColors?.backgroundGradient
-                  const PRESETS = [
-                    { label: 'Warm Parchment', value: 'linear-gradient(160deg, #E8D8C3 0%, #C4A882 100%)' },
-                    { label: 'Golden Hour',    value: 'linear-gradient(160deg, #fff8e8 0%, #f5d98a 100%)' },
-                    { label: 'Blush',          value: 'linear-gradient(160deg, #fce8e8 0%, #f0b8c0 100%)' },
-                    { label: 'Garden',         value: 'linear-gradient(160deg, #e8f0eb 0%, #a8c8b0 100%)' },
-                    { label: 'Dusk',           value: 'linear-gradient(160deg, #fce4ec 0%, #c9b8e8 100%)' },
-                    { label: 'Forest',         value: 'linear-gradient(160deg, #1e3d2a 0%, #0B3D2E 100%)' },
-                    { label: 'Midnight',       value: 'linear-gradient(160deg, #0a0b14 0%, #1a1b30 100%)' },
-                    { label: 'Slate',          value: 'linear-gradient(160deg, #f0f2f4 0%, #c8d0da 100%)' },
-                  ]
-                  const applyGradient = (c1: string, c2: string, angle: number) => {
-                    const g = `linear-gradient(${angle}deg, ${c1} 0%, ${c2} 100%)`
-                    setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: g } }))
-                  }
-                  return (
-                    <div>
-                      {/* Mode toggle */}
-                      <div className="flex rounded-lg overflow-hidden border border-gray-300 w-fit mb-3">
-                        <button
-                          type="button"
-                          onClick={() => setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: undefined } }))}
-                          className={`px-3 py-1.5 text-sm font-medium transition-colors ${!isGradient ? 'bg-eco-green text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                        >
-                          Solid
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const g = `linear-gradient(${gradientAngle}deg, ${gradientColor1} 0%, ${gradientColor2} 100%)`
+                  {/* Type toggle */}
+                  <div className="flex rounded-lg overflow-hidden border border-gray-300 w-fit">
+                    <button
+                      type="button"
+                      onClick={() => setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: undefined } }))}
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${!isGradientBg ? 'bg-eco-green text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Solid
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const g = `linear-gradient(${gradientAngle}deg, ${gradientColor1} 0%, ${gradientColor2} 100%)`
+                        setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: g } }))
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${isGradientBg ? 'bg-eco-green text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Gradient
+                    </button>
+                  </div>
+
+                  {/* Auto from card + restore previous */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const cardTile = config.tiles?.find(t => t.type === 'design')
+                        const cardSrc = (cardTile?.settings as any)?.src as string | undefined
+                        if (!cardSrc) return
+                        const prevState = {
+                          backgroundColor: config.customColors?.backgroundColor,
+                          backgroundGradient: config.customColors?.backgroundGradient,
+                        }
+                        sessionStorage.setItem('bgRestorePrev', JSON.stringify(prevState))
+                        setCanRestoreBg(true)
+                        const colors = await extractDominantColors(cardSrc, isGradientBg ? 2 : 1)
+                        const hex1 = rgbToHex(colors[0] ?? 'rgb(232,216,195)')
+                        if (isGradientBg) {
+                          const hex2 = rgbToHex(colors[1] ?? 'rgb(196,168,130)')
+                          setGradientColor1(hex1)
+                          setGradientColor2(hex2)
+                          const g = `linear-gradient(${gradientAngle}deg, ${hex1} 0%, ${hex2} 100%)`
+                          setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: g } }))
+                        } else {
+                          setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundColor: hex1 } }))
+                        }
+                      }}
+                      className="px-3 py-1.5 text-sm font-medium bg-eco-beige text-eco-green border border-eco-green-light rounded hover:bg-eco-green hover:text-white transition-colors"
+                    >
+                      Auto from card
+                    </button>
+                    {canRestoreBg && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const raw = sessionStorage.getItem('bgRestorePrev')
+                          if (!raw) return
+                          try {
+                            const prev = JSON.parse(raw) as { backgroundColor?: string; backgroundGradient?: string }
+                            setConfig(p => ({ ...p, customColors: { ...p.customColors, backgroundColor: prev.backgroundColor, backgroundGradient: prev.backgroundGradient } }))
+                            if (prev.backgroundGradient) {
+                              const m = prev.backgroundGradient.match(/linear-gradient\((\d+)deg,\s*(#[0-9a-fA-F]{3,8})\s+0%,\s*(#[0-9a-fA-F]{3,8})\s+100%\)/)
+                              if (m) { setGradientAngle(parseInt(m[1], 10)); setGradientColor1(m[2]); setGradientColor2(m[3]) }
+                            }
+                            setCanRestoreBg(false)
+                            sessionStorage.removeItem('bgRestorePrev')
+                          } catch { /* ignore */ }
+                        }}
+                        className="text-sm text-gray-500 hover:text-eco-green underline"
+                      >
+                        ← restore previous
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Solid: single color picker */}
+                  {!isGradientBg && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={displayBackgroundColor}
+                        onChange={(e) => setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundColor: e.target.value } }))}
+                        className="w-10 h-10 rounded border-2 border-gray-300 cursor-pointer flex-none"
+                      />
+                      <Input
+                        type="text"
+                        value={displayBackgroundColor}
+                        onChange={(e) => setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundColor: e.target.value } }))}
+                        placeholder="#E8D8C3"
+                        className="w-32 font-mono text-sm"
+                      />
+                    </div>
+                  )}
+
+                  {/* Gradient: two pickers + preview strip + angle */}
+                  {isGradientBg && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={gradientColor1}
+                          onChange={(e) => {
+                            setGradientColor1(e.target.value)
+                            const g = `linear-gradient(${gradientAngle}deg, ${e.target.value} 0%, ${gradientColor2} 100%)`
                             setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: g } }))
                           }}
-                          className={`px-3 py-1.5 text-sm font-medium transition-colors ${isGradient ? 'bg-eco-green text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                        >
-                          Gradient
-                        </button>
+                          className="w-10 h-10 rounded border-2 border-gray-300 cursor-pointer flex-none"
+                        />
+                        <div className="flex-1 h-5 rounded" style={{ background: `linear-gradient(to right, ${gradientColor1}, ${gradientColor2})` }} />
+                        <input
+                          type="color"
+                          value={gradientColor2}
+                          onChange={(e) => {
+                            setGradientColor2(e.target.value)
+                            const g = `linear-gradient(${gradientAngle}deg, ${gradientColor1} 0%, ${e.target.value} 100%)`
+                            setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: g } }))
+                          }}
+                          className="w-10 h-10 rounded border-2 border-gray-300 cursor-pointer flex-none"
+                        />
                       </div>
-
-                      {isGradient && (
-                        <div className="space-y-3">
-                          {/* Presets */}
-                          <div>
-                            <p className="text-xs text-gray-500 mb-2">Presets</p>
-                            <div className="grid grid-cols-4 gap-1.5">
-                              {PRESETS.map((p) => (
-                                <button
-                                  key={p.label}
-                                  type="button"
-                                  title={p.label}
-                                  onClick={() => {
-                                    const m = p.value.match(/linear-gradient\((\d+)deg,\s*(#[0-9a-fA-F]{3,8})\s+0%,\s*(#[0-9a-fA-F]{3,8})\s+100%\)/)
-                                    if (m) { setGradientAngle(parseInt(m[1], 10)); setGradientColor1(m[2]); setGradientColor2(m[3]) }
-                                    setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: p.value } }))
-                                  }}
-                                  className={`h-8 rounded border-2 transition-all ${config.customColors?.backgroundGradient === p.value ? 'border-eco-green scale-105' : 'border-transparent hover:border-gray-300'}`}
-                                  style={{ background: p.value }}
-                                />
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Custom pickers */}
-                          <div>
-                            <p className="text-xs text-gray-500 mb-2">Custom</p>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                type="color"
-                                value={gradientColor1}
-                                onChange={(e) => { setGradientColor1(e.target.value); applyGradient(e.target.value, gradientColor2, gradientAngle) }}
-                                className="w-9 h-9 rounded border border-gray-300 cursor-pointer"
-                                title="Start colour"
-                              />
-                              <div className="flex-1 min-w-[80px] h-4 rounded" style={{ background: `linear-gradient(to right, ${gradientColor1}, ${gradientColor2})` }} />
-                              <input
-                                type="color"
-                                value={gradientColor2}
-                                onChange={(e) => { setGradientColor2(e.target.value); applyGradient(gradientColor1, e.target.value, gradientAngle) }}
-                                className="w-9 h-9 rounded border border-gray-300 cursor-pointer"
-                                title="End colour"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Angle */}
-                          <div>
-                            <label className="text-xs text-gray-500">Direction: {gradientAngle}°</label>
-                            <input
-                              type="range"
-                              min={0}
-                              max={360}
-                              value={gradientAngle}
-                              onChange={(e) => { const a = parseInt(e.target.value, 10); setGradientAngle(a); applyGradient(gradientColor1, gradientColor2, a) }}
-                              className="w-full mt-1"
-                            />
-                          </div>
-                        </div>
-                      )}
+                      <div>
+                        <label className="text-xs text-gray-500">Direction: {gradientAngle}°</label>
+                        <input
+                          type="range"
+                          min={0}
+                          max={360}
+                          value={gradientAngle}
+                          onChange={(e) => {
+                            const a = parseInt(e.target.value, 10)
+                            setGradientAngle(a)
+                            const g = `linear-gradient(${a}deg, ${gradientColor1} 0%, ${gradientColor2} 100%)`
+                            setConfig(prev => ({ ...prev, customColors: { ...prev.customColors, backgroundGradient: g } }))
+                          }}
+                          className="w-full mt-1"
+                        />
+                      </div>
                     </div>
-                  )
-                })()}
+                  )}
+                </div>
+                </div>
 
                 {/* Advanced Settings - Collapsible */}
                 <div className="border-t border-gray-200 pt-4 mt-4">

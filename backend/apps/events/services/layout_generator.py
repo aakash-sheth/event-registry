@@ -518,17 +518,37 @@ def _tile_description(*, order: int, copy: dict, palette_data: dict) -> dict:
     }
 
 
+def _derive_gradient(palette_data: dict, rng: random.Random) -> str | None:
+    """Build a gradient from image-extracted palette colors at a random angle.
+
+    Uses the card's own bg and muted tones so the page background is always
+    harmonious with the card image rather than a fixed preset color.
+    Falls back to None (solid bg) if the palette doesn't have two usable colors.
+    """
+    bg = palette_data.get("bg", "").strip()
+    muted = palette_data.get("muted", "").strip()
+    if not bg or not muted or bg == muted:
+        return None
+    angle = rng.randint(45, 300)
+    return f"linear-gradient({angle}deg, {bg} 0%, {muted} 100%)"
+
+
 def _tile_feature_buttons(*, order: int, palette_data: dict, preset: dict) -> dict:
+    settings: dict = {
+        "buttonColor": palette_data.get("accent", "#A6815B"),
+        "rsvpLabel": preset.get("button_label_style", "RSVP"),
+        "registryLabel": "Registry",
+    }
+    if variant := preset.get("button_variant"):
+        settings["buttonVariant"] = variant
+    if radius := preset.get("button_radius"):
+        settings["buttonRadius"] = radius
     return {
         "id": _new_id("tile-feature-buttons"),
         "type": "feature-buttons",
         "enabled": True,
         "order": order,
-        "settings": {
-            "buttonColor": palette_data.get("accent", "#A6815B"),
-            "rsvpLabel": preset.get("button_label_style", "RSVP"),
-            "registryLabel": "Registry",
-        },
+        "settings": settings,
     }
 
 
@@ -617,6 +637,7 @@ def compose_config(
     preset: dict,
     copy: dict,
     decoration_set: Optional[dict] = None,
+    rng: Optional[random.Random] = None,
 ) -> tuple[dict, list[str]]:
     """Build a full ``InviteConfig`` JSON for the given combination.
 
@@ -702,6 +723,7 @@ def compose_config(
         "themeId": "minimal-ivory",  # legacy fallback; overridden by customColors
         "customColors": {
             "backgroundColor": palette_data.get("bg", "#FFFFFF"),
+            "backgroundGradient": _derive_gradient(palette_data, rng or random.Random()),
             "fontColor": palette_data.get("text", "#1F1B16"),
             "primaryColor": palette_data.get("accent", "#A6815B"),
             "mutedColor": palette_data.get("muted", "#6B5F52"),
@@ -878,6 +900,7 @@ def _generate_options_inner(
             preset=combo["preset"],
             copy=copy,
             decoration_set=decoration_set,
+            rng=rng,
         )
         tex = texture_variation.apply_texture_variation(
             config,
@@ -1073,6 +1096,7 @@ def remix_options(
             preset=combo["preset"],
             copy=copy,
             decoration_set=decoration_set,
+            rng=rng,
         )
         tex = texture_variation.apply_texture_variation(
             config,

@@ -84,6 +84,7 @@ export default function EditDesignSamplePage(): React.ReactElement {
   const [deleting, setDeleting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [fontSizeInput, setFontSizeInput] = useState('')
 
   const textBoxesRef = useRef<TextBox[]>([])
   useEffect(() => { textBoxesRef.current = textBoxes }, [textBoxes])
@@ -342,9 +343,15 @@ export default function EditDesignSamplePage(): React.ReactElement {
 
               <div className="flex items-center gap-1">
                 <input
-                  type="number" min={8} max={200}
-                  value={selectedBox?.fontSize ?? 32}
-                  onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && selectedBox) updateBox(selectedBox.id, 'fontSize', clamp(v, 8, 200)) }}
+                  type="text" inputMode="numeric"
+                  value={fontSizeInput !== '' ? fontSizeInput : (selectedBox?.fontSize ?? 32)}
+                  onFocus={() => setFontSizeInput(String(selectedBox?.fontSize ?? 32))}
+                  onChange={(e) => setFontSizeInput(e.target.value)}
+                  onBlur={() => {
+                    const v = parseInt(fontSizeInput, 10)
+                    if (!isNaN(v) && selectedBox) updateBox(selectedBox.id, 'fontSize', clamp(v, 8, 200))
+                    setFontSizeInput('')
+                  }}
                   className="w-16 text-sm border border-gray-300 rounded px-2 py-1 text-center"
                 />
                 <span className="text-xs text-gray-500">px</span>

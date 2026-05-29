@@ -130,17 +130,8 @@ export default function GenerateResultsPage() {
     return () => { cancelled = true }
   }, [router, sessionId])
 
-  const selectedPublishIds = useMemo(
-    () =>
-      drafts
-        .filter(
-          (d) =>
-            d.selected &&
-            d.state === 'pending' &&
-            typeof d.id === 'number' &&
-            d.id > 0,
-        )
-        .map((d) => d.id as number),
+  const selectedPendingDrafts = useMemo(
+    () => drafts.filter((d) => d.selected && d.state === 'pending'),
     [drafts],
   )
 
@@ -283,11 +274,58 @@ export default function GenerateResultsPage() {
     }
   }
 
-  const onBulkPublish = async () => {
-    if (selectedPublishIds.length === 0) return
+  /**
+   * One-click save + publish:
+   * Preview-only items are saved to the studio first, then all selected items
+   * are published in a single bulk call — no two-step flow required.
+   */
+  const onSaveAndPublish = async () => {
+    if (selectedPendingDrafts.length === 0) return
+    if (!response?.card_url?.trim() || !response?.event_type?.trim()) {
+      alert('Missing card URL or event type — run a new generation.')
+      return
+    }
     setBulkBusy(true)
     try {
-      const result = await bulkPublishPageLayouts(selectedPublishIds, 'public')
+      const previewOnly = selectedPendingDrafts.filter((d) => d.id == null || (d.id as number) <= 0)
+      const alreadySaved = selectedPendingDrafts.filter(
+        (d) => typeof d.id === 'number' && (d.id as number) > 0,
+      )
+      let allIds: number[] = alreadySaved.map((d) => d.id as number)
+
+      if (previewOnly.length > 0) {
+        const res = await saveReviewDrafts({
+          card_url: response.card_url.trim(),
+          event_type: response.event_type.trim(),
+          drafts: previewOnly.map((d) => ({
+            index: d.index,
+            name: d.name,
+            thumbnail: d.thumbnail,
+            preview_alt: d.preview_alt,
+            config: d.config,
+            meta: d.meta,
+          })),
+        })
+        const byIndex = new Map(res.saved.map((s) => [s.index, s]))
+        setDrafts((rows) =>
+          rows.map((r) => {
+            const s = byIndex.get(r.index)
+            if (!s) return r
+            return { ...r, ...s, id: s.id ?? r.id, persisted: true }
+          }),
+        )
+        const newIds = res.saved
+          .map((s) => s.id)
+          .filter((id): id is number => typeof id === 'number' && id > 0)
+        allIds = [...allIds, ...newIds]
+      }
+
+      if (allIds.length === 0) {
+        alert('Nothing to publish — layouts could not be saved to the studio.')
+        return
+      }
+
+      const result = await bulkPublishPageLayouts(allIds, 'public')
       const published = new Set(result.ids)
       setDrafts((rows) =>
         rows.map((r) =>
@@ -295,8 +333,8 @@ export default function GenerateResultsPage() {
         ),
       )
     } catch (err: any) {
-      logError('Bulk publish failed', err)
-      alert(err?.response?.data?.error || 'Bulk publish failed.')
+      logError('Save and publish failed', err)
+      alert(err?.response?.data?.error || 'Failed to publish. Please try again.')
     } finally {
       setBulkBusy(false)
     }
@@ -471,11 +509,18 @@ export default function GenerateResultsPage() {
               {saveReviewBusy ? `Saving${LOADING_TAIL}` : 'Save selected for review'}
             </Button>
             <Button
-              onClick={onBulkPublish}
-              disabled={bulkBusy || selectedPublishIds.length === 0}
+              onClick={onSaveAndPublish}
+              disabled={bulkBusy || selectedPendingDrafts.length === 0}
               className="bg-eco-green hover:bg-eco-green-dark text-white"
+              title={
+                selectedPendingDrafts.length === 0
+                  ? 'Select at least one layout to publish'
+                  : selectedPendingDrafts.some((d) => d.id == null || (d.id as number) <= 0)
+                  ? 'Preview-only items will be saved to the studio then published automatically'
+                  : undefined
+              }
             >
-              {bulkBusy ? `Publishing${LOADING_TAIL}` : `Publish ${selectedPublishIds.length} selected`}
+              {bulkBusy ? `Publishing${LOADING_TAIL}` : `Publish ${selectedPendingDrafts.length} selected`}
             </Button>
           </div>
         </div>
