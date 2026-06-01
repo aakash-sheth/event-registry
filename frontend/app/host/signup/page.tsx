@@ -169,6 +169,7 @@ function SignupForm() {
                   maxLength={6}
                   {...registerCode('code')}
                   placeholder="000000"
+                  autoComplete="one-time-code"
                   className="border-eco-green-light focus:border-eco-green text-center text-2xl tracking-widest"
                 />
                 {codeErrors.code && (

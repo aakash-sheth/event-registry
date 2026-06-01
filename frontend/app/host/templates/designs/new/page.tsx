@@ -3,9 +3,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import api from '@/lib/api'
-import { createDesignSample, uploadDesignImage } from '@/lib/invite/api'
+import { createDesignSample, uploadDesignImage, type AspectRatio } from '@/lib/invite/api'
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import { logError } from '@/lib/error-handler'
+
+const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
+  { value: '9:16', label: '9:16 — Portrait' },
+  { value: '1:1',  label: '1:1 — Square' },
+  { value: '4:5',  label: '4:5 — Instagram' },
+  { value: '3:4',  label: '3:4 — Standard portrait' },
+  { value: '16:9', label: '16:9 — Landscape' },
+]
+
+function ratioToCss(r: AspectRatio): string {
+  return r.replace(':', ' / ')
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,6 +89,7 @@ export default function NewDesignSamplePage(): React.ReactElement {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [tagsInput, setTagsInput] = useState('')
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16')
   const [bgUrl, setBgUrl] = useState<string | null>(null)
   const [thumbnailUrl, setThumbnailUrl] = useState<string>('')
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([])
@@ -224,6 +237,7 @@ export default function NewDesignSamplePage(): React.ReactElement {
         background_image_url: bgUrl,
         thumbnail_url: thumbnailUrl,
         text_overlays: textBoxes,
+        aspect_ratio: aspectRatio,
         tags,
         is_active: true,
         sort_order: 0,
@@ -303,6 +317,19 @@ export default function NewDesignSamplePage(): React.ReactElement {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
             />
             <p className="text-xs text-gray-400 mt-1">Comma-separated</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Aspect Ratio</label>
+            <select
+              value={aspectRatio}
+              onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              {ASPECT_RATIO_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </div>
 
           <div className="border-t pt-4">
@@ -416,7 +443,7 @@ export default function NewDesignSamplePage(): React.ReactElement {
                 <p className="text-sm">Upload a background image to start designing</p>
               </div>
             ) : (
-              <div style={{ height: '72vh', aspectRatio: '9 / 16' }} className="relative select-none">
+              <div style={{ height: '72vh', aspectRatio: ratioToCss(aspectRatio) }} className="relative select-none">
                 <div
                   ref={canvasRef}
                   className="relative overflow-hidden rounded-2xl shadow-2xl"

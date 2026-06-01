@@ -1636,6 +1636,19 @@ class GreetingCardSample(models.Model):
         default=list,
         help_text='Same shape as ImageTile.settings.textOverlays — placeholder text positioned on the card.',
     )
+    ASPECT_RATIO_CHOICES = [
+        ('9:16', '9:16 — Portrait phone'),
+        ('1:1',  '1:1 — Square'),
+        ('4:5',  '4:5 — Instagram portrait'),
+        ('3:4',  '3:4 — Standard portrait'),
+        ('16:9', '16:9 — Landscape'),
+    ]
+    aspect_ratio = models.CharField(
+        max_length=10,
+        choices=ASPECT_RATIO_CHOICES,
+        default='9:16',
+        help_text='Canvas aspect ratio for this design (e.g. 9:16, 1:1).',
+    )
     tags = models.JSONField(default=list, help_text='e.g. ["wedding", "floral", "minimalist"]')
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)

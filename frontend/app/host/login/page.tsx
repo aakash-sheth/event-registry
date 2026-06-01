@@ -375,6 +375,7 @@ function LoginForm() {
                   maxLength={6}
                   {...registerCode('code')}
                   placeholder="000000"
+                  autoComplete="one-time-code"
                 />
                 {codeErrors.code && (
                   <p className="text-red-500 text-sm mt-1">

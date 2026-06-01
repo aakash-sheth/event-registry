@@ -3,7 +3,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import api from '@/lib/api'
-import { getDesignSample, updateDesignSample, deleteDesignSample, uploadDesignImage } from '@/lib/invite/api'
+import { getDesignSample, updateDesignSample, deleteDesignSample, uploadDesignImage, type AspectRatio } from '@/lib/invite/api'
+
+const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
+  { value: '9:16', label: '9:16 — Portrait' },
+  { value: '1:1',  label: '1:1 — Square' },
+  { value: '4:5',  label: '4:5 — Instagram' },
+  { value: '3:4',  label: '3:4 — Standard portrait' },
+  { value: '16:9', label: '16:9 — Landscape' },
+]
+
+function ratioToCss(r: AspectRatio): string {
+  return r.replace(':', ' / ')
+}
 import { FONT_OPTIONS } from '@/lib/invite/fonts'
 import { logError } from '@/lib/error-handler'
 
@@ -75,6 +87,7 @@ export default function EditDesignSamplePage(): React.ReactElement {
   const [description, setDescription] = useState('')
   const [tagsInput, setTagsInput] = useState('')
   const [isActive, setIsActive] = useState(true)
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16')
   const [bgUrl, setBgUrl] = useState<string | null>(null)
   const [thumbnailUrl, setThumbnailUrl] = useState<string>('')
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([])
@@ -119,6 +132,7 @@ export default function EditDesignSamplePage(): React.ReactElement {
       setDescription(sample.description ?? '')
       setTagsInput((sample.tags ?? []).join(', '))
       setIsActive(sample.is_active)
+      setAspectRatio((sample.aspect_ratio ?? '9:16') as AspectRatio)
       setBgUrl(sample.background_image_url || null)
       setThumbnailUrl(sample.thumbnail_url ?? '')
       setTextBoxes((sample.text_overlays ?? []) as TextBox[])
@@ -228,7 +242,7 @@ export default function EditDesignSamplePage(): React.ReactElement {
       await updateDesignSample(sampleId, {
         name: name.trim(), description: description.trim(),
         background_image_url: bgUrl, thumbnail_url: thumbnailUrl, text_overlays: textBoxes,
-        tags, is_active: isActive,
+        aspect_ratio: aspectRatio, tags, is_active: isActive,
       })
       router.push('/host/templates/designs')
     } catch (err) {
@@ -301,6 +315,18 @@ export default function EditDesignSamplePage(): React.ReactElement {
             <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
             <input type="text" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="wedding, floral, minimalist" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <p className="text-xs text-gray-400 mt-1">Comma-separated</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Aspect Ratio</label>
+            <select
+              value={aspectRatio}
+              onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              {ASPECT_RATIO_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </div>
           <div className="flex items-center gap-2">
             <input type="checkbox" id="is-active" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="w-4 h-4 text-eco-green" />
@@ -403,7 +429,7 @@ export default function EditDesignSamplePage(): React.ReactElement {
                 <p className="text-sm">Upload a background image to design overlays</p>
               </div>
             ) : (
-              <div style={{ height: '72vh', aspectRatio: '9 / 16' }} className="relative select-none">
+              <div style={{ height: '72vh', aspectRatio: ratioToCss(aspectRatio) }} className="relative select-none">
                 <div
                   ref={canvasRef}
                   className="relative overflow-hidden rounded-2xl shadow-2xl"
