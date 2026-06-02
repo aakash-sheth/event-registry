@@ -57,7 +57,8 @@ class OrderServiceTestCase(TestCase):
                 event_id=self.event.id,
                 item_id=self.item.id,
                 buyer_name='Test Buyer',
-                buyer_email='buyer@test.com'
+                buyer_email='buyer@test.com',
+                buyer_phone='1234567890',
             )
     
     def test_fulfill_order_updates_inventory(self):

@@ -1127,7 +1127,7 @@ class GreetingCardSampleSerializer(serializers.ModelSerializer):
         model = GreetingCardSample
         fields = (
             'id', 'code', 'name', 'description', 'background_image_url', 'thumbnail_url', 'text_overlays',
-            'tags', 'sort_order', 'is_active', 'created_by', 'created_by_name',
+            'aspect_ratio', 'tags', 'sort_order', 'is_active', 'created_by', 'created_by_name',
             'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'code', 'created_by', 'created_by_name', 'created_at', 'updated_at')

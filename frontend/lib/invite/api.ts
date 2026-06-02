@@ -180,6 +180,8 @@ export interface TextOverlay {
   verticalAlign?: 'top' | 'middle' | 'bottom'
 }
 
+export type AspectRatio = '9:16' | '1:1' | '4:5' | '3:4' | '16:9'
+
 export interface DesignSample {
   id: number
   /** Stable design code (e.g. DSGN-0042) used to link layouts. */
@@ -190,6 +192,8 @@ export interface DesignSample {
   /** Small derivative for catalog grids; falls back to background_image_url when empty. */
   thumbnail_url?: string
   text_overlays: TextOverlay[]
+  /** Canvas aspect ratio — e.g. '9:16', '1:1'. Defaults to '9:16'. */
+  aspect_ratio?: AspectRatio
   tags: string[]
   sort_order: number
   is_active: boolean

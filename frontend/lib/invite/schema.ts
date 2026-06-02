@@ -119,7 +119,7 @@ export interface FeatureButtonsTileSettings {
   buttonColor?: string // Hex color for buttons
   rsvpLabel?: string // Custom label for RSVP button (default: "RSVP")
   registryLabel?: string // Custom label for Registry button (default: "Registry")
-  buttonVariant?: 'classic' | 'gloss' | 'soft' | 'metal' | 'raised' | 'glow' | 'bracket' | 'shimmer' | 'ornate' | 'link'
+  buttonVariant?: 'classic' | 'gloss' | 'soft' | 'metal' | 'raised' | 'glow' | 'bracket' | 'ornate' | 'link'
   buttonRadius?: 'sharp' | 'subtle' | 'round' | 'pill'
 }
 

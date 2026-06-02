@@ -40,7 +40,6 @@ export default function FeatureButtonsTileSettings({
           <option value="raised">Raised</option>
           <option value="glow">Glow</option>
           <option value="bracket">Bracket</option>
-          <option value="shimmer">Shimmer</option>
           <option value="ornate">Ornate</option>
           <option value="link">Link</option>
         </select>

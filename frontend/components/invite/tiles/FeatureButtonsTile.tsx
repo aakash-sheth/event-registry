@@ -15,50 +15,6 @@ export interface FeatureButtonsTileProps {
 
 // CSS injected once per render for variants that need pseudo-elements / keyframes
 const BUTTON_CSS = `
-  /* ── Shimmer: border-beam light crawling clockwise around the edge ── */
-  /*
-   * Technique: ::before sits 2px OUTSIDE the button at z-index:-1.
-   * The button's own background (z-index:0) covers the center of ::before,
-   * leaving only the 2px outer ring visible — that ring carries the
-   * rotating conic-gradient bright spot.
-   */
-  .fern-btn-shimmer {
-    position: relative;
-    z-index: 0;
-    overflow: visible;
-    transition: transform 0.15s ease, filter 0.15s ease;
-  }
-  .fern-btn-shimmer::before {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    border-radius: inherit;
-    background: conic-gradient(
-      from 0deg,
-      transparent    0deg,
-      rgba(255,255,255,0.95) 10deg,
-      rgba(255,255,255,0.55) 20deg,
-      transparent   35deg,
-      transparent  360deg
-    );
-    z-index: -1;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-  }
-  .fern-btn-shimmer:hover::before {
-    opacity: 1;
-    animation: fern-border-sweep 0.8s linear forwards;
-  }
-  .fern-btn-shimmer:active {
-    transform: translateY(1px);
-    filter: brightness(0.9);
-  }
-  @keyframes fern-border-sweep {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-
   /* ── Metal: diagonal face-sweep on hover (metallic sheen) ── */
   .fern-btn-metal {
     position: relative;
@@ -247,25 +203,7 @@ function getButtonStyles(
     }
   }
 
-  if (variant === 'shimmer') {
-    // Solid button with bright rim lights on all edges + border-beam sweep on hover
-    return {
-      extraClass: 'font-semibold fern-btn-shimmer',
-      style: {
-        backgroundColor: buttonColor,
-        borderRadius,
-        color: 'white',
-        border: '1px solid rgba(255,255,255,0.2)',
-        boxShadow: [
-          'inset 0 1px 0 rgba(255,255,255,0.55)',  // top rim highlight
-          'inset 1px 0 0 rgba(255,255,255,0.18)',   // left rim
-          'inset -1px 0 0 rgba(255,255,255,0.18)',  // right rim
-          'inset 0 -1px 0 rgba(0,0,0,0.2)',         // bottom shadow
-          '0 2px 8px rgba(0,0,0,0.2)',              // outer drop
-        ].join(', '),
-      },
-    }
-  }
+
 
   if (variant === 'ornate') {
     // Fantasy-game / Baldur's Gate: rich bronze gradient, golden text, ornate layered border
