@@ -13,8 +13,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/components/ui/toast'
 import { getErrorMessage, logDebug, logError } from '@/lib/error-handler'
 
+const LOGIN_EMAIL_KEY = 'host_login_email'
+
 const emailSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.string().trim().email('Invalid email'),
 })
 
 const codeSchema = z.object({
@@ -77,19 +79,37 @@ function LoginForm() {
     mode: 'onSubmit',
   })
 
+  const persistLoginEmail = (emailAddress: string) => {
+    const trimmed = emailAddress.trim()
+    setEmail(trimmed)
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(LOGIN_EMAIL_KEY, trimmed)
+    }
+  }
+
+  const getLoginEmail = () => {
+    const fromState = email.trim()
+    if (fromState) return fromState
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem(LOGIN_EMAIL_KEY)?.trim() || ''
+    }
+    return ''
+  }
+
   const onEmailSubmit = async (data: { email: string }) => {
     logDebug('onEmailSubmit called with:', data)
     setLoading(true)
     try {
-      setEmail(data.email)
+      const trimmedEmail = data.email.trim()
+      persistLoginEmail(trimmedEmail)
       
       // Check if password is enabled for this email
-      const checkResponse = await api.get(`/api/auth/check-password-enabled/?email=${encodeURIComponent(data.email)}`)
+      const checkResponse = await api.get(`/api/auth/check-password-enabled/?email=${encodeURIComponent(trimmedEmail)}`)
       const passwordEnabled = checkResponse.data.has_password
       setHasPassword(passwordEnabled)
       
       // Check if user has a remembered preference
-      const rememberedMethod = localStorage.getItem(`login_method_${data.email}`) as 'password' | 'otp' | null
+      const rememberedMethod = localStorage.getItem(`login_method_${trimmedEmail}`) as 'password' | 'otp' | null
       
       if (passwordEnabled && rememberedMethod === 'password') {
         // Only skip the choice screen if they previously chose password
@@ -100,7 +120,7 @@ function LoginForm() {
         setStep('choice')
       } else {
         // No password, go directly to OTP
-        await startOtpFlow(data.email)
+        await startOtpFlow(trimmedEmail)
       }
     } catch (error: any) {
       logError('Email submit error:', error)
@@ -171,9 +191,15 @@ function LoginForm() {
   const onCodeSubmit = async (data: { code: string }) => {
     setLoading(true)
     try {
+      const loginEmail = getLoginEmail()
+      if (!loginEmail) {
+        showToast('Email is missing. Please go back and enter your email.', 'error')
+        setStep('email')
+        return
+      }
       const response = await api.post('/api/auth/otp/verify', {
-        email,
-        code: data.code,
+        email: loginEmail,
+        code: data.code.trim(),
       })
       
       const tokenVerified = await handleLoginSuccess(response)
@@ -197,9 +223,15 @@ function LoginForm() {
   const onPasswordSubmit = async (data: { password: string }) => {
     setLoading(true)
     try {
+      const loginEmail = getLoginEmail()
+      if (!loginEmail) {
+        showToast('Email is missing. Please go back and enter your email.', 'error')
+        setStep('email')
+        return
+      }
       const response = await api.post('/api/auth/password-login', {
-        email,
-        password: data.password,
+        email: loginEmail,
+        password: data.password.trim(),
       })
       
       const tokenVerified = await handleLoginSuccess(response)
@@ -246,6 +278,7 @@ function LoginForm() {
                 <label className="block text-sm font-medium mb-1">Email</label>
                 <Input
                   type="email"
+                  autoComplete="username"
                   {...registerEmail('email')}
                   placeholder="your@email.com"
                 />
@@ -316,6 +349,7 @@ function LoginForm() {
             </div>
           ) : step === 'password' ? (
             <form onSubmit={handleSubmitPassword(onPasswordSubmit)} className="space-y-4">
+              <input type="hidden" name="username" value={getLoginEmail()} autoComplete="username" readOnly />
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Password

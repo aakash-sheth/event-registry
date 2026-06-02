@@ -59,8 +59,10 @@ def _ledger(*, user, cost, when=None, success=True, cache_hit=False, request_id=
 class SafetyStackTests(TestCase):
     def setUp(self):
         cache.clear()
-        self.user = User.objects.create_user(
-            email="root@test.com", name="Root", is_superuser=True, is_staff=True,
+        LLMPlatformSettings.objects.filter(pk=1).delete()
+        cache.delete('llm_platform_settings')
+        self.user = User.objects.create_superuser(
+            email="root@test.com", name="Root",
         )
         self.normal = User.objects.create_user(
             email="rando@test.com", name="Rando",
@@ -116,9 +118,11 @@ class SafetyStackTests(TestCase):
         self.assertEqual(cm.exception.code, "daily_cost_cap")
 
     def test_monthly_cap_exceeded_blocks(self):
-        # Park most of the spend earlier in the month so daily is fine.
-        days_ago_15 = timezone.now() - timedelta(days=15)
-        _ledger(user=self.user, cost="99.99", when=days_ago_15)
+        # Park spend earlier in the *current* month (not N days ago — that can fall in the prior month).
+        start_of_month = timezone.now().replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        _ledger(user=self.user, cost="99.99", when=start_of_month + timedelta(hours=1))
         with self.assertRaises(SafetyStackError) as cm:
             enforce_safety_stack(user=self.user, request_id="r-cap-m")
         self.assertEqual(cm.exception.status_code, 429)
@@ -138,16 +142,20 @@ class SafetyStackTests(TestCase):
         self.assertEqual(cm.exception.code, "user_daily_limit")
 
     def test_user_monthly_limit_blocks(self):
-        # 50 distinct request_ids spread across the month — at the cap.
-        # Use a wide range of timestamps so the daily filter doesn't trip first.
-        for i in range(50):
-            _ledger(
-                user=self.user, cost="0.001",
-                request_id=f"r-m-{i}",
-                when=timezone.now() - timedelta(days=(i % 25) + 1),
-            )
-        with self.assertRaises(SafetyStackError) as cm:
-            enforce_safety_stack(user=self.user, request_id="r-m-new")
+        # 50 distinct request_ids in the current month — at the cap.
+        # Freeze "now" mid-month so ledger rows can span prior days without tripping today's daily cap.
+        fixed_now = timezone.now().replace(day=15, hour=12, minute=0, second=0, microsecond=0)
+        start_of_month = fixed_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            for i in range(50):
+                day_offset = i // 5
+                _ledger(
+                    user=self.user, cost="0.001",
+                    request_id=f"r-m-{i}",
+                    when=start_of_month + timedelta(days=day_offset, hours=(i % 5) + 1),
+                )
+            with self.assertRaises(SafetyStackError) as cm:
+                enforce_safety_stack(user=self.user, request_id="r-m-new")
         self.assertEqual(cm.exception.status_code, 429)
         self.assertEqual(cm.exception.code, "user_monthly_limit")
 

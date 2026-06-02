@@ -4,6 +4,11 @@ from .models import User
 from django.utils import timezone
 
 
+def normalize_auth_email(value: str) -> str:
+    """Strip whitespace and normalize email the same way as UserManager.create_user."""
+    return User.objects.normalize_email((value or '').strip())
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
 
@@ -26,19 +31,34 @@ class UserSerializer(serializers.ModelSerializer):
 class OTPSendSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
+    def validate_email(self, value):
+        return normalize_auth_email(value)
+
 
 class OTPVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
     code = serializers.CharField(max_length=6, min_length=6)
 
+    def validate_email(self, value):
+        return normalize_auth_email(value)
+
 
 class PasswordCheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return normalize_auth_email(value)
 
 
 class PasswordLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+
+    def validate_email(self, value):
+        return normalize_auth_email(value)
+
+    def validate_password(self, value):
+        return value.strip()
 
 
 class SetPasswordSerializer(serializers.Serializer):
@@ -77,11 +97,17 @@ class DisablePasswordSerializer(serializers.Serializer):
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
+    def validate_email(self, value):
+        return normalize_auth_email(value)
+
 
 class ResetPasswordSerializer(serializers.Serializer):
     token = serializers.CharField()
     email = serializers.EmailField()
     new_password = serializers.CharField(write_only=True, style={'input_type': 'password'}, min_length=8)
+
+    def validate_email(self, value):
+        return normalize_auth_email(value)
 
     def validate_new_password(self, value):
         """Validate new password strength"""
@@ -129,6 +155,9 @@ class StaffSetActiveSerializer(serializers.Serializer):
     email = serializers.EmailField()
     is_active = serializers.BooleanField()
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+    def validate_email(self, value):
+        return normalize_auth_email(value)
 
 
 class StaffExtendExpirySerializer(serializers.Serializer):

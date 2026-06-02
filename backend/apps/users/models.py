@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
-from django.contrib.auth.hashers import make_password, check_password
+from django.contrib.auth.hashers import make_password, check_password, identify_hasher
 
 
 class UserManager(BaseUserManager):
@@ -21,6 +21,17 @@ class UserManager(BaseUserManager):
         user.is_superuser = True
         user.save(using=self._db)
         return user
+
+    def get_by_email(self, email):
+        """Resolve user by email: strip whitespace, normalize domain, case-insensitive fallback."""
+        email = (email or '').strip()
+        if not email:
+            raise self.model.DoesNotExist
+        normalized = self.normalize_email(email)
+        try:
+            return self.get(email=normalized)
+        except self.model.DoesNotExist:
+            return self.get(email__iexact=email)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
@@ -61,6 +72,29 @@ class User(AbstractBaseUser, PermissionsMixin):
     
     def __str__(self):
         return self.email
+
+    def save(self, *args, **kwargs):
+        # Hash plaintext passwords saved via raw Django admin password field edits
+        if self.password and not self.password.startswith('!'):
+            try:
+                identify_hasher(self.password)
+            except ValueError:
+                self.password = make_password(self.password)
+        super().save(*args, **kwargs)
+
+    def verify_password(self, raw_password: str) -> bool:
+        """Check password; auto-rehash legacy plaintext passwords set in admin."""
+        if self.check_password(raw_password):
+            return True
+        if self.password and not self.password.startswith('!'):
+            try:
+                identify_hasher(self.password)
+            except ValueError:
+                if self.password == raw_password:
+                    self.set_password(raw_password)
+                    self.save(update_fields=['password'])
+                    return True
+        return False
     
     def set_otp(self, code):
         """Hash and store OTP code with expiry"""

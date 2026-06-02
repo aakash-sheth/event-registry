@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.conf import settings
-from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password
 import secrets
 import hashlib
@@ -33,9 +32,11 @@ def signup(request):
     
     if not email:
         return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    email = User.objects.normalize_email(email.strip())
     
     # Check if user already exists
-    if User.objects.filter(email=email).exists():
+    if User.objects.filter(email__iexact=email).exists():
         return Response(
             {'error': 'An account with this email already exists. Please login instead.'},
             status=status.HTTP_400_BAD_REQUEST
@@ -60,7 +61,7 @@ def otp_start(request):
     email = serializer.validated_data['email']
     
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response(
             {'error': 'No account found with this email. Please sign up first.'},
@@ -220,7 +221,7 @@ def otp_verify(request):
     code = serializer.validated_data['code']
     
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response(
             {'error': 'Invalid email or code'},
@@ -262,7 +263,7 @@ def me(request):
 @throttle_classes([UserRateThrottle])
 def check_password_enabled(request):
     """Check if user has password enabled"""
-    email = request.query_params.get('email')
+    email = (request.query_params.get('email') or '').strip()
     if not email:
         return Response(
             {'error': 'Email parameter is required'},
@@ -270,7 +271,7 @@ def check_password_enabled(request):
         )
     
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
         return Response({
             'has_password': user.has_usable_password()
         }, status=status.HTTP_200_OK)
@@ -294,7 +295,7 @@ def password_login(request):
     password = serializer.validated_data['password']
     
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response(
             {'error': 'Invalid email or password'},
@@ -315,9 +316,7 @@ def password_login(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Authenticate user
-    user_auth = authenticate(request, username=email, password=password)
-    if user_auth is None:
+    if not user.verify_password(password):
         # Record failed attempt
         user.record_failed_password_attempt()
         return Response(
@@ -426,7 +425,7 @@ def disable_password(request):
         )
     
     # Verify password before disabling
-    if not user.check_password(password):
+    if not user.verify_password(password):
         return Response(
             {'error': 'Password is incorrect'},
             status=status.HTTP_400_BAD_REQUEST
@@ -453,7 +452,7 @@ def forgot_password(request):
     email = serializer.validated_data['email']
     
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         # Don't reveal if email exists - return success anyway
         return Response({
@@ -472,7 +471,7 @@ def forgot_password(request):
     user.set_password_reset_token(reset_token)
     
     # Create reset URL
-    reset_url = f"{settings.FRONTEND_ORIGIN}/host/reset-password?token={reset_token}&email={email}"
+    reset_url = f"{settings.FRONTEND_ORIGIN}/host/reset-password?token={reset_token}&email={user.email}"
     
     # Extract first name for greeting
     user_name = user.name or ''
@@ -495,7 +494,7 @@ This link will expire in 15 minutes. If you didn't request this, you can safely 
     email_sent = False
     try:
         send_email(
-            to_email=email,
+            to_email=user.email,
             subject=subject,
             body_text=message,
         )
@@ -503,7 +502,7 @@ This link will expire in 15 minutes. If you didn't request this, you can safely 
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f'Failed to send password reset email to {email}: {str(e)}')
+        logger.error(f'Failed to send password reset email to {user.email}: {str(e)}')
     
     # In development mode, include token in response
     response_data = {
@@ -534,7 +533,7 @@ def reset_password(request):
     new_password = serializer.validated_data['new_password']
     
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response(
             {'error': 'Invalid reset token or email'},
@@ -574,13 +573,13 @@ def staff_send_otp(request):
 
     email = serializer.validated_data['email']
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
 
     NotificationLog.objects.create(
         channel='email',
-        to=email,
+        to=user.email,
         template='staff_otp_send',
         payload_json={'triggered_by': request.user.email},
         status='sent',
@@ -597,7 +596,7 @@ def staff_user_lookup(request):
         return Response({'error': 'email query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        user = User.objects.prefetch_related('events').get(email=email)
+        user = User.objects.prefetch_related('events').get_by_email(email)
     except User.DoesNotExist:
         return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -614,7 +613,7 @@ def staff_unlock_account(request):
 
     email = serializer.validated_data['email']
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -646,7 +645,7 @@ def staff_set_account_active(request):
     reason = serializer.validated_data.get('reason', '')
 
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get_by_email(email)
     except User.DoesNotExist:
         return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 

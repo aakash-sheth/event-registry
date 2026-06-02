@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.contrib.auth import authenticate
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import AuthenticationForm
 from django import forms
 from django.utils.translation import gettext_lazy as _
@@ -40,7 +41,7 @@ class CustomAdminAuthenticationForm(AuthenticationForm):
             if self.user_cache is None:
                 # Check if user exists to provide more specific error message
                 try:
-                    user = User.objects.get(email=email)
+                    user = User.objects.get_by_email(email)
                     if not user.is_active:
                         raise forms.ValidationError(
                             self.error_messages['inactive'],
@@ -571,13 +572,49 @@ class CustomAdminSite(AdminSite):
 # Create custom admin site instance
 admin_site = CustomAdminSite(name='customadmin')
 
-# Register User model with custom admin site
-class UserAdmin(admin.ModelAdmin):
+# Register User model with custom admin site (DjangoUserAdmin hashes passwords correctly)
+class UserAdmin(DjangoUserAdmin):
+    ordering = ('email',)
     list_display = ('email', 'name', 'is_active', 'is_staff', 'is_superuser', 'llm_module_access', 'created_at')
     search_fields = ('email', 'name')
     list_filter = ('is_active', 'is_staff', 'is_superuser', 'llm_module_access', 'created_at')
     readonly_fields = ('created_at',)
     actions = ['admin_send_otp', 'admin_unlock_account']
+
+    fieldsets = (
+        (None, {'fields': ('email', 'password')}),
+        ('Personal info', {'fields': ('name', 'email_verified')}),
+        (
+            'Permissions',
+            {
+                'fields': (
+                    'is_active',
+                    'is_staff',
+                    'is_superuser',
+                    'llm_module_access',
+                    'groups',
+                    'user_permissions',
+                ),
+            },
+        ),
+        (
+            'Security',
+            {
+                'fields': ('failed_password_attempts', 'account_locked_until'),
+                'classes': ('collapse',),
+            },
+        ),
+        ('Important dates', {'fields': ('created_at',)}),
+    )
+    add_fieldsets = (
+        (
+            None,
+            {
+                'classes': ('wide',),
+                'fields': ('email', 'password1', 'password2', 'name'),
+            },
+        ),
+    )
 
     def admin_send_otp(self, request, queryset):
         from .views import _send_otp
