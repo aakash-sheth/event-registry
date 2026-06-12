@@ -19,6 +19,20 @@ Full-stack [Ekfern](https://github.com/Ekfern/ekfern-core) application built wit
    cd ekfern-core
    ```
 
+   Then run the setup script (installs dependencies and activates git hooks):
+
+   ```bash
+   bash setup.sh
+   ```
+
+   Or activate the git hooks manually:
+
+   ```bash
+   git config core.hooksPath .githooks
+   ```
+
+   > This enables the pre-push hook that blocks accidental direct pushes to `main`.
+
 2. **Backend Setup:**
 
    ```bash
