@@ -1,0 +1,20 @@
+#!/bin/sh
+# Block direct pushes to main for non-owners.
+# Owner (aakashsheth65@gmail.com) is exempt.
+
+OWNER_EMAIL="aakashsheth65@gmail.com"
+CURRENT_EMAIL=$(git config user.email)
+
+while read local_ref local_sha remote_ref remote_sha; do
+  if echo "$remote_ref" | grep -q "refs/heads/main"; then
+    if [ "$CURRENT_EMAIL" != "$OWNER_EMAIL" ]; then
+      echo ""
+      echo "  Direct push to main is blocked."
+      echo "  Create a PR and merge it instead."
+      echo ""
+      exit 1
+    fi
+  fi
+done
+
+exit 0
