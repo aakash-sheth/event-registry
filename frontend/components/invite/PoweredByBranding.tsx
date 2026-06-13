@@ -8,7 +8,7 @@ export default function PoweredByBranding() {
     <div className="w-full py-8 px-4 flex flex-col items-center gap-2">
       <div className="w-12 h-px bg-gray-200" />
       <p className="text-xs text-gray-400 text-center leading-relaxed">
-        Create your own free wedding invite on{' '}
+        Create your own free invite on{' '}
         <a
           href={`${COMPANY_HOMEPAGE}?utm_source=invite_footer&utm_medium=referral&utm_campaign=powered_by`}
           target="_blank"
